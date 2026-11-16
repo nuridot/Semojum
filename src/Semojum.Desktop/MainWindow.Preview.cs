@@ -19,6 +19,7 @@ public partial class MainWindow
     {
         if (resourcesReleased || smoke || switching || session?.IsReadOnly == true || session?.ActiveBlock is not { } block || engine is not LocalBrailleEngine local) return;
         pendingSourceTranslation |= sourceChanged;
+        if (sourceChanged) translator.Invalidate(block);
         var generation = ++previewGeneration;
         debounce?.Cancel(); debounce?.Dispose(); debounce = new();
         var waitToken = debounce.Token; var owner = session; var ct = documentLifetime.Token;

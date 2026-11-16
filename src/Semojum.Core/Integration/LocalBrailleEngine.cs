@@ -7,9 +7,10 @@ namespace Semojum.Core.Integration;
 /// <summary>One element of an engine <c>translate_page</c> answer. Rows are the blank lines already merged with the neighbours.</summary>
 public sealed record PageElementBraille(string Cells, int[] Breaks, int PrefixRows, int SuffixRows);
 
-/// <summary>Wire adapter for Semojum/braille v3.4.44, commit 3e7e14c2ca9f4db5c332a2b0a19835eedc78eb70.</summary>
+/// <summary>Wire adapter for Semojum/braille v3.4.45, commit 7e7a5f74fc3a316d39cfdb3111a039c36b8c012a.</summary>
 public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptions>? options = null) : ITranslationEngine
 {
+    public static TimeSpan TranslationTimeout(int sourceLength) => TimeSpan.FromSeconds(Math.Clamp(35d + sourceLength / 1000d, 35, 300));
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -72,7 +73,8 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
         }
         else
         {
-            response = await sidecar.InvokeAsync("translate", new
+            var largeText = text.Length > ElementLimit && metadata.Type != "table" && !text.Contains("<!표>", StringComparison.Ordinal);
+            response = await sidecar.InvokeAsync(largeText ? "translate_editor" : "translate", new
             {
                 text = metadata.Type == "formula" && !text.Contains("<!수식>", StringComparison.Ordinal) ? $"<!수식>{text}<!/수식>" : text,
                 type = text.Contains("<!표>", StringComparison.Ordinal) ? "table" : metadata.Type switch
@@ -84,7 +86,7 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
                 // Block braille stays the bare element body so source lines, review marks and cell positions never shift.
                 // The page's layout blank lines come from translate_page when the page is composed (ComposeAsync).
                 blank_lines = false, source_map = true, draft_text = true, line_alignment = true
-            }, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }, timeout: TranslationTimeout(text.Length), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         if (!response.TryGetProperty("cells", out var cells) || cells.ValueKind != JsonValueKind.String)
             throw new SidecarException("점역 결과에 점자 데이터가 없습니다.", "INVALID_RESPONSE");
@@ -163,7 +165,7 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
     }
 
     /// <summary>
-    /// Engine 3.4.44 <c>translate_page</c>: every element of one original page in reading order, laid out once like the server.
+    /// Engine 3.4.45 <c>translate_page</c>: every element of one original page in reading order, laid out once like the server.
     /// Joining the cells in order equals the server composition (merged blank lines, page-head and consecutive-visual rules).
     /// </summary>
     public Task<PageElementBraille[]> TranslatePageAsync(IReadOnlyList<(string Text, BlockMetadata Metadata)> elements, BrailleOptions settings,

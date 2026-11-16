@@ -59,7 +59,7 @@ internal static class WindowsAccountChecks
         using (var http = new HttpClient(new Handler(_ => Task.FromResult(Json(HttpStatusCode.Unauthorized, "{\"isSuccess\":false,\"code\":\"AUTH4003\",\"message\":\"expired\"}")))))
         {
             var api = new SemojumApiClient(http); var result = await AutomaticLogin.RestoreAsync(api, store);
-            check(result.Account is null && result.Message!.Contains("만료") && store.Value is null && api.Account is null, "Expired credential is removed and asks user to sign in");
+            check(result.Account is null && result.Message is null && store.Value is null && api.Account is null, "Expired credential is removed and opens sign-in without an unsolicited warning");
         }
         store = new MemoryStore();
         using (var http = new HttpClient(new Handler(_ => Task.FromResult(Json(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"accessToken\":\"fresh\"}}")))))

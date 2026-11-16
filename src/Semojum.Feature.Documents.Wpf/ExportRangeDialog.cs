@@ -79,7 +79,7 @@ public sealed class ExportRangeDialog : CompactDialog
         foreach (var button in new[] { cancel, save }) { button.Width = 88; button.MinWidth = 0; button.Height = 32; button.MinHeight = 0; button.Template = SurfaceTemplate(4); actions.Children.Add(button); }
         cancel.BorderBrush = Brush("#EAEAEA");
         var sourceFormats = new[] { ".txt — 원문", ".md" };
-        var brailleFormats = new[] { ".brl", ".brf" };
+        var brailleFormats = new[] { ".brf", ".txt — 점자" };
         void UpdateFormats()
         {
             var choices = scope.SelectedIndex == 0 ? sourceFormats : brailleFormats;

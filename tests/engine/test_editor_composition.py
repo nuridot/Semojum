@@ -9,6 +9,36 @@ from semojum_braille.brf import parse_brf
 
 
 class CompositionTests(unittest.TestCase):
+    def test_alignment_carries_across_lines_blocks_pages_and_resets(self):
+        first = dict(id=1, braille='⠁\n⠃', line_alignments=[dict(braille_start=0, align='right'), dict(braille_start=2, align='')])
+        second = dict(id=2, braille='⠉\n⠙\n⠑', line_alignments=[dict(braille_start=0, align=''), dict(braille_start=2, align='left')])
+        job = dict(sources=[dict(orig_page=1, blocks=[first]), dict(orig_page=2, blocks=[second, dict(id=3, braille='⠋')])],
+                   opts=dict(cols=8, rows=8, page_row_pages='none', show_change_line=False))
+        result = compose(job)
+        self.assertEqual(a.build_brf_file(job).decode('ascii'), result['brf'])
+        self.assertEqual(['⠀' * 7 + c for c in '⠁⠃⠉'] + ['⠙', '⠑', '⠋'], result['pages'][0][:6])
+        self.assertEqual([1, 2], result['maps'][0][1][7])
+        self.assertEqual([2, 0], result['maps'][0][2][7])
+        self.assertEqual([2, 2], result['maps'][0][3][0])
+        self.assertEqual([], result['alignment_unknown'])
+
+    def test_alignment_survives_inline_page_break_and_preserves_offsets(self):
+        text = '⠁\n<!쪽바꿈>\n⠃'
+        result = compose(dict(sources=[dict(orig_page=1, blocks=[dict(id=7, braille=text, align='right')])],
+                              opts=dict(cols=8, rows=4, page_row_pages='none')))
+        self.assertEqual('⠀' * 7 + '⠃', result['pages'][1][0])
+        self.assertEqual([7, len(text) - 1], result['maps'][1][0][7])
+
+    def test_unverified_alignment_propagates_until_a_verified_tag(self):
+        blocks = [dict(id=1, braille='⠁', align='right'), dict(id=2, braille='⠃', alignment_unknown=True),
+                  dict(id=3, braille='⠉'), dict(id=4, braille='⠙\n⠑', line_alignments=[dict(braille_start=2, align='left')]),
+                  dict(id=5, braille='⠋')]
+        result = compose(dict(sources=[dict(orig_page=1, blocks=blocks)], opts=dict(cols=8, rows=8, page_row_pages='none')))
+        self.assertEqual(1, result['alignment_protocol'])
+        self.assertEqual([2, 3, 4], result['alignment_unknown'])
+        self.assertEqual(['⠃', '⠉', '⠙', '⠑', '⠋'], result['pages'][0][1:6])
+        self.assertEqual([4, 2], result['maps'][0][4][0])
+
     def test_upstream_parity_and_every_source_coordinate(self):
         rng = random.Random(5917)
         for case in range(160):

@@ -22,14 +22,19 @@ public sealed class MockTranslationEngine : ITranslationEngine
 public sealed class TranslationCoordinator(ITranslationEngine engine)
 {
     private readonly Dictionary<EditorBlock, long> generations = [];
-    public void Invalidate(EditorBlock block) => generations[block] = generations.GetValueOrDefault(block) + 1;
+    private readonly Dictionary<EditorBlock, CancellationTokenSource> pending = [];
+    public void Invalidate(EditorBlock block)
+    {
+        generations[block] = generations.GetValueOrDefault(block) + 1;
+        if (pending.Remove(block, out var previous)) previous.Cancel();
+    }
 
     public async Task<TranslationOutcome> TranslateAsync(EditorBlock block, ManualEditDecision decision,
         TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         // Even a Keep/Cancel decision invalidates a previous pending request.
-        var generation = generations.GetValueOrDefault(block) + 1;
-        generations[block] = generation;
+        Invalidate(block);
+        var generation = generations[block];
         if (decision == ManualEditDecision.Cancel) return TranslationOutcome.Cancelled;
         if (block.HasManualBraille && decision == ManualEditDecision.Keep)
         {
@@ -41,6 +46,7 @@ public sealed class TranslationCoordinator(ITranslationEngine engine)
         var metadataRevision = block.MetadataRevision;
         block.State = "점역 중…";
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        pending[block] = linked;
         bool IsCurrent() => generations[block] == generation && block.SourceRevision == sourceRevision
             && block.BrailleRevision == brailleRevision && block.MetadataRevision == metadataRevision;
         try
@@ -83,7 +89,7 @@ public sealed class TranslationCoordinator(ITranslationEngine engine)
         {
             linked.Cancel();
             if (generations[block] == generation) block.State = "점역 취소됨";
-            return TranslationOutcome.Cancelled;
+            return generations[block] == generation ? TranslationOutcome.Cancelled : TranslationOutcome.Superseded;
         }
         catch (Exception ex)
         {
@@ -92,6 +98,10 @@ public sealed class TranslationCoordinator(ITranslationEngine engine)
             block.State = ex is Semojum.Core.Integration.SidecarException ? ex.Message : "점역 실패 · 점자 잠김";
             return TranslationOutcome.Failed;
         }
-        finally { linked.Cancel(); }
+        finally
+        {
+            if (pending.GetValueOrDefault(block) == linked) pending.Remove(block);
+            linked.Cancel();
+        }
     }
 }

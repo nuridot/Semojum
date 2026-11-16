@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Semojum/braille
-          ref: 3e7e14c2ca9f4db5c332a2b0a19835eedc78eb70
+          ref: 7e7a5f74fc3a316d39cfdb3111a039c36b8c012a
           persist-credentials: false
           path: artifacts/engine-build/source
       - name: Publish portable Windows app

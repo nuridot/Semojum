@@ -15,7 +15,7 @@ This editor uses the following components. The linked projects contain their com
 | SkiaSharp | 4.150.1 | MIT and bundled third-party notices | https://github.com/mono/SkiaSharp |
 | bblanchon.PDFium.Win32 / PDFium | 152.0.7961 | NuGet Apache-2.0 metadata; packaging source MIT; PDFium BSD-3-Clause and bundled third-party licenses | https://github.com/bblanchon/pdfium-binaries |
 | .NET / WPF | 10 | MIT | https://github.com/dotnet/wpf |
-| semojum-braille | 3.4.44 | MIT OR Apache-2.0 | https://github.com/Semojum/braille |
+| semojum-braille | 3.4.45 | MIT OR Apache-2.0 | https://github.com/Semojum/braille |
 | braillify | 2.0.1 | See bundled engine NOTICE and third_party | https://pypi.org/project/braillify/2.0.1/ |
 | Python | 3.13 | PSF | https://docs.python.org/3/license.html |
 | pydantic | 2.14.1 | MIT | https://github.com/pydantic/pydantic |
@@ -26,3 +26,9 @@ License texts and font notices are retained in the `licenses` directory. The sel
 The engine distribution retains upstream NOTICE.md, LICENSE-MIT, LICENSE-APACHE, third_party notices and dependency licenses under engine. The optional kiwi dependency is neither installed nor bundled.
 
 The desktop composition adapter (`scripts/editor_composition.py`) reuses the pinned semojum-braille `assist` and BRF helpers and follows its pagination structure. The upstream license and NOTICE files are included with the engine distribution.
+
+## Pretendard 1.3.9
+
+UI and source text use bundled Pretendard (Regular, SemiBold and Bold).
+Source: https://github.com/orioncactus/pretendard/releases/tag/v1.3.9
+License: SIL Open Font License 1.1; see `licenses/Pretendard-LICENSE.txt`.

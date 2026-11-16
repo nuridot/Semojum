@@ -7,7 +7,7 @@ namespace Semojum.Desktop.Services;
 internal static class WindowsFocusedChecks
 {
     private static readonly HashSet<string> Areas = new(StringComparer.OrdinalIgnoreCase)
-        { "incremental", "original", "imefont", "export", "tablememo", "drafts", "qa1110", "board", "institution", "editor", "appearance", "usage", "rules", "dialogs", "windows", "account" };
+        { "math", "qa1117", "incremental", "original", "imefont", "export", "tablememo", "drafts", "qa1110", "board", "institution", "editor", "appearance", "usage", "rules", "dialogs", "windows", "account" };
 
     internal static bool IsKnownArea(string area) => Areas.Contains(area);
 
@@ -29,6 +29,14 @@ internal static class WindowsFocusedChecks
         {
             switch (area.ToLowerInvariant())
             {
+                case "math":
+                    await WindowsMathTemplateChecks.RunAsync(Check);
+                    await WindowsMathSafetyChecks.RunAsync(Check, directory);
+                    await WindowsMathDockChecks.RunAsync(Check, directory);
+                    break;
+                case "qa1117":
+                    await WindowsQa1117Checks.RunAsync(directory, Check);
+                    break;
                 case "incremental":
                     await WindowsIncrementalTranslationChecks.RunAsync(Check);
                     break;
@@ -57,6 +65,7 @@ internal static class WindowsFocusedChecks
                     break;
                 case "drafts":
                     await WindowsDraftDockChecks.RunAsync(Check);
+                    await WindowsDraftPendingChecks.RunAsync(Check);
                     await WindowsVisualPolicyChecks.RunAsync(Check);
                     break;
                 case "qa1110":
@@ -119,6 +128,7 @@ internal static class WindowsFocusedChecks
                     await WindowsCommonDesignChecks.RunAsync(directory, Check);
                     await WindowsBrailleFontChecks.RunAsync(Check);
                     await WindowsIndividualControlStatesChecks.RunAsync(directory, Check);
+                    await WindowsPanelDesignChecks.RunAsync(directory, Check);
                     break;
             }
         }

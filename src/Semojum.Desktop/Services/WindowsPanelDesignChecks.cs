@@ -85,9 +85,11 @@ internal static class WindowsPanelDesignChecks
             {
                 var button = Descendants(header).OfType<Button>().Single(b => AutomationProperties.GetName(b) == name);
                 button.BringIntoView(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
+                // Resizing can enqueue another ScrollViewer layout/offset pass.
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
                 var bounds = button.TransformToAncestor(window.PanelScroll).TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
                 check(button.IsEnabled && button.Focusable && bounds.Left >= -1 && bounds.Right <= window.PanelScroll.ViewportWidth + 1,
-                    $"The 480px editor can scroll to {name}");
+                    $"The 480px editor can scroll to {name} (bounds={bounds}, viewport={window.PanelScroll.ViewportWidth}, offset={window.PanelScroll.HorizontalOffset})");
             }
             window.PanelScroll.ScrollToLeftEnd();
             var path = Path.Combine(directory, "panel-design.txt");
@@ -177,8 +179,8 @@ internal static class WindowsPanelDesignChecks
     private static bool FigmaBadge(Border header, string number)
     {
         var text = Descendants(header).OfType<TextBlock>().FirstOrDefault(t => t.Text == number);
-        return text is { FontSize: 12, FontFamily.Source: "Segoe UI Symbol", Foreground: SolidColorBrush { Color: var ink }, Parent: Border { Width: 18, Height: 18, CornerRadius.TopLeft: 9, Background: SolidColorBrush { Color: var color } } }
-            && color == Color.FromRgb(240, 240, 240) && ink == Color.FromRgb(95, 95, 95);
+        return text is { FontSize: 12, Foreground: SolidColorBrush { Color: var ink }, Parent: Border { Width: 18, Height: 18, CornerRadius.TopLeft: 9, Background: SolidColorBrush { Color: var color } } }
+            && text.FontFamily.Source == Semojum.Desktop.Controls.BundledFonts.Interface.Source && color == Color.FromRgb(240, 240, 240) && ink == Color.FromRgb(95, 95, 95);
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)

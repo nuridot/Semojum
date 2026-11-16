@@ -242,7 +242,7 @@ internal static class WindowsBoardDesignChecks
             check(previewed is { MessageText: "첨부할 작업 정보입니다.", DetailText: "검수" } && previewed.ActionButtons.Select(b => b.Content).SequenceEqual(new object[] { "확인" }),
                 "The work-information preview opens in the app message window with the exact text that will be attached");
             check(Descendants(editor).OfType<Button>().Where(b => Equals(b.Content, "취소") || Equals(b.Content, "등록")).Select(b => b.Content).SequenceEqual(new object[] { "취소", "등록" }), "Cancel precedes registration in the post editor");
-            var choose = Descendants(editor).OfType<Button>().Single(b => Equals(b.Content, "파일 고르기"));
+            var choose = Descendants(editor).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "파일 첨부");
             check(choose.Width == 110 && choose.Height == 32 && choose.IsEnabled, "Post editor retains an enabled 110x32 Figma file picker");
             if (Environment.GetEnvironmentVariable("BOARD_EDITOR_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(editor, capture);
             editor.Width = 480; editor.Height = 400; editor.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);

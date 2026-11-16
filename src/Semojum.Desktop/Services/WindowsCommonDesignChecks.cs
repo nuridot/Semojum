@@ -58,16 +58,11 @@ internal static class WindowsCommonDesignChecks
             check(checkIcon?.Visibility == Visibility.Collapsed && checkSurface?.Background is SolidColorBrush uncheckedBrush && uncheckedBrush.Color == Color.FromRgb(251, 251, 251), "Unchecked state remains distinct");
             check(radio.Template.FindName("RadioOn", radio) is SvgViewbox { IsVisible: true, Drawings.Bounds.IsEmpty: false } && radio.Template.FindName("RadioDot", radio) is SvgViewbox { IsVisible: true }, "Radio selection uses the supplied Figma SVGs");
             var glyphs = GlyphFiles(window.FontFamily, "가나다 ABC 123").ToArray();
-            var installed = Fonts.SystemFontFamilies.Any(f => string.Equals(f.Source, "Malgun Gothic", StringComparison.OrdinalIgnoreCase));
-            check(installed ? glyphs.Any(f => Path.GetFileName(f).StartsWith("malgun", StringComparison.OrdinalIgnoreCase)) : glyphs.Any(f => f.Contains("NotoSansKR", StringComparison.OrdinalIgnoreCase)),
-                "General UI renders in Malgun Gothic when installed and otherwise uses a bundled Korean font");
-            var missingSystemFont = new FontFamily(BundledFonts.Interface.Source.Replace("Malgun Gothic", "Semojum Missing Font Test", StringComparison.Ordinal));
-            var fallbackGlyphs = GlyphFiles(missingSystemFont, "한글").ToArray();
-            check(fallbackGlyphs.Any(f => f.Contains("NotoSansKR", StringComparison.OrdinalIgnoreCase)),
-                "When the system UI font is unavailable, Korean glyphs fall back to the bundled font");
-            check(BundledFonts.Interface.Source.StartsWith("Malgun Gothic,", StringComparison.Ordinal) && BundledFonts.Interface.Source.Contains("Noto Sans KR", StringComparison.Ordinal)
-                && BundledFonts.Mono.Source.StartsWith("Segoe UI Symbol,", StringComparison.Ordinal),
-                "Document InterfaceFont follows Figma's Malgun Gothic with the bundled Korean fallback, and Mono uses Segoe UI Symbol");
+            check(glyphs.Length > 0 && glyphs.All(f => f.Contains("Pretendard", StringComparison.OrdinalIgnoreCase)),
+                "General Korean and Latin UI text renders with bundled Pretendard");
+            check(BundledFonts.Interface.Source.Contains("#Pretendard", StringComparison.Ordinal) &&
+                BundledFonts.Mono.Source == BundledFonts.Interface.Source,
+                "Document, UI and numeric text share the bundled Pretendard family");
             var lineHeight = new InterfaceLineHeightConverter();
             check(Equals(lineHeight.Convert(18d, typeof(double), null!, CultureInfo.InvariantCulture), 24d) && Equals(lineHeight.Convert(22d, typeof(double), null!, CultureInfo.InvariantCulture), 28d),
                 "General text line heights follow the Figma 18/24 and 22/28 ramp");
@@ -85,10 +80,9 @@ internal static class WindowsCommonDesignChecks
             check(menuLabels.All(item => TextWidth(item.Header?.ToString()?.Replace("_", "", StringComparison.Ordinal) ?? "", item.FontFamily, item.FontSize, item.FontWeight) <= item.ActualWidth - 8),
                 "All six main-menu labels fit their actual 1280-pixel controls with the UI font");
             var documentGlyphs = GlyphFiles(editor.PageEditor.Editor.FontFamily, "한글 ABC").ToArray();
-            var malgun = Fonts.SystemFontFamilies.Any(f => string.Equals(f.Source, "Malgun Gothic", StringComparison.OrdinalIgnoreCase));
-            check((malgun ? documentGlyphs.Any(f => Path.GetFileName(f).StartsWith("malgun", StringComparison.OrdinalIgnoreCase)) : documentGlyphs.Any(f => f.Contains("NotoSansKR", StringComparison.OrdinalIgnoreCase))) &&
+            check(documentGlyphs.Length > 0 && documentGlyphs.All(f => f.Contains("Pretendard", StringComparison.OrdinalIgnoreCase)) &&
                 editor.Braille.GridView.FontSize == 22,
-                "The source document renders in Malgun Gothic (bundled Korean fallback) and the braille grid retains its 22-pixel geometry");
+                "Source Korean and Latin text render in Pretendard and braille retains its 22-pixel geometry");
             check(Descendants(editor).OfType<SvgViewbox>().Any(i => i.Source?.ToString().EndsWith("/common-rulebook.svg", StringComparison.Ordinal) == true && i.Drawings is { Bounds.IsEmpty: false }),
                 "Rule search renders its original Figma icon");
             var separators = Descendants(editor.EditorToolbar).OfType<Border>().Where(b => b.Width == 1 && b.Height == 18 && b.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(234, 234, 234)).ToArray();

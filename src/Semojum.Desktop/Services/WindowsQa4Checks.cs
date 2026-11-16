@@ -142,9 +142,8 @@ internal static class WindowsQa4Checks
             FontResources = Fonts.GetFontFamilies(Controls.BundledFonts.DirectoryUri).Select(f => f.Source)
         }, new JsonSerializerOptions { WriteIndented = true }));
         var renderedFonts = GlyphFonts(owner.PageEditor.Editor.TextArea.TextView).ToArray();
-        var malgun = Fonts.SystemFontFamilies.Any(f => string.Equals(f.Source, "Malgun Gothic", StringComparison.OrdinalIgnoreCase));
-        check(malgun ? renderedFonts.Any(f => Path.GetFileName(f).StartsWith("malgun", StringComparison.OrdinalIgnoreCase)) : renderedFonts.Any(f => f.EndsWith("NotoSansKR-Regular.ttf", StringComparison.OrdinalIgnoreCase)),
-            "Source editor renders in Malgun Gothic when installed and otherwise in the bundled Noto Sans KR");
+        check(renderedFonts.Any(f => f.Contains("Pretendard", StringComparison.OrdinalIgnoreCase)),
+            "Source editor renders Korean text in bundled Pretendard");
         owner.Session.ErrorNotice = "작업 수신 오류 · 원문은 유지됩니다.";
         await render(owner, Path.Combine(directory, "43-operation-error.png"));
         check(owner.OperationErrorBanner.Visibility == Visibility.Visible, "QA4 asynchronous failures remain visible outside the options-only status bar");

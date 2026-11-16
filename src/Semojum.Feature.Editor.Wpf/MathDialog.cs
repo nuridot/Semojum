@@ -3,14 +3,14 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Semojum.Core;
-using WpfMath.Controls;
+using FormulaControl = Semojum.Desktop.Controls.FormulaPreview;
 using WpfMath.Parsers;
 
 namespace Semojum.Desktop.Dialogs;
 
 public sealed partial class MathDialog : CompactDialog
 {
-    internal TextBox Input { get; } = new() { FontFamily = new("Consolas"), AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 80, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    internal TextBox Input { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 80, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     internal TextBox BrailleInput { get; } = new() { FontSize = 22, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 90, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     internal WrapPanel SymbolButtons { get; } = new();
     public string Latex => Input.Text.Trim();
@@ -31,7 +31,7 @@ public sealed partial class MathDialog : CompactDialog
         DockPanel.SetDock(toolbox, Dock.Top); body.Children.Add(toolbox);
         var panes = new Grid(); panes.ColumnDefinitions.Add(new() { Width = new(2, GridUnitType.Star) }); panes.ColumnDefinitions.Add(new() { Width = new(8) }); panes.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         body.Children.Add(panes); var left = new StackPanel(); panes.Children.Add(left);
-        var preview = new FormulaControl { SystemTextFontName = "Malgun Gothic", FontSize = 28, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var preview = new FormulaControl { FontSize = 28, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         var formula = new Grid(); formula.Children.Add(preview);
         var previewError = new TextBlock { Text = "수식 미리보기를 표시할 수 없습니다. LaTeX 원문을 확인해 주세요.", Foreground = Brushes.Firebrick, TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
         System.Windows.Automation.AutomationProperties.SetAutomationId(previewError, "MathPreviewError");

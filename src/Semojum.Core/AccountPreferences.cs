@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace Semojum.Core;
 
 public sealed record EditorAppearance(string TextColor = "#1F1F1F", string BackgroundColor = "#FFFFFF", string CurrentLineColor = "#FFF5A3",
-    string SelectionColor = "#CCE4F7", string FontFamily = "Noto Sans KR", double TextSize = 14, double BrailleSize = 22,
+    string SelectionColor = "#CCE4F7", string FontFamily = "Pretendard", double TextSize = 14, double BrailleSize = 22,
     double LineSpacing = 1.3, double CursorWidth = 2, bool HighContrast = false, bool SpeakDots = false, int SpeechRate = 0,
     string SelectionTextColor = "#1F1F1F", string BrailleColor = "#1F1F1F", string MarkerColor = "#808080",
     string LineNumberColor = "#5F646D", string LineNumberBackground = "#FAFAFA", string TagColor = "#5F5F5F",

@@ -4,8 +4,36 @@ import sys
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
-from editor_translation import PageTranslationCache
+from editor_translation import PageTranslationCache, translate_editor
 from semojum_braille import sidecar
+
+
+class LongEditorTranslationTests(unittest.TestCase):
+    def test_long_text_keeps_whole_paragraph_context_and_restores_limit(self):
+        text = ('우리나라의 지역과 생활을 알아봅시다. English words 123.\n' * 80) + '마지막 문장'
+        request = dict(op='translate', text=text, blank_lines=False)
+        with self.assertRaises(sidecar.SidecarError):
+            sidecar.handle(request)
+        result = translate_editor(request, sidecar, sidecar.handle)
+        self.assertEqual(1000, sidecar.MAX_CHARS)
+        self.assertFalse(result['blocked'])
+        self.assertEqual(80, result['cells'].count('\n'))
+        self.assertTrue(result['cells'].endswith(sidecar.handle(dict(op='translate', text='마지막 문장', blank_lines=False))['cells'][2:]))
+        # Same engine semantics, without synthetic paragraph boundaries or extra indent.
+        with patch.object(sidecar, 'MAX_CHARS', len(text)):
+            self.assertEqual(sidecar.handle(request), result)
+
+    def test_other_validation_and_failures_keep_original_limit(self):
+        for request in [dict(op='translate', type='table', text='가' * 1001),
+                        dict(op='translate', text='<!수식>' + 'x' * 1001 + '<!/수식>')]:
+            with self.assertRaises(sidecar.SidecarError):
+                translate_editor(request, sidecar, sidecar.handle)
+            self.assertEqual(1000, sidecar.MAX_CHARS)
+        def fail(_):
+            raise RuntimeError('test')
+        with self.assertRaises(RuntimeError):
+            translate_editor(dict(text='가' * 1001), sidecar, fail)
+        self.assertEqual(1000, sidecar.MAX_CHARS)
 
 
 class TranslationCacheTests(unittest.TestCase):

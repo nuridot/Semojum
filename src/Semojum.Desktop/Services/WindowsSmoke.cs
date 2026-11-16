@@ -31,6 +31,7 @@ internal static class WindowsSmoke
         await WindowsRegionSelectionChecks.RunAsync(Check, directory);
         await WindowsLoginLegalChecks.RunAsync(Check, directory);
         await WindowsQa1110Checks.RunAsync(Check);
+        await WindowsQa1117Checks.RunAsync(directory, Check);
         await WindowsIncrementalTranslationChecks.RunAsync(Check);
         window.PageEditor.FollowActive(0, 0);
         Check(window.PageEditor.Editor.ActualWidth > 250 && window.Braille.ActualWidth > 250, "Three-panel layout has usable editor widths");
@@ -489,7 +490,7 @@ internal static class WindowsSmoke
             finally { math.Close(); }
             var about = new AboutDialog("1.0.0", async () => { await engineConnection.InvokeAsync("ping"); return engineConnection.EngineVersion!; }) { Owner = window };
             about.Show(); await RenderAsync(about, Path.Combine(directory, "28-about.png"));
-            Check(about.EngineVersion.Text == engineConnection.EngineVersion && about.EngineVersion.Text == "3.4.44", "QA4 about dialog shows the running bundled engine version 3.4.44, not a hardcoded build label"); about.Close();
+            Check(about.EngineVersion.Text == engineConnection.EngineVersion && about.EngineVersion.Text == "3.4.45", "QA4 about dialog shows the running bundled engine version 3.4.45, not a hardcoded build label"); about.Close();
         }
         var layoutDialog = new LayoutDialog(new()) { Owner = window };
         layoutDialog.Show(); await RenderAsync(layoutDialog, Path.Combine(directory, "29-page-settings.png"));

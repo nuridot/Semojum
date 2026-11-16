@@ -24,9 +24,8 @@ internal static class WindowsHelpFontChecks
                 body.Contains("모눈과 점자 면 미리보기는 같은 조판 결과를 사용합니다.", StringComparison.Ordinal), "Long help article retains its actual full text");
             var glyphs = Descendants(reader).OfType<Visual>().SelectMany(v => Drawings(VisualTreeHelper.GetDrawing(v))).OfType<GlyphRunDrawing>()
                 .Select(g => g.GlyphRun.GlyphTypeface.FontUri.LocalPath).ToArray();
-            var installed = Fonts.SystemFontFamilies.Any(f => string.Equals(f.Source, "Malgun Gothic", StringComparison.OrdinalIgnoreCase));
-            check(installed ? glyphs.Any(f => Path.GetFileName(f).StartsWith("malgun", StringComparison.OrdinalIgnoreCase)) : glyphs.Any(f => f.Contains("NotoSansKR", StringComparison.OrdinalIgnoreCase)),
-                "Rendered help article uses Malgun Gothic or the bundled Korean fallback");
+            check(glyphs.Length > 0 && glyphs.All(f => f.Contains("Pretendard", StringComparison.OrdinalIgnoreCase)),
+                "Rendered help article uses bundled Pretendard");
             var scroll = Descendants(reader).OfType<ScrollViewer>().FirstOrDefault(s => s.ScrollableHeight > 0);
             check(scroll is not null && scroll.ExtentWidth <= scroll.ViewportWidth + 1, "The long help article wraps without horizontal overflow in a 600-pixel window");
             if (scroll is not null)

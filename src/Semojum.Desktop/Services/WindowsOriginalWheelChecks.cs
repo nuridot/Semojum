@@ -103,6 +103,9 @@ internal static class WindowsOriginalWheelChecks
     {
         var window = new MainWindow(testWithoutAccount: true, startEmpty: true) { Width = 960, Height = 700 };
         window.Show();
+        // The production Loaded handler maximizes the window. Pin the fixture
+        // viewport after it runs so portrait/large monitors cannot swallow the pan.
+        window.WindowState = WindowState.Normal;
         try
         {
             typeof(MainWindow).GetField("autoTranslate", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(window, false);
@@ -141,11 +144,15 @@ internal static class WindowsOriginalWheelChecks
             await SettleAsync(window);
             check(window.OriginalImageView.ActualWidth > window.OriginalScroll.ViewportWidth * 1.2 && window.OriginalScroll.ScrollableWidth > 0,
                 "QA1110: original zoom button enlarges the PDF and exposes horizontal scrolling");
-            window.SetOriginalZoom(2); await SettleAsync(window);
+            // At 200% the square fixture can still fit vertically on a tall
+            // viewport. Ensure both axes have room for the gesture being tested.
+            window.SetOriginalZoom(3); await SettleAsync(window);
+            check(window.OriginalScroll.ScrollableWidth >= 60 && window.OriginalScroll.ScrollableHeight >= 80,
+                $"Original drag fixture has scrollable room on both axes (view={window.OriginalImageView.ActualWidth}x{window.OriginalImageView.ActualHeight}; viewport={window.OriginalScroll.ViewportWidth}x{window.OriginalScroll.ViewportHeight}; extent={window.OriginalScroll.ExtentWidth}x{window.OriginalScroll.ExtentHeight}; scrollable={window.OriginalScroll.ScrollableWidth},{window.OriginalScroll.ScrollableHeight}; vertical={window.OriginalScroll.VerticalScrollBarVisibility})");
             window.OriginalScroll.ScrollToHorizontalOffset(0); window.OriginalScroll.ScrollToVerticalOffset(0); window.UpdateLayout();
             window.BeginOriginalDrag(new Point(160, 160)); window.MoveOriginalDrag(new Point(100, 80)); window.UpdateLayout();
             check(Math.Abs(window.OriginalScroll.HorizontalOffset - 60) < 2 && Math.Abs(window.OriginalScroll.VerticalOffset - 80) < 2,
-                "QA1110: dragging enlarged original pans both axes by the pointer distance");
+                $"QA1110: dragging enlarged original pans both axes by the pointer distance (offset={window.OriginalScroll.HorizontalOffset},{window.OriginalScroll.VerticalOffset}; scrollable={window.OriginalScroll.ScrollableWidth},{window.OriginalScroll.ScrollableHeight})");
             await WindowsSmoke.RenderElementAsync(window.OriginalEmpty, System.IO.Path.Combine(System.IO.Path.GetTempPath(), "qa1110-original-zoom.png"));
             window.OriginalZoomFit.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); await SettleAsync(window);
             check(Math.Abs(window.OriginalImageView.ActualWidth - window.OriginalScroll.ViewportWidth) < 2 && window.OriginalScroll.HorizontalOffset < 1,

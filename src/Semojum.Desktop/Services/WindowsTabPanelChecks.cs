@@ -62,7 +62,7 @@ internal static class WindowsTabPanelChecks
             await window.ExecuteAsync("new");
             check(window.OriginalToggle.IsChecked && window.SourceToggle.IsChecked && window.BrailleToggle.IsChecked,
                 "QA1110: a new blank document starts with original, text and braille panels");
-            check(!window.OriginalUpload.IsVisible, "A new blank document does not display the original upload area");
+            check(window.OriginalUpload.IsVisible, "A new blank document offers the original upload area");
             check(window.LineStrip.Visibility == Visibility.Visible && window.LinePreviewToggle.IsChecked,
                 "The new three-panel document retains the line-translation strip");
             var typed = window.Session;

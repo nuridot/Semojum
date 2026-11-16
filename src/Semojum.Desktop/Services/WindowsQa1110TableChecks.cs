@@ -43,6 +43,20 @@ internal static class WindowsQa1110TableChecks
             grid.SelectedItem = table.DefaultView[1];
             await Click("선택 행 삭제");
             check(table.Rows.Count == 2 && grid.Items.OfType<DataRowView>().Count() == 2, "QA1110: deleted row disappears immediately");
+            grid.SelectedCells.Clear(); grid.UnselectAll();
+            grid.CurrentCell = new DataGridCellInfo(table.DefaultView[0], grid.Columns[0]);
+            grid.SelectedCells.Add(grid.CurrentCell);
+            Find("선택 행 삭제")!.Focus();
+            await Click("선택 행 삭제");
+            check(table.Rows.Count == 1, "Selecting a table cell, then focusing the toolbar, still deletes its row");
+            grid.CurrentCell = new DataGridCellInfo(); grid.UnselectAll(); grid.SelectedCells.Clear();
+            var header = Descendants(grid).OfType<System.Windows.Controls.Primitives.DataGridColumnHeader>().Single(h => h.Column == grid.Columns[1]);
+            header.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+                { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseDownEvent });
+            await Click("선택 열 삭제");
+            check(table.Columns.Count == 1, "Selecting a column header without a current cell deletes that column");
+            await Click("선택 열 삭제");
+            check(table.Columns.Count == 1 && Descendants(dialog).OfType<TextBlock>().Any(t => t.Text.Contains("최소 한 열")), "Deleting the final table column gives a visible explanation");
         }
         finally { dialog.Close(); }
         var window = new MainWindow(smoke: true, testWithoutAccount: true); window.Show();

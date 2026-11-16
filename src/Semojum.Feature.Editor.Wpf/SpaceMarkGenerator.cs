@@ -4,7 +4,7 @@ using ICSharpCode.AvalonEdit.Rendering;
 
 namespace Semojum.Desktop.Controls;
 
-/// <summary>Readable space markers; each displayed bullet still represents one original space.</summary>
+/// <summary>Each displayed U+318D marker still represents one original space.</summary>
 public sealed class SpaceMarkGenerator(TextEditor editor) : VisualLineElementGenerator
 {
     public bool Enabled { get; set; }
@@ -20,12 +20,13 @@ public sealed class SpaceMarkGenerator(TextEditor editor) : VisualLineElementGen
 
     public override VisualLineElement ConstructElement(int offset) => new SpaceElement(editor);
 
-    private sealed class SpaceElement(TextEditor editor) : FormattedTextElement("•", 1)
+    public const string Marker = "\u318D";
+    private sealed class SpaceElement(TextEditor editor) : FormattedTextElement(Marker, 1)
     {
         public override System.Windows.Media.TextFormatting.TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
         {
             TextRunProperties.SetForegroundBrush(editor.TextArea.TextView.NonPrintableCharacterBrush);
-            TextRunProperties.SetTypeface(new Typeface("Segoe UI Symbol"));
+            TextRunProperties.SetTypeface(new Typeface((FontFamily)System.Windows.Application.Current.FindResource("InterfaceFont"), editor.FontStyle, editor.FontWeight, editor.FontStretch));
             return base.CreateTextRun(startVisualColumn, context);
         }
     }

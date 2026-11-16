@@ -5,7 +5,7 @@ using System.Windows.Media;
 using Semojum.Core;
 using Semojum.Desktop.Dialogs;
 using Semojum.Feature.Editor;
-using WpfMath.Controls;
+using FormulaControl = Semojum.Desktop.Controls.FormulaPreview;
 
 namespace Semojum.Desktop.Services;
 

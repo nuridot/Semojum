@@ -235,7 +235,7 @@
             <Button Tag="hideOriginal" Click="Action_Click" Style="{StaticResource IconButton}" ToolTip="원본 패널 숨기기" AutomationProperties.Name="원본 패널 숨기기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/panel-original-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
           </StackPanel>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock x:Name="OriginalPanelTitle" Text="원본" FontSize="14" Foreground="#5F5F5F" VerticalAlignment="Center"/>
-            <Border Width="18" Height="18" CornerRadius="9" Background="#F0F0F0" Margin="8,0,0,0"><TextBlock Text="1" FontFamily="Segoe UI Symbol" Foreground="#5F5F5F" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></StackPanel>
+            <Border Width="18" Height="18" CornerRadius="9" Background="#F0F0F0" Margin="8,0,0,0"><TextBlock Text="1" FontFamily="{StaticResource InterfaceFont}" Foreground="#5F5F5F" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></StackPanel>
         </DockPanel></Border>
         <editorControls:OriginalPreview x:Name="Original" Grid.Row="1" PreviewMouseWheel="OriginalPreview_MouseWheel"/>
         <Border Grid.Row="1" x:Name="OriginalEmpty" Visibility="Collapsed" Background="#F4F6F8">
@@ -270,10 +270,10 @@
               <Button Tag="hideSource" Click="Action_Click" Style="{StaticResource IconButton}" ToolTip="텍스트 패널 숨기기" AutomationProperties.Name="텍스트 패널 숨기기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/panel-source-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock x:Name="SourcePanelTitle" Text="텍스트" FontSize="14" Foreground="#5F5F5F" VerticalAlignment="Center"/>
-              <Border Width="18" Height="18" CornerRadius="9" Background="#F0F0F0" Margin="8,0,0,0"><TextBlock x:Name="SourcePanelNumber" Text="2" FontFamily="Segoe UI Symbol" Foreground="#5F5F5F" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></StackPanel>
+              <Border Width="18" Height="18" CornerRadius="9" Background="#F0F0F0" Margin="8,0,0,0"><TextBlock x:Name="SourcePanelNumber" Text="2" FontFamily="{StaticResource InterfaceFont}" Foreground="#5F5F5F" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></StackPanel>
           </DockPanel></Border>
           <editorControls:ContinuousSourceEditor Grid.Row="1" x:Name="PageEditor" Visibility="Collapsed"/>
-          <ae:TextEditor Grid.Row="1" x:Name="SourceEditor" FontFamily="Malgun Gothic" FontSize="14" ShowLineNumbers="True" WordWrap="True" Padding="8,4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="원문 텍스트 편집기"/>
+          <ae:TextEditor Grid.Row="1" x:Name="SourceEditor" FontFamily="{StaticResource InterfaceFont}" FontSize="14" ShowLineNumbers="True" WordWrap="True" Padding="8,4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="원문 텍스트 편집기"/>
           <editorControls:MathPreviewDock Grid.Row="2" x:Name="MathDock" Visibility="Collapsed"/>
           <editorFeature:PanelPageBar x:Name="SourcePageBar" Grid.Row="3" Loaded="SourcePageBar_Loaded"/>
         </Grid>
@@ -287,11 +287,11 @@
               Visibility="Collapsed" Background="White" BorderBrush="#D1D1D1" BorderThickness="1">
         <Grid>
           <Grid.RowDefinitions><RowDefinition Height="6"/><RowDefinition Height="28"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-          <Thumb x:Name="DraftDockResize" Height="6" Cursor="SizeNS" Focusable="True" DragDelta="DraftDockResize_DragDelta" PreviewKeyDown="DraftDockResize_KeyDown" AutomationProperties.Name="대체 초안 높이 조절"/><Border Grid.Row="1" Background="#F3F3F3" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1">
+          <Thumb x:Name="DraftDockResize" Height="6" Cursor="SizeNS" Focusable="True" DragDelta="DraftDockResize_DragDelta" PreviewKeyDown="DraftDockResize_KeyDown" AutomationProperties.Name="대체 초안 높이 조절" Background="Transparent"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="{TemplateBinding Background}"/></ControlTemplate></Thumb.Template></Thumb><Border Grid.Row="1" Background="#F3F3F3" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1">
             <DockPanel Margin="11,0,11,0">
               <Button x:Name="DraftDockClose" DockPanel.Dock="Right" Click="DraftDockClose_Click" Width="24" Height="24" MinWidth="24" MinHeight="24" Padding="0" Background="Transparent" BorderBrush="Transparent" Style="{StaticResource PanelButton}" ToolTip="선택한 초안 적용하고 닫기" AutomationProperties.Name="선택한 초안 적용하고 닫기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/draft-dock-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
               <svg:SvgViewbox DockPanel.Dock="Left" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/draft-dock-icon.svg" Width="16" Height="16" Stretch="None" Margin="0,0,4,0"/>
-              <TextBlock x:Name="DraftDockTitle" FontFamily="Malgun Gothic" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+              <TextBlock x:Name="DraftDockTitle" FontFamily="{StaticResource InterfaceFont}" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
             </DockPanel>
           </Border>
           <Border Grid.Row="2" MinHeight="40" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1">
@@ -300,10 +300,10 @@
           <Grid Grid.Row="3">
             <Grid.ColumnDefinitions><ColumnDefinition x:Name="DraftTextColumn"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Border BorderBrush="#D1D1D1" BorderThickness="0,0,1,0" Padding="15,8,8,4">
-              <DockPanel><TextBlock DockPanel.Dock="Top" Text="묵자" FontFamily="Malgun Gothic" FontSize="12" Foreground="#5F5F5F"/><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="DraftTextPreview" FontFamily="Malgun Gothic" FontSize="12" LineHeight="20" TextWrapping="Wrap" VerticalAlignment="Top" Margin="0,2,0,0" AutomationProperties.Name="선택한 초안 묵자 미리보기"/></ScrollViewer></DockPanel>
+              <DockPanel><TextBlock DockPanel.Dock="Top" Text="묵자" FontFamily="{StaticResource InterfaceFont}" FontSize="12" Foreground="#5F5F5F"/><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="DraftTextPreview" FontFamily="{StaticResource InterfaceFont}" FontSize="12" LineHeight="20" TextWrapping="Wrap" VerticalAlignment="Top" Margin="0,2,0,0" AutomationProperties.Name="선택한 초안 묵자 미리보기"/></ScrollViewer></DockPanel>
             </Border>
             <Border Grid.Column="1" Padding="15,8,8,4">
-              <DockPanel><TextBlock DockPanel.Dock="Top" Text="점자" FontFamily="Malgun Gothic" FontSize="12" Foreground="#5F5F5F"/><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="DraftBraillePreview" FontFamily="{StaticResource BrailleFont}" FontSize="22" LineHeight="28" TextWrapping="Wrap" VerticalAlignment="Top" AutomationProperties.Name="선택한 초안 점자 미리보기"/></ScrollViewer></DockPanel>
+              <DockPanel><TextBlock DockPanel.Dock="Top" Text="점자" FontFamily="{StaticResource InterfaceFont}" FontSize="12" Foreground="#5F5F5F"/><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="DraftBraillePreview" FontFamily="{StaticResource BrailleFont}" FontSize="22" LineHeight="28" TextWrapping="Wrap" VerticalAlignment="Top" AutomationProperties.Name="선택한 초안 점자 미리보기"/></ScrollViewer></DockPanel>
             </Border>
           </Grid>
         </Grid>

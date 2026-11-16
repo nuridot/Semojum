@@ -132,7 +132,7 @@ public partial class MainWindow
             var dot = DraftIconAsset("draft-dock-radio-dot.svg", 8);
             selected.Visibility = dot.Visibility = Visibility.Collapsed;
             var icon = new Grid { Width = 20, Height = 20 }; icon.Children.Add(normal); icon.Children.Add(selected); icon.Children.Add(dot);
-            var label = new TextBlock { Text = $"{(i < 20 ? char.ConvertFromUtf32(0x2460 + i) : (i + 1).ToString())} {draft.Label}", FontFamily = new FontFamily("Malgun Gothic"), FontSize = 14, Margin = new(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            var label = new TextBlock { Text = $"{(i < 20 ? char.ConvertFromUtf32(0x2460 + i) : (i + 1).ToString())} {draft.Label}", FontFamily = (FontFamily)FindResource("InterfaceFont"), FontSize = 14, Margin = new(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             var content = new StackPanel { Orientation = Orientation.Horizontal }; content.Children.Add(icon); content.Children.Add(label);
             var radio = new RadioButton { Tag = index, GroupName = group, Content = content, MinWidth = 144, Height = 38, Margin = new(15, 0, 0, 0), ToolTip = draft.Reason,
                 Template = new ControlTemplate(typeof(RadioButton)) { VisualTree = new FrameworkElementFactory(typeof(ContentPresenter)) } };

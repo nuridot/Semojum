@@ -8,7 +8,7 @@ using System.Windows.Threading;
 using Semojum.Core;
 using Semojum.Core.Integration;
 using Semojum.Desktop.Dialogs;
-using WpfMath.Controls;
+using FormulaControl = Semojum.Desktop.Controls.FormulaPreview;
 
 namespace Semojum.Desktop.Services;
 
@@ -29,14 +29,14 @@ internal static class WindowsMathDockChecks
                 "The selected numeric or Korean formula renders successfully, including repeated selection");
         }
         // Force the original failure: Arial has no Korean glyph. The previous numeric drawing must be removed.
-        fixture.ShowFormula(numeric, true); renderer.SystemTextFontName = "Arial";
+        fixture.ShowFormula(numeric, true); renderer.TextFontFamily = new FontFamily("Arial");
         foreach (var attempt in new[] { 1, 2 })
         {
             fixture.ShowFormula(korean, true);
             check(renderer.Visibility == Visibility.Collapsed && renderer.Formula == "",
                 $"A glyph-rendering failure clears the previous formula (attempt {attempt})");
         }
-        renderer.SystemTextFontName = "Malgun Gothic"; fixture.ShowFormula(korean, true);
+        renderer.TextFontFamily = (FontFamily)Application.Current.FindResource("InterfaceFont"); fixture.ShowFormula(korean, true);
         check(!renderer.HasError && renderer.Visibility == Visibility.Visible && renderer.Formula == korean,
             "A supported Korean font restores the current formula after a rendering failure");
         var path = Path.Combine(directory, "math-dock-" + Guid.NewGuid().ToString("N") + ".smj");

@@ -8,6 +8,7 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        Controls.BundledFonts.RegisterNativeInputFonts();
         var focused = e.Args.Length > 0 && e.Args[0] == "--check-area";
         if (focused && (e.Args.Length != 3 || !WindowsFocusedChecks.IsKnownArea(e.Args[1])))
         {

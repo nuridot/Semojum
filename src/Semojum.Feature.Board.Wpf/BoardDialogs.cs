@@ -330,6 +330,8 @@ internal sealed class PostEditorView : BoardBodyView
         var info = new CheckBox { Content = "현재 작업 정보 첨부", ToolTip = "원본·편집 내용은 포함되지 않습니다.", Height = 20, VerticalAlignment = VerticalAlignment.Center, Padding = new(0), FontSize = 14, IsChecked = post is null, Style = checkStyle }; flags.Children.Add(secret); flags.Children.Add(info); panel.Children.Add(flags);
         var attachments = new ObservableCollection<AttachmentChoice>((post?.Attachments ?? []).Select(a => new AttachmentChoice(a.FileName, a.AttachmentId, null)));
         var list = new ListBox { ItemsSource = attachments, Height = 28, Margin = new(0, 6, 0, 0), Visibility = attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed };
+        Semojum.Desktop.Controls.AttachmentPresentation.Configure<AttachmentChoice>(list, file => attachments.Remove(file), "BoardRemoveAttachment");
+        AutomationProperties.SetName(list, "첨부한 파일");
         attachments.CollectionChanged += (_, _) => list.Visibility = attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         panel.Children.Add(new TextBlock { Text = "첨부", Height = 16, Margin = new(0, 10, 0, 2), Foreground = (Brush)FindResource("Muted") });
         var fileActions = new StackPanel { Orientation = Orientation.Horizontal }; panel.Children.Add(fileActions);
@@ -345,6 +347,10 @@ internal sealed class PostEditorView : BoardBodyView
             return Task.CompletedTask;
         }));
         var choose = (Button)fileActions.Children[0]; PublicDialogDesign.StyleAction(choose); choose.Margin = new(0); choose.Width = 110;
+        var chooseContent = new StackPanel { Orientation = Orientation.Horizontal };
+        chooseContent.Children.Add(Semojum.Desktop.Controls.AttachmentPresentation.Icon());
+        chooseContent.Children.Add(new TextBlock { Text = "파일 고르기", Margin = new(6, 0, 0, 0) });
+        choose.Content = chooseContent; AutomationProperties.SetName(choose, "파일 첨부");
         fileActions.Children.Add(new TextBlock { Text = "최대 5개 · 10MB 제한", Margin = new(32, 0, 0, 0), Foreground = (Brush)FindResource("Muted") });
         panel.Children.Add(list);
         var attachmentMenu = new ContextMenu(); var remove = new MenuItem { Header = "선택 첨부 제거" }; attachmentMenu.Items.Add(remove); list.ContextMenu = attachmentMenu;

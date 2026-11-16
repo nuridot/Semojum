@@ -9,11 +9,12 @@ namespace Semojum.Desktop.Dialogs;
 
 public sealed class MemoInputDialog : CompactDialog
 {
-    internal TextBox Input { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 2000, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top, Height = 60, Padding = new(7), Margin = new(0, 8, 0, 6) };
+    internal TextBox Input { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 2000, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top, MinHeight = 32, MaxHeight = 160, Padding = new(7), Margin = new(0, 8, 0, 6) };
     public string Value => Input.Text.Trim();
     public MemoInputDialog(string? author = null) : base("메모", 300, 150, popover: true)
     {
-        MinHeight = 150; MinWidth = 300;
+        MinHeight = 150; MinWidth = 300; SizeToContent = SizeToContent.Height;
+        Input.ToolTip = "Enter: 저장 · Shift+Enter: 줄 바꿈";
         MemoTextInputAppearance.Attach(this, Input);
         var panel = new StackPanel { Margin = new(11) }; Body(panel);
         panel.Children.Add(MemoAuthor.Header(author)); panel.Children.Add(Input);
@@ -26,6 +27,11 @@ public sealed class MemoInputDialog : CompactDialog
         var cancel = Action("취소", () => DialogResult = false);
         foreach (var button in new[] { save, cancel })
         { Actions.Children.Remove(button); button.MinWidth = button.Width = 56; button.Height = 32; buttons.Children.Add(button); }
+        Input.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+            save.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); e.Handled = true;
+        };
         Loaded += (_, _) => Input.Focus();
     }
 

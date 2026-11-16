@@ -7,7 +7,7 @@ using System.Windows.Threading;
 using Semojum.Core;
 using Semojum.Core.Integration;
 using Semojum.Desktop.Dialogs;
-using WpfMath.Controls;
+using FormulaControl = Semojum.Desktop.Controls.FormulaPreview;
 
 namespace Semojum.Desktop.Services;
 
@@ -37,12 +37,12 @@ internal static class WindowsMathSafetyChecks
             await Dispatcher.Yield(DispatcherPriority.Background); dialog.UpdateLayout();
             check(!rendered.HasError && rendered.Formula == koreanFormula && rendered.Visibility == Visibility.Visible && !previewError.IsVisible,
                 "The formula editor renders Korean labels from the social-studies PDF");
-            rendered.SystemTextFontName = "Arial";
+            rendered.TextFontFamily = new FontFamily("Arial");
             dialog.Input.Text = "x+1"; dialog.Input.Text = koreanFormula;
             await Dispatcher.Yield(DispatcherPriority.Background); dialog.UpdateLayout();
             check(rendered.Formula == "" && rendered.Visibility == Visibility.Collapsed && previewError.IsVisible && dialog.BrailleInput.Text == "⠿⠿",
                 "A font rendering error clears the previous editor drawing and preserves manual braille");
-            rendered.SystemTextFontName = "Malgun Gothic";
+            rendered.TextFontFamily = (FontFamily)Application.Current.FindResource("InterfaceFont");
             dialog.Input.Text = @"\frac{a+b}{2}"; await dialog.RefreshAsync();
             check(dialog.BrailleInput.Text == "⠿⠿" && dialog.Edited,
                 "Opening an existing formula displays and marks its manually corrected braille");

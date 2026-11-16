@@ -62,6 +62,14 @@ internal static class WindowsIncrementalTranslationChecks
                     $"Incremental: input dispatcher stays responsive (ticks={ticks}, max gap={largestGap.TotalMilliseconds:F0}ms)");
                 check(model.Blocks.Skip(1).Select(b => (b.Source, b.Braille)).SequenceEqual(unchanged),
                     "Incremental: editing one block preserves all other source and braille blocks");
+                var pasted = string.Concat(Enumerable.Repeat("우리나라의 지역과 생활을 알아봅시다. English text 123.\n", 600));
+                window.PageEditor.Editor.Document.Insert(0, pasted);
+                await Task.Delay(700); // Edit while the long request is running, not just during debounce.
+                window.PageEditor.Editor.Document.Insert(0, "가장 최근 입력 ");
+                await Until(() => first.Translation?.SourceText == first.Source && !first.IsBrailleLocked && window.Braille.GridView.CoordinatesCurrent,
+                    "Incremental: paste over 20,000 characters then type while translating reaches current braille and grid");
+                check(first.Source.StartsWith("가장 최근 입력 " + pasted, StringComparison.Ordinal) && first.Braille.Length > 10000,
+                    "Incremental: large paste and subsequent typing retain the full source and braille");
                 window.PageEditor.Editor.Document.Insert(0, "이동 전 수정 ");
                 await window.NavigateAsync(NavigationTarget.OriginalPage, "2", SearchPanel.Text);
                 check(model.ActiveBlock?.Page == 2 && first.Translation?.SourceText == first.Source,

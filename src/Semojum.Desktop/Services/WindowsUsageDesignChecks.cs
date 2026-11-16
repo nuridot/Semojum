@@ -32,6 +32,10 @@ internal static class WindowsUsageDesignChecks
                 "QA1110: My page omits View and Info menus");
             var logoutIcon = Descendants(dialog).OfType<SvgViewbox>().SingleOrDefault(i => i.Source?.ToString().EndsWith("account-logout.svg", StringComparison.Ordinal) == true);
             check(logoutIcon is { Width: 20, Height: 20, ActualWidth: > 0, ActualHeight: > 0, Drawings.Bounds.IsEmpty: false }, "QA1110: My page logout shows original Figma icon in 20px slot");
+            var logoutText = Descendants(dialog).OfType<TextBlock>().Single(t => t.Text == "로그아웃");
+            var iconCenter = logoutIcon!.TransformToAncestor(dialog).Transform(new Point(0, logoutIcon.ActualHeight / 2)).Y;
+            var textCenter = logoutText.TransformToAncestor(dialog).Transform(new Point(0, logoutText.ActualHeight / 2)).Y;
+            check(Math.Abs(iconCenter - textCenter) < 1, "My page logout text and icon share the same vertical center");
             dialog.WindowState = WindowState.Normal;
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             foreach (var asset in new[] { "account-caption-min.svg", "account-caption-max.svg", "account-caption-close.svg", "account-chevron.svg" })

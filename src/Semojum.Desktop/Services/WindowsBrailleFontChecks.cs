@@ -14,7 +14,7 @@ using Semojum.Desktop.Dialogs;
 
 namespace Semojum.Desktop.Services;
 
-/// <summary>Braille cells render from the bundled Nuridot Braille, while other text in braille controls keeps Segoe UI Symbol.</summary>
+/// <summary>Braille cells render from the bundled Nuridot Braille, while other text in braille controls keeps Pretendard.</summary>
 internal static class WindowsBrailleFontChecks
 {
     private static readonly string SixDots = string.Concat(Enumerable.Range(0x2800, 64).Select(c => (char)c));
@@ -26,7 +26,7 @@ internal static class WindowsBrailleFontChecks
         check(ReferenceEquals(Application.Current.FindResource("BrailleFont"), BundledFonts.Braille), "The BrailleFont resource is the bundled braille family");
         check(Faces(BundledFonts.Braille, SixDots) is [var six] && HasSixDots(six), "Every six-dot cell resolves to a Nuridot Braille glyph");
         check(Faces(BundledFonts.Braille, "⡀⣀") is [var eight] && HasSixDots(eight) && "⡀⣀".All(c => eight.CharacterToGlyphMap.ContainsKey(c)), "8-dot cells also resolve to Nuridot Braille");
-        check(Faces(BundledFonts.Braille, "123<!>") is [var marks] && IsSegoeSymbol(marks), "Digits and layout markers keep Segoe UI Symbol instead of the braille font");
+        check(Faces(BundledFonts.Braille, "123<!>") is [var marks] && IsInterfaceFont(marks), "Digits and layout markers keep Pretendard instead of the braille font");
 
         var block = new EditorBlock { Id = 1, Source = "점자", Braille = SixDots };
         var face = new BrailleGridFace(1, [SixDots[..32].Select((c, i) => (GridCell?)new GridCell(block, i, c)).ToArray(), SixDots[32..].Select((c, i) => (GridCell?)new GridCell(block, 32 + i, c)).ToArray()]);
@@ -57,7 +57,7 @@ internal static class WindowsBrailleFontChecks
             var editor = Descendants(preview).OfType<TextEditor>().Single(); var view = editor.TextArea.TextView; view.EnsureVisualLines();
             check(DrawsBrailleFont(view), "Braille page preview draws its cells from Nuridot Braille");
             var numbers = editor.TextArea.LeftMargins.OfType<LineNumberMargin>().Single();
-            check(Runs(numbers).Length > 0 && Runs(numbers).All(r => IsSegoeSymbol(r.GlyphTypeface)), "Braille page preview line numbers stay digits rather than Braille ASCII cells");
+            check(Runs(numbers).Length > 0 && Runs(numbers).All(r => IsInterfaceFont(r.GlyphTypeface)), "Braille page preview line numbers stay digits rather than Braille ASCII cells");
             var ruler = view.BackgroundRenderers.OfType<BraillePreviewDialog.CellRuler>().Single();
             var end = view.GetVisualPosition(new TextViewPosition(1, 33), ICSharpCode.AvalonEdit.Rendering.VisualYPosition.LineTop).X;
             check(Math.Abs(ruler.Offset - end) < .5 && Math.Abs(end - 32 * 22 * 740d / 1024) < .5, "Braille page preview draws the 32-cell edge after the last Nuridot Braille cell");
@@ -71,7 +71,7 @@ internal static class WindowsBrailleFontChecks
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); range.UpdateLayout();
             var editor = Descendants(range).OfType<TextEditor>().Single(); editor.TextArea.TextView.EnsureVisualLines();
             check(DrawsBrailleFont(editor.TextArea.TextView), "Range selection draws braille cells from Nuridot Braille");
-            check(Runs(editor.TextArea.TextView).Where(r => r.Characters?.Contains('<') == true).ToArray() is { Length: > 0 } marker && marker.All(r => IsSegoeSymbol(r.GlyphTypeface)),
+            check(Runs(editor.TextArea.TextView).Where(r => r.Characters?.Contains('<') == true).ToArray() is { Length: > 0 } marker && marker.All(r => IsInterfaceFont(r.GlyphTypeface)),
                 "Range selection keeps layout markers as readable text");
         }
         finally { range.Close(); }
@@ -109,8 +109,8 @@ internal static class WindowsBrailleFontChecks
             window.ApplyAppearance(new());
             check(ReferenceEquals(window.DraftBraillePreview.FontFamily, BundledFonts.Braille) && Faces(window.DraftBraillePreview.FontFamily, SixDots) is [var draft] && HasSixDots(draft),
                 "The draft dock braille preview uses Nuridot Braille");
-            check(Faces(window.Braille.Editor.FontFamily, SixDots) is [var spaced] && HasSixDots(spaced) && Faces(window.Braille.Editor.FontFamily, "123") is [var digits] && IsSegoeSymbol(digits),
-                "Account line spacing keeps Nuridot Braille for braille cells and Segoe UI Symbol for other text");
+            check(Faces(window.Braille.Editor.FontFamily, SixDots) is [var spaced] && HasSixDots(spaced) && Faces(window.Braille.Editor.FontFamily, "123") is [var digits] && IsInterfaceFont(digits),
+                "Account line spacing keeps Nuridot Braille for braille cells and Pretendard for other text");
         }
         finally { window.PrepareSmokeShutdown(); window.Close(); }
     }
@@ -123,7 +123,7 @@ internal static class WindowsBrailleFontChecks
     private static bool IsSixDot(char c) => c is >= '⠀' and <= '⠿';
     private static bool HasSixDots(GlyphTypeface face) => Path.GetFileName(face.FontUri.LocalPath).Equals("NuridotBraille.ttf", StringComparison.OrdinalIgnoreCase)
         && face.FamilyNames.Values.Contains("Nuridot Braille") && SixDots.All(c => face.CharacterToGlyphMap.ContainsKey(c));
-    private static bool IsSegoeSymbol(GlyphTypeface face) => Path.GetFileName(face.FontUri.LocalPath).Equals("seguisym.ttf", StringComparison.OrdinalIgnoreCase);
+    private static bool IsInterfaceFont(GlyphTypeface face) => Path.GetFileName(face.FontUri.LocalPath).Equals("Pretendard-Regular.ttf", StringComparison.OrdinalIgnoreCase);
     private static GlyphTypeface[] Faces(FontFamily family, string text)
     {
         var visual = new DrawingVisual();
