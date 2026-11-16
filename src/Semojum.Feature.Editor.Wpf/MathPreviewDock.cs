@@ -3,7 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using SharpVectors.Converters;
 using Semojum.Desktop.Dialogs;
-using WpfMath.Controls;
+using FormulaControl = Semojum.Desktop.Controls.FormulaPreview;
 using WpfMath.Parsers;
 
 namespace Semojum.Desktop.Controls;
@@ -11,7 +11,7 @@ namespace Semojum.Desktop.Controls;
 /// <summary>Read-only rendering of the selected formula; editing remains in the formula dialog.</summary>
 public sealed class MathPreviewDock : Border
 {
-    private readonly FormulaControl formula = new() { SystemTextFontName = "Pretendard", FontSize = 40, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly FormulaControl formula = new() { FontSize = 40, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock error = new() { Text = "수식을 표시할 수 없습니다. LaTeX 원문을 확인해 주세요.", Foreground = Brushes.Firebrick, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Center };
     private readonly TextBox latex = new() { IsReadOnly = true, Height = 32, MinHeight = 32, Padding = new(11, 0, 11, 0), VerticalContentAlignment = VerticalAlignment.Center, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden };
     private readonly Button edit = new() { Content = "편집", Width = 44, Height = 24, MinWidth = 0, MinHeight = 0, Padding = new(0), ToolTip = "수식 편집기로 열기" };

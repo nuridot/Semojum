@@ -27,6 +27,12 @@ internal static class WindowsQa1117Checks
                 && glyph.CharacterToGlyphMap.ContainsKey(0xAC00) && glyph.CharacterToGlyphMap.ContainsKey('A') && glyph.CharacterToGlyphMap.ContainsKey(0x318D),
                 $"Pretendard {weight} supplies Korean, English and U+318D from bundled files (resolved={resolved}, uri={glyph?.FontUri})");
         }
+        var formula = new FormulaPreview { TextFontFamily = BundledFonts.Interface, Formula = @"\text{한글 English}" };
+        static IEnumerable<GlyphRunDrawing> Glyphs(Drawing drawing) => drawing is GlyphRunDrawing glyph ? [glyph]
+            : drawing is DrawingGroup group ? group.Children.SelectMany(Glyphs) : [];
+        check(!formula.HasError && formula.Drawing is { } drawing && Glyphs(drawing.Drawing).Any(g =>
+            g.GlyphRun.GlyphTypeface.FontUri.LocalPath.Contains("Pretendard", StringComparison.OrdinalIgnoreCase)),
+            "Formula Korean and English render directly from the bundled font URI without system installation");
         var window = new MainWindow(smoke: true, testWithoutAccount: true, startEmpty: true);
         window.Show();
         try

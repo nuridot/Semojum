@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('qa1117', 'incremental', 'export', 'tablememo', 'drafts', 'board', 'institution', 'editor', 'appearance', 'usage', 'rules', 'dialogs', 'windows', 'account')]
+    [ValidateSet('math', 'qa1117', 'incremental', 'export', 'tablememo', 'drafts', 'board', 'institution', 'editor', 'appearance', 'usage', 'rules', 'dialogs', 'windows', 'account')]
     [string[]]$Area,
     [switch]$NoBuild,
     [string]$OutputRoot
