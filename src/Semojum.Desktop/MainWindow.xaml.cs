@@ -241,7 +241,7 @@ public partial class MainWindow : Window
         if (resourcesReleased) return;
         var owner = session;
         var revision = block.SourceRevision;
-        var result = await translator.TranslateAsync(block, decision, smoke ? TimeSpan.FromMilliseconds(400) : TimeSpan.FromSeconds(35), documentLifetime.Token);
+        var result = await translator.TranslateAsync(block, decision, smoke ? TimeSpan.FromMilliseconds(400) : LocalBrailleEngine.TranslationTimeout(block.Source.Length), documentLifetime.Token);
         if (resourcesReleased || owner != session) return;
         if (result is TranslationOutcome.Applied or TranslationOutcome.Kept) translatedRevisions[block] = revision;
         session.Status = result switch

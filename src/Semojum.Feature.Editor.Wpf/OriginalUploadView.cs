@@ -20,8 +20,9 @@ internal sealed class OriginalUploadView : UserControl
         root.RowDefinitions.Add(new RowDefinition()); root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
         Content = root;
         var region = UploadArea;
-        region.Margin = new Thickness(16, 20, 16, 16); region.Height = 388;
-        region.VerticalAlignment = VerticalAlignment.Top;
+        region.Margin = new Thickness(16);
+        region.Height = double.NaN; // Override the shared 32px button style.
+        region.VerticalAlignment = VerticalAlignment.Stretch;
         region.Padding = new Thickness(0);
         region.BorderThickness = new Thickness(0);
         region.Background = Brushes.Transparent;
@@ -36,14 +37,17 @@ internal sealed class OriginalUploadView : UserControl
         var surface = new Grid();
         surface.Children.Add(new Border { Background = ColorBrush(0xF7, 0xF9, 0xFC), CornerRadius = new CornerRadius(10) });
         surface.Children.Add(new Rectangle { Stroke = ColorBrush(0x00, 0x5F, 0xB8), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 6, 4 }, RadiusX = 10, RadiusY = 10, IsHitTestVisible = false });
-        var content = new StackPanel { VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 65, 0, 0), IsHitTestVisible = false };
+        var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(12), IsHitTestVisible = false };
         content.Children.Add(Icon("original-upload.svg", 32));
         content.Children.Add(new TextBlock { Text = "PDF 파일을 드래그하거나\n클릭해서 선택하세요", FontSize = 14, FontWeight = FontWeights.Bold, Foreground = ColorBrush(0x1A, 0x1A, 0x1A), TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 16, 0, 0), LineHeight = 22 });
         content.Children.Add(new TextBlock { Text = "파일 1개당 최대 100MB", FontSize = 12, Foreground = ColorBrush(0x5F, 0x5F, 0x5F), TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 12, 0, 0) });
         content.Children.Add(new TextBlock { Text = "업로드 가능한 형식: PDF, PNG, JPG, JPEG,\nTXT, HWP, HWPX, SMJ", FontSize = 12, Foreground = ColorBrush(0x5F, 0x5F, 0x5F), TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0), LineHeight = 18 });
         content.Children.Add(new Border { Background = ColorBrush(0x5B, 0x8D, 0xEF), CornerRadius = new CornerRadius(6), Width = 140, Height = 40, Margin = new Thickness(0, 16, 0, 0), Child = new TextBlock { Text = "파일 선택", FontSize = 14, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
         surface.Children.Add(content); region.Content = surface;
-        var contents = new StackPanel(); contents.Children.Add(region);
+        var contents = new Grid();
+        contents.RowDefinitions.Add(new RowDefinition());
+        contents.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        contents.Children.Add(region);
         limitWarning.Margin = new Thickness(16, 0, 16, 20); limitWarning.Height = 52;
         limitWarning.Background = ColorBrush(0xFD, 0xE7, 0xE9); limitWarning.BorderBrush = ColorBrush(0xC4, 0x2B, 0x1C);
         limitWarning.BorderThickness = new Thickness(1); limitWarning.CornerRadius = new CornerRadius(6);
@@ -58,8 +62,8 @@ internal sealed class OriginalUploadView : UserControl
         warningText.Children.Add(new TextBlock { Text = "100MB를 초과했습니다", FontSize = 12, Foreground = ColorBrush(0xC4, 0x2B, 0x1C) });
         Grid.SetColumn(warningText, 1); warningGrid.Children.Add(warningText); limitWarning.Child = warningGrid;
         System.Windows.Automation.AutomationProperties.SetLiveSetting(limitWarning, System.Windows.Automation.AutomationLiveSetting.Assertive);
-        contents.Children.Add(limitWarning);
-        root.Children.Add(new ScrollViewer { Content = contents, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Grid.SetRow(limitWarning, 1); contents.Children.Add(limitWarning);
+        root.Children.Add(contents);
         DataContextChanged += (_, _) => ClearLimitWarning();
         region.Click += (_, _) => UploadRequested?.Invoke(null);
         region.DragOver += (_, e) => { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };

@@ -60,7 +60,9 @@ public static class AutomaticLogin
             try { if (credential is not null) credentials.DeleteIfMatches(credential); }
             catch (Exception deleteError) when (deleteError is Win32Exception or IOException or UnauthorizedAccessException)
             { return new(null, "만료된 로그인 정보를 삭제하지 못했습니다. " + deleteError.Message); }
-            return new(null, "로그인 정보가 만료되었거나 계정을 사용할 수 없습니다. 다시 로그인해 주세요.");
+            // An expired saved session is a normal signed-out launch. Only an
+            // explicit sign-in attempt should display an authentication error.
+            return new(null, null);
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         { return new(null, "서버에 연결하지 못해 자동 로그인하지 못했습니다. 연결 상태를 확인해 주세요."); }

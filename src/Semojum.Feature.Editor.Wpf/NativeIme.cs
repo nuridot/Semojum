@@ -26,6 +26,22 @@ internal static class NativeIme
         // while that context still exists. Reattach when a pane is detached/rejoined.
         Window? owner = null;
         HwndSource? source = null;
+        bool fontUpdateQueued = false;
+        void QueueCompositionFont()
+        {
+            if (fontUpdateQueued || !editor.IsLoaded || !editor.TextArea.IsKeyboardFocused) return;
+            fontUpdateQueued = true;
+            editor.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() =>
+            {
+                fontUpdateQueued = false;
+                if (editor.IsLoaded) UpdateCompositionFont(editor);
+            }));
+        }
+        // AvalonEdit also sets its (line-height based) IMM font when the caret
+        // moves. Apply after that update, including real composition/caret events.
+        editor.TextArea.Caret.PositionChanged += (_, _) => QueueCompositionFont();
+        editor.TextArea.TextView.VisualLinesChanged += (_, _) => QueueCompositionFont();
+        editor.GotKeyboardFocus += (_, _) => QueueCompositionFont();
         void BeforeMouseDown(object sender, MouseButtonEventArgs e) => Commit();
         nint BeforeDeactivate(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
         {
@@ -33,7 +49,7 @@ internal static class NativeIme
             // editor's context. PreviewLostKeyboardFocus alone is too late.
             if ((message is 0x001C or 0x0086 && wParam == 0)
                 || (message == 0x0006 && (wParam.ToInt64() & 0xFFFF) == 0)) Commit();
-            if (message is 0x010D or 0x010F) UpdateCompositionFont(editor);
+            if (message is 0x010D or 0x010F) { UpdateCompositionFont(editor); QueueCompositionFont(); }
             return 0;
         }
         void Detach()
@@ -70,7 +86,7 @@ internal static class NativeIme
                 family = editor.FontFamily.FamilyMaps.FirstOrDefault()?.Target;
             // WPF packaged fonts use a URI followed by #Family; IMM takes only the family name.
             family = family?.Split(',')[0].Split('#').Last().Trim();
-            if (string.IsNullOrWhiteSpace(family)) family = "Malgun Gothic";
+            if (string.IsNullOrWhiteSpace(family)) family = "Pretendard";
             var font = new CompositionFont
             {
                 Height = -(int)Math.Max(1, Math.Round(editor.FontSize * source.CompositionTarget.TransformToDevice.M22)),

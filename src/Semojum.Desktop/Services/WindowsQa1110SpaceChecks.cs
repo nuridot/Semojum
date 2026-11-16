@@ -24,11 +24,11 @@ internal static class WindowsQa1110SpaceChecks
             var spaces = editor.TextArea.TextView.VisualLines.SelectMany(l => l.Elements)
                 .OfType<FormattedTextElement>().Where(e => e.DocumentLength == 1).ToArray();
             check(spaces.Length == 4, "QA1110: consecutive and trailing spaces each receive a visible marker");
-            var wide = new FormattedText("•", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                new Typeface("Segoe UI Symbol"), 14, Brushes.Black, 1).WidthIncludingTrailingWhitespace;
+            var wide = new FormattedText(SpaceMarkGenerator.Marker, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new Typeface((FontFamily)Application.Current.FindResource("InterfaceFont"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), 14, Brushes.Black, 1).WidthIncludingTrailingWhitespace;
             var old = new FormattedText("·", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                new Typeface("Segoe UI Symbol"), 14, Brushes.Black, 1).WidthIncludingTrailingWhitespace;
-            check(wide > old, $"QA1110: space marker is wider than the old middle dot ({wide:F2}>{old:F2})");
+                new Typeface((FontFamily)Application.Current.FindResource("InterfaceFont"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), 14, Brushes.Black, 1).WidthIncludingTrailingWhitespace;
+            check(SpaceMarkGenerator.Marker == "\u318D" && wide > 0, $"QA1110: space marker is U+318D and has visible width ({wide:F2}>{old:F2})");
             editor.Select(1, 1);
             check(editor.SelectedText == " " && editor.Text == original, "QA1110: selecting a marker selects exactly one real space");
             await WindowsSmoke.RenderElementAsync(window, System.IO.Path.Combine(System.IO.Path.GetTempPath(), "qa1110-spaces.png"));

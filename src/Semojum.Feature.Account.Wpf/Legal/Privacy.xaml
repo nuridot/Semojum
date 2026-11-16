@@ -95,7 +95,7 @@
         <TableCell BorderBrush="#D1D1D1" BorderThickness="0.5" Padding="6">
           <Paragraph Margin="0">
             <Run Text="회사 이메일 계정 [" />
-            <Run Text="contact@nuridot.com" FontFamily="Consolas" />
+            <Run Text="contact@nuridot.com" />
             <Run Text=", 서버가 읽는 계정 확인 중] 으로 받은 메일" />
           </Paragraph>
         </TableCell>

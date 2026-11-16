@@ -44,10 +44,11 @@ internal static class WindowsImeFontChecks
                 {
                     // Exercise the same Win32 notification used while Korean composition updates.
                     SendMessageW(source.Handle, 0x010F, 0, 0);
+                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                     check(ImmGetCompositionFontW(context, out var font), "IME size probe reads the native composition font");
                     var expected = -(int)Math.Round(size * source.CompositionTarget.TransformToDevice.M22);
                     var message = $"IME font follows {size}px text rather than line spacing (height={font.Height}, expected={expected}, face={font.Face})";
-                    if (font.Height != expected || font.Face != "Malgun Gothic" || font.Weight != (bold ? 700 : 400)) failures.Add(message);
+                    if (font.Height != expected || font.Face != "Pretendard" || font.Weight != (bold ? 700 : 400)) failures.Add(message);
                     else check(true, message);
                 }
                 finally { ImmReleaseContext(source.Handle, context); }

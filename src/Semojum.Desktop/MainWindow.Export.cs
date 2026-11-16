@@ -67,7 +67,7 @@ public partial class MainWindow
             var selectedFormat = chooseRange ? ranges.SelectedFormat : initialFormat;
             var plainText = selectedFormat is ".txt — 원문" or ".md";
             var brailleBrf = selectedFormat == ".brf";
-            var extension = selectedFormat == ".md" ? ".md" : selectedFormat == ".brl" ? ".brl" : brailleBrf ? ".brf" : ".txt";
+            var extension = selectedFormat == ".md" ? ".md" : brailleBrf ? ".brf" : ".txt";
             // 범위 창에서 「저장」을 누른 뒤에 저장 위치를 고릅니다.
             if (path is null)
             {

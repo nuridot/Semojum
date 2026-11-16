@@ -26,3 +26,9 @@ License texts and font notices are retained in the `licenses` directory. The sel
 The engine distribution retains upstream NOTICE.md, LICENSE-MIT, LICENSE-APACHE, third_party notices and dependency licenses under engine. The optional kiwi dependency is neither installed nor bundled.
 
 The desktop composition adapter (`scripts/editor_composition.py`) reuses the pinned semojum-braille `assist` and BRF helpers and follows its pagination structure. The upstream license and NOTICE files are included with the engine distribution.
+
+## Pretendard 1.3.9
+
+UI and source text use bundled Pretendard (Regular, SemiBold and Bold).
+Source: https://github.com/orioncactus/pretendard/releases/tag/v1.3.9
+License: SIL Open Font License 1.1; see `licenses/Pretendard-LICENSE.txt`.

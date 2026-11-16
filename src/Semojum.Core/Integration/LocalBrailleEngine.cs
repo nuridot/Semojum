@@ -10,6 +10,7 @@ public sealed record PageElementBraille(string Cells, int[] Breaks, int PrefixRo
 /// <summary>Wire adapter for Semojum/braille v3.4.44, commit 3e7e14c2ca9f4db5c332a2b0a19835eedc78eb70.</summary>
 public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptions>? options = null) : ITranslationEngine
 {
+    public static TimeSpan TranslationTimeout(int sourceLength) => TimeSpan.FromSeconds(Math.Clamp(35d + sourceLength / 1000d, 35, 300));
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -72,7 +73,8 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
         }
         else
         {
-            response = await sidecar.InvokeAsync("translate", new
+            var largeText = text.Length > ElementLimit && metadata.Type != "table" && !text.Contains("<!표>", StringComparison.Ordinal);
+            response = await sidecar.InvokeAsync(largeText ? "translate_editor" : "translate", new
             {
                 text = metadata.Type == "formula" && !text.Contains("<!수식>", StringComparison.Ordinal) ? $"<!수식>{text}<!/수식>" : text,
                 type = text.Contains("<!표>", StringComparison.Ordinal) ? "table" : metadata.Type switch
@@ -84,7 +86,7 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
                 // Block braille stays the bare element body so source lines, review marks and cell positions never shift.
                 // The page's layout blank lines come from translate_page when the page is composed (ComposeAsync).
                 blank_lines = false, source_map = true, draft_text = true, line_alignment = true
-            }, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }, timeout: TranslationTimeout(text.Length), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         if (!response.TryGetProperty("cells", out var cells) || cells.ValueKind != JsonValueKind.String)
             throw new SidecarException("점역 결과에 점자 데이터가 없습니다.", "INVALID_RESPONSE");

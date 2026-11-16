@@ -161,8 +161,10 @@ internal static class WindowsMenuDesignChecks
                 memo.Input.Text = "여기 그래프랑 본문이 안 맞는 것 같은데";
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); memo.UpdateLayout();
                 var author = Descendants(memo).OfType<TextBlock>().FirstOrDefault(t => t.Text == "김점역");
-                check(memo.ActualWidth == 300 && memo.ActualHeight == 150 && memo.Input.ActualHeight == 60 && author is { FontSize: 14, FontWeight: var weight } && weight == FontWeights.Bold,
-                    "Memo input uses Figma's dimensions and 14-pixel bold author");
+                check(memo.ActualWidth == 300 && memo.ActualHeight >= 150 && memo.SizeToContent == SizeToContent.Height &&
+                    memo.Input.ActualHeight >= 32 && memo.Input.ActualHeight <= 160 && double.IsNaN(memo.Input.Height) &&
+                    author is { FontSize: 14, FontWeight: var weight } && weight == FontWeights.Bold,
+                    "Memo input keeps its compact width and bold author while growing with the text");
                 check(Descendants(memo).OfType<Button>().Any(b => Equals(b.Content, "저장") && b.Width == 56) && Descendants(memo).OfType<Button>().Any(b => Equals(b.Content, "취소") && b.Width == 56),
                     "Memo input retains separate save and cancel actions");
                 memo.Input.Focus(); memo.UpdateLayout();

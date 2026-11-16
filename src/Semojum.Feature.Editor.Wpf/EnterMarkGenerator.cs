@@ -21,7 +21,7 @@ public sealed class EnterMarkGenerator(TextEditor editor) : VisualLineElementGen
         public override System.Windows.Media.TextFormatting.TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
         {
             TextRunProperties.SetForegroundBrush(editor.TextArea.TextView.NonPrintableCharacterBrush);
-            TextRunProperties.SetTypeface(new Typeface("Segoe UI Symbol"));
+            TextRunProperties.SetTypeface(new Typeface((FontFamily)System.Windows.Application.Current.FindResource("InterfaceFont"), System.Windows.FontStyles.Normal, System.Windows.FontWeights.Normal, System.Windows.FontStretches.Normal));
             return base.CreateTextRun(startVisualColumn, context);
         }
     }

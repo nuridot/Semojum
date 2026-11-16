@@ -42,7 +42,7 @@ internal static class WindowsMathSafetyChecks
             await Dispatcher.Yield(DispatcherPriority.Background); dialog.UpdateLayout();
             check(rendered.Formula == "" && rendered.Visibility == Visibility.Collapsed && previewError.IsVisible && dialog.BrailleInput.Text == "⠿⠿",
                 "A font rendering error clears the previous editor drawing and preserves manual braille");
-            rendered.SystemTextFontName = "Malgun Gothic";
+            rendered.SystemTextFontName = "Pretendard";
             dialog.Input.Text = @"\frac{a+b}{2}"; await dialog.RefreshAsync();
             check(dialog.BrailleInput.Text == "⠿⠿" && dialog.Edited,
                 "Opening an existing formula displays and marks its manually corrected braille");

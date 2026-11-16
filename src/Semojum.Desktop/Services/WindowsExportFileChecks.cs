@@ -46,7 +46,7 @@ internal static class WindowsExportFileChecks
                 {
                     var type = typeof(ExportRangeDialog);
                     var scope = (Semojum.Desktop.Controls.SegmentedChoice)type.GetField("scope", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(range)!;
-                    scope.SelectedIndex = chosen is ".brl" or ".brf" ? 1 : 0;
+                    scope.SelectedIndex = chosen is ".txt — 점자" or ".brf" ? 1 : 0;
                     for (var i = 0; !scope.IsEnabled && i < 300; i++) await Task.Delay(50);
                     if (!scope.IsEnabled) throw new TimeoutException("Export page count did not complete");
                     if (scope.SelectedIndex == 1 && type.GetField("pageCount", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(range) is null)
@@ -73,11 +73,11 @@ internal static class WindowsExportFileChecks
             await Export(proposedMd, 1, ".md");
             check(await File.ReadAllTextAsync(Path.ChangeExtension(proposedMd, ".md")) == "가나다" && !File.Exists(proposedMd),
                 "Source Markdown saves only the selected original page with .md extension");
-            var proposedBrl = Path.Combine(folder, "braille-unicode.txt");
-            await Export(proposedBrl, 2, ".brl");
-            var unicode = await File.ReadAllTextAsync(Path.ChangeExtension(proposedBrl, ".brl"));
-            check(unicode.Contains("⠫⠉⠊") && !unicode.Contains("가나다") && !File.Exists(proposedBrl),
-                "Braille BRL saves Unicode braille with matching .brl extension");
+            var proposedBraille = Path.Combine(folder, "braille-unicode.brf");
+            await Export(proposedBraille, 2, ".txt — 점자");
+            var unicode = await File.ReadAllTextAsync(Path.ChangeExtension(proposedBraille, ".txt"));
+            check(unicode.Contains("⠫⠉⠊") && !unicode.Contains("가나다") && !File.Exists(proposedBraille),
+                "Braille TXT saves Unicode braille with matching .txt extension");
             foreach (var (index, extension) in new[] { (1, ".brf"), (2, ".txt"), (3, ".txt") })
             {
                 var fullPath = Path.Combine(folder, "full-" + index + extension);

@@ -11,6 +11,27 @@ import json
 import uuid
 
 
+def translate_editor(request, engine, upstream):
+    """Keep one paragraph's context when editing more than 1,000 characters.
+
+    The stock sidecar's transport limit is for individual server elements.
+    Desktop source blocks can grow while typing/pasting. Splitting their text
+    changes indentation, contractions and paired tags, so use the same engine
+    pipeline on the full block, with its other validation left intact. JSONL
+    dispatch is serial and the override is restored even when validation fails.
+    Tables keep the upstream structural limit.
+    """
+    text = request.get('text')
+    if not isinstance(text, str) or len(text) <= engine.MAX_CHARS or request.get('type') == 'table' or '<!표>' in text:
+        return upstream(request)
+    limit = engine.MAX_CHARS
+    try:
+        engine.MAX_CHARS = len(text)
+        return upstream(request)
+    finally:
+        engine.MAX_CHARS = limit
+
+
 class PageTranslationCache:
     def __init__(self, engine, max_entries=2048, max_bytes=16 * 1024 * 1024):
         self.engine = engine

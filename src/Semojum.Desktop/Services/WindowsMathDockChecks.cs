@@ -36,7 +36,7 @@ internal static class WindowsMathDockChecks
             check(renderer.Visibility == Visibility.Collapsed && renderer.Formula == "",
                 $"A glyph-rendering failure clears the previous formula (attempt {attempt})");
         }
-        renderer.SystemTextFontName = "Malgun Gothic"; fixture.ShowFormula(korean, true);
+        renderer.SystemTextFontName = "Pretendard"; fixture.ShowFormula(korean, true);
         check(!renderer.HasError && renderer.Visibility == Visibility.Visible && renderer.Formula == korean,
             "A supported Korean font restores the current formula after a rendering failure");
         var path = Path.Combine(directory, "math-dock-" + Guid.NewGuid().ToString("N") + ".smj");

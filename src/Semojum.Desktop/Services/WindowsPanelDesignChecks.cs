@@ -177,8 +177,8 @@ internal static class WindowsPanelDesignChecks
     private static bool FigmaBadge(Border header, string number)
     {
         var text = Descendants(header).OfType<TextBlock>().FirstOrDefault(t => t.Text == number);
-        return text is { FontSize: 12, FontFamily.Source: "Segoe UI Symbol", Foreground: SolidColorBrush { Color: var ink }, Parent: Border { Width: 18, Height: 18, CornerRadius.TopLeft: 9, Background: SolidColorBrush { Color: var color } } }
-            && color == Color.FromRgb(240, 240, 240) && ink == Color.FromRgb(95, 95, 95);
+        return text is { FontSize: 12, Foreground: SolidColorBrush { Color: var ink }, Parent: Border { Width: 18, Height: 18, CornerRadius.TopLeft: 9, Background: SolidColorBrush { Color: var color } } }
+            && text.FontFamily.Source == Semojum.Desktop.Controls.BundledFonts.Interface.Source && color == Color.FromRgb(240, 240, 240) && ink == Color.FromRgb(95, 95, 95);
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)

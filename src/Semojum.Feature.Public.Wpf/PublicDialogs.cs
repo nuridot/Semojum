@@ -184,35 +184,7 @@ public sealed class PublicInquiryDialog : CompactDialog
         attachmentRow.Children.Add(attachment); attachmentRow.Children.Add(new TextBlock { Text = "최대 3개 · 10MB 제한", Foreground = Brush("#5F5F5F"), Margin = new(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center }); panel.Children.Add(attachmentRow);
         var attached = new ListBox { ItemsSource = attachments, MaxHeight = 66, Margin = new(0, 6, 0, 0), Visibility = Visibility.Collapsed };
         AutomationProperties.SetAutomationId(attached, "PublicInquiryAttachments"); AutomationProperties.SetName(attached, "첨부한 파일");
-        // A visible action is discoverable without knowing the Delete key or context menu.
-        var attachmentItem = new FrameworkElementFactory(typeof(DockPanel));
-        var removeFile = new FrameworkElementFactory(typeof(Button));
-        removeFile.SetValue(DockPanel.DockProperty, Dock.Right);
-        removeFile.SetValue(ContentControl.ContentProperty, "삭제");
-        removeFile.SetValue(FrameworkElement.WidthProperty, 44d);
-        removeFile.SetValue(FrameworkElement.MinWidthProperty, 0d);
-        removeFile.SetValue(FrameworkElement.HeightProperty, 24d);
-        removeFile.SetValue(FrameworkElement.MinHeightProperty, 0d);
-        removeFile.SetValue(Control.PaddingProperty, new Thickness(4, 0, 4, 0));
-        removeFile.SetValue(AutomationProperties.AutomationIdProperty, "PublicInquiryRemoveAttachment");
-        removeFile.SetBinding(AutomationProperties.NameProperty, new System.Windows.Data.Binding("Name") { StringFormat = "첨부 삭제: {0}" });
-        removeFile.AddHandler(System.Windows.Controls.Button.ClickEvent, new RoutedEventHandler((sender, _) =>
-        {
-            if (sender is FrameworkElement { DataContext: Attachment file }) attachments.Remove(file);
-        }));
-        attachmentItem.AppendChild(removeFile);
-        var filename = new FrameworkElementFactory(typeof(TextBlock));
-        filename.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding("Name"));
-        filename.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding("Name"));
-        filename.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
-        filename.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        filename.SetValue(FrameworkElement.MarginProperty, new Thickness(4, 0, 8, 0));
-        attachmentItem.AppendChild(filename);
-        attached.ItemTemplate = new DataTemplate { VisualTree = attachmentItem };
-        var attachmentStyle = new Style(typeof(ListBoxItem));
-        attachmentStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
-        attached.ItemContainerStyle = attachmentStyle;
-        ScrollViewer.SetHorizontalScrollBarVisibility(attached, ScrollBarVisibility.Disabled);
+        Semojum.Desktop.Controls.AttachmentPresentation.Configure<Attachment>(attached, file => attachments.Remove(file), "PublicInquiryRemoveAttachment");
         attachments.CollectionChanged += (_, _) => attached.Visibility = attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         var attachedMenu = new ContextMenu(); var detach = new MenuItem { Header = "선택 첨부 제거" }; attachedMenu.Items.Add(detach); attached.ContextMenu = attachedMenu;
         detach.Click += (_, _) => { if (attached.SelectedItem is Attachment a) attachments.Remove(a); };

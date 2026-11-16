@@ -13,7 +13,7 @@ public sealed class MemoThreadDialog : CompactDialog
     internal CheckBox ShowResolved { get; } = new() { Content = "해결한 메모 포함" };
     internal Button ResolveButton { get; }
     internal Button ReplyButton { get; }
-    internal TextBox ReplyInput { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 32, MaxLength = 2000, Padding = new(11, 7, 11, 7), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    internal TextBox ReplyInput { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 32, MaxHeight = 160, MaxLength = 2000, Padding = new(11, 7, 11, 7), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     public NavigationLocation? Destination { get; private set; }
     internal void ApplyReplyAppearance(bool highContrast) => MemoTextInputAppearance.Apply(ReplyInput, highContrast);
     public MemoThreadDialog(EditorBlock block, string panel, int line, string lineText, Action<Action> edit,
@@ -22,7 +22,8 @@ public sealed class MemoThreadDialog : CompactDialog
         var body = new DockPanel { Margin = new(7, 7, 7, 11) }; Body(body);
         var input = ReplyInput;
         MemoTextInputAppearance.Attach(this, input);
-        var replyHost = new Grid { Margin = new(4, 14, 4, 0), Height = 32 };
+        var replyHost = new Grid { Margin = new(4, 14, 4, 0), MinHeight = 32 };
+        input.SizeChanged += (_, _) => Height = Math.Min(MaxHeight, 232 + Math.Max(0, input.ActualHeight - 32));
         replyHost.ColumnDefinitions.Add(new()); replyHost.ColumnDefinitions.Add(new() { Width = new(40) }); replyHost.Children.Add(input);
         var placeholder = new TextBlock { Text = "회신...", Foreground = new SolidColorBrush(Color.FromRgb(138, 138, 138)), Margin = new(12, 7, 0, 0), IsHitTestVisible = false };
         replyHost.Children.Add(placeholder); input.TextChanged += (_, _) => placeholder.Visibility = input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -104,6 +105,7 @@ public sealed class MemoThreadDialog : CompactDialog
         });
         Actions.Children.Remove(ReplyButton); ReplyButton.IsDefault = false;
         ReplyButton.Width = ReplyButton.Height = 32; ReplyButton.MinWidth = ReplyButton.MinHeight = 0;
+        ReplyButton.VerticalAlignment = VerticalAlignment.Bottom;
         ReplyButton.Margin = new(8, 0, 0, 0); ReplyButton.Padding = new(0); ReplyButton.ToolTip = "회신 추가";
         ReplyButton.Background = ReplyButton.BorderBrush = new SolidColorBrush(Color.FromRgb(0, 95, 184));
         ReplyButton.Content = MemoConversationView.DesignIcon("memo-send.svg");

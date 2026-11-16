@@ -38,7 +38,9 @@ internal static class WindowsDraftPendingChecks
         var original = failure.Session.ActiveBlock!;
         original.Source = "기존 설명"; original.Braille = "⠿"; original.HasManualBraille = true;
         original.Metadata = new(Type: "image", SelectedIndex: 0, Alternatives: [
-            new("오류 초안", "너무 긴 초안", new string('가', 1001), null, null)]);
+            // Long ordinary text is now supported. An oversized formula still
+            // exercises a real validation failure without depending on that cap.
+            new("오류 초안", "유효하지 않은 수식", "<!수식>" + new string('x', 1001) + "<!/수식>", null, null)]);
         try
         {
             await failure.ExecuteAsync("drafts");

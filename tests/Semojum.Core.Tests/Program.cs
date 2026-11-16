@@ -4,6 +4,7 @@ if (args.Contains("--sidecar-fixture")) return await IntegrationChecks.RunFixtur
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("Latest translation cancels superseded engine work without overwriting new text", TranslationCancellationChecks.RunAsync),
     ("Math templates wrap selections, select editable slots and delimit commands", MathTemplateChecks.RunAsync),
     ("Board feature retains its last loaded state on failure and cancellation and builds the notice and answered lists", FeatureBoardChecks.RunAsync),
     ("Decomposed Korean filenames display composed while keeping their actual path", FileNameNormalizationChecks.RunAsync),

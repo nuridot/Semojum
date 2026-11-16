@@ -31,7 +31,7 @@ public partial class MainWindow
         void Apply(TextEditor editor, bool braille)
         {
             // Figma uses a 28 DIP baseline for both 14 DIP source and 22 DIP braille.
-            var natural = braille ? (FontFamily)FindResource("BrailleFont") : value.FontFamily == "Noto Sans KR" ? (FontFamily)FindResource("InterfaceFont") : new FontFamily(value.FontFamily);
+            var natural = braille ? (FontFamily)FindResource("BrailleFont") : value.FontFamily is "Pretendard" or "Noto Sans KR" or "Malgun Gothic" ? (FontFamily)FindResource("InterfaceFont") : new FontFamily(value.FontFamily);
             var spacing = value.LineSpacing / 1.3 * (braille ? 28d / 22 : 2);
             var family = new FontFamily { LineSpacing = spacing, Baseline = natural.Baseline + (spacing - natural.LineSpacing) / 2 };
             // The braille family is itself composite (Nuridot Braille for cells only), so its maps carry over instead of a single target.

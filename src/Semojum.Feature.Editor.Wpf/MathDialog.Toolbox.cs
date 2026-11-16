@@ -77,7 +77,7 @@ public sealed partial class MathDialog
                     header.Children.Add(new TextBlock { Text = template.Label, VerticalAlignment = VerticalAlignment.Center });
                     try
                     {
-                        var preview = new FormulaControl { SystemTextFontName = "Malgun Gothic", Formula = template.Insert().Text, FontSize = 20, Margin = new(4) };
+                        var preview = new FormulaControl { SystemTextFontName = "Pretendard", Formula = template.Insert().Text, FontSize = 20, Margin = new(4) };
                         if (preview.HasError) continue;
                         var box = new Viewbox { Child = preview, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = 64 };
                         Grid.SetColumn(box, 1); header.Children.Add(box); item.Header = header;

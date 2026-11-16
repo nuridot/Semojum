@@ -353,8 +353,8 @@ public sealed class UsageDialog : CompactDialog
         var logoutHeader = new StackPanel();
         logoutHeader.Children.Add(new Border { Height = 1, Background = (Brush)FindResource("Line"), Margin = new(16, 12, 12, 11) });
         var logoutRow = new StackPanel { Orientation = Orientation.Horizontal, Height = 32, Margin = new(16, 0, 0, 0) };
-        logoutRow.Children.Add(new SvgViewbox { Source = new Uri("pack://application:,,,/Semojum.Feature.Usage.Wpf;component/Assets/Figma/account-logout.svg"), Width = 20, Height = 20, Stretch = Stretch.None, VerticalAlignment = VerticalAlignment.Top });
-        logoutRow.Children.Add(new TextBlock { Text = "로그아웃", VerticalAlignment = VerticalAlignment.Top, Margin = new(4, 2, 0, 0), Foreground = ColorBrush("#C42B1C") });
+        logoutRow.Children.Add(new SvgViewbox { Source = new Uri("pack://application:,,,/Semojum.Feature.Usage.Wpf;component/Assets/Figma/account-logout.svg"), Width = 20, Height = 20, Stretch = Stretch.None, VerticalAlignment = VerticalAlignment.Center });
+        logoutRow.Children.Add(new TextBlock { Text = "로그아웃", VerticalAlignment = VerticalAlignment.Center, Margin = new(4, 0, 0, 0), Foreground = ColorBrush("#C42B1C") });
         logoutHeader.Children.Add(logoutRow);
         logoutTab.Header = logoutHeader; logoutTab.Height = 56; logoutTab.Padding = new(0);
         // Sections are compared by tab, not position: the administrator's 기관 관리 shifts 문의 내역 and 로그아웃.

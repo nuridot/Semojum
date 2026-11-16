@@ -22,7 +22,7 @@ internal static class WindowsExportRangeChecks
                     "Range save offers only source-page and braille-face scopes");
                 var format = Descendants(first).OfType<ComboBox>().Single(x => AutomationProperties.GetName(x) == "형식");
                 scope.SelectedIndex = 1;
-                check(format.Items.Cast<string>().SequenceEqual([".brl", ".brf"]), "Braille range limits formats to BRL and BRF");
+                check(format.Items.Cast<string>().SequenceEqual([".brf", ".txt — 점자"]), "Braille range limits formats to BRF and braille TXT");
                 scope.SelectedIndex = 0;
                 check(format.Items.Cast<string>().SequenceEqual([".txt — 원문", ".md"]), "Original range limits formats to TXT and MD");
                 format.SelectedItem = ".md";

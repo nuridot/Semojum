@@ -5,7 +5,7 @@ $build = Join-Path $root 'artifacts/engine-build'
 $source = Join-Path $build 'source'
 New-Item -ItemType Directory -Force $build | Out-Null
 if (-not (Test-Path "$source/.git")) {
-    git clone --depth 1 --branch v3.4.44 https://github.com/Semojum/braille.git $source
+    git clone --depth 1 --branch v0.4.44 https://github.com/Semojum/braille.git $source
     if ($LASTEXITCODE -ne 0) { throw 'Engine source download failed.' }
 }
 $revision = git -C $source rev-parse HEAD

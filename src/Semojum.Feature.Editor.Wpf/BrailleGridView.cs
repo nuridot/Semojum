@@ -252,7 +252,7 @@ public sealed partial class BrailleGridView : ListBox
             var owner = Owner; if (owner is not null) owner.drawSelection = owner.Selection; var cw = CellWidth; var ch = CellHeight; var cols = face.Rows[0].Length; var textLeft = TextLeft;
             dc.DrawRectangle(owner?.HighContrast == true ? Brushes.Black : Brushes.White, null, new Rect(RenderSize));
             var braille = new Typeface((FontFamily)Application.Current.FindResource("BrailleFont"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-            void Text(string value, Point point, double size, Brush brush, bool symbol = false) => dc.DrawText(new FormattedText(value, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, symbol ? new Typeface("Segoe UI Symbol") : braille, size, brush, VisualTreeHelper.GetDpi(this).PixelsPerDip), point);
+            void Text(string value, Point point, double size, Brush brush, bool symbol = false) => dc.DrawText(new FormattedText(value, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, symbol ? new Typeface((FontFamily)System.Windows.Application.Current.FindResource("InterfaceFont"), System.Windows.FontStyles.Normal, System.Windows.FontWeights.Normal, System.Windows.FontStretches.Normal) : braille, size, brush, VisualTreeHelper.GetDpi(this).PixelsPerDip), point);
             var gutterEdge = GutterEdge;
             dc.DrawRectangle(owner?.HighContrast == true ? Brushes.Black : owner?.LineNumberBackground ?? Brushes.WhiteSmoke, null, new Rect(0, 0, gutterEdge + 1, RenderSize.Height));
             dc.DrawLine(new Pen(owner?.HighContrast == true ? Brushes.White : new SolidColorBrush(Color.FromRgb(234, 234, 234)), 1), new(gutterEdge + .5, 0), new(gutterEdge + .5, RenderSize.Height));
