@@ -85,9 +85,11 @@ internal static class WindowsPanelDesignChecks
             {
                 var button = Descendants(header).OfType<Button>().Single(b => AutomationProperties.GetName(b) == name);
                 button.BringIntoView(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
+                // Resizing can enqueue another ScrollViewer layout/offset pass.
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
                 var bounds = button.TransformToAncestor(window.PanelScroll).TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
                 check(button.IsEnabled && button.Focusable && bounds.Left >= -1 && bounds.Right <= window.PanelScroll.ViewportWidth + 1,
-                    $"The 480px editor can scroll to {name}");
+                    $"The 480px editor can scroll to {name} (bounds={bounds}, viewport={window.PanelScroll.ViewportWidth}, offset={window.PanelScroll.HorizontalOffset})");
             }
             window.PanelScroll.ScrollToLeftEnd();
             var path = Path.Combine(directory, "panel-design.txt");

@@ -123,6 +123,7 @@ internal static class WindowsFocusedChecks
                     await WindowsCommonDesignChecks.RunAsync(directory, Check);
                     await WindowsBrailleFontChecks.RunAsync(Check);
                     await WindowsIndividualControlStatesChecks.RunAsync(directory, Check);
+                    await WindowsPanelDesignChecks.RunAsync(directory, Check);
                     break;
             }
         }
