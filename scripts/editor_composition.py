@@ -1,6 +1,6 @@
 """Desktop composition with reversible cell coordinates.
 
-Uses the pinned Semojum/braille 3.4.44 helpers for wrapping, rules, numbers,
+Uses the pinned Semojum/braille 3.4.45 helpers for wrapping, rules, numbers,
 alignment and BRF encoding. Pagination follows assist.build_pages; this adapter
 adds coordinates and independent footer/number policies. No translation rules
 are reimplemented here. See tests/engine/test_editor_composition.py for upstream parity.
@@ -10,6 +10,7 @@ translate_page rows) instead of inside `braille`, so they never move the block's
 cell coordinates. They compose exactly like the same newlines inside `braille`.
 """
 from collections import Counter
+from bisect import bisect_right
 import re
 from dataclasses import dataclass, replace
 from semojum_braille import assist as a
@@ -58,6 +59,9 @@ def fold(block, opts):
     result, base = [], block.get("offset_base", 0)
     for original in lines:
         logical = original.rstrip("\r\n").replace("\t", a.SPACE).replace(" ", a.SPACE)
+        line_index = bisect_right(block.get("_line_starts", [0]), base) - 1
+        effective = block.get("_line_aligns")
+        align = effective[line_index] if effective else block.get("align", "")
         breaks = [b - base for b in block.get("breaks", []) if base < b < base + len(logical)]
         center = block.get("heading_level") == 1
         # The exact upstream wrap output is authoritative. Match each fragment
@@ -73,7 +77,7 @@ def fold(block, opts):
             pad = len(chunk) - len(content)
             refs = [None] * pad + [[ident, base + pos + i] for i in range(len(content))]
             end = [ident, base + pos + len(content)]
-            result.append(Line(chunk, refs, end, block.get("align", "")))
+            result.append(Line(chunk, refs, end, align))
             cursor = pos + len(content)
         base += len(original)
     return result
@@ -99,6 +103,8 @@ def compose(job):
     if any(v not in ("left", "center", "right") for v in header_aligns.values()):
         raise ValueError("header_aligns는 left|center|right")
     flat = []
+    align_state, align_uncertain = "", False
+    alignment_unknown = []
     sources = a._renumber(job.get("sources", []), opts)
     for i, source in enumerate(sources):
         op = source["orig_page"]
@@ -108,6 +114,19 @@ def compose(job):
             flat.append((Line(text, [None] * len(text), kind="change"), op, cover))
         for block in sorted(source.get("blocks", []), key=lambda b: b.get("order", 0)):
             raw = block.get("braille", "")
+            if block.get("alignment_unknown"):
+                # An edited/stale line map cannot establish the alignment for
+                # following text. Keep it unverified until a verified tag resets it.
+                align_state, align_uncertain = "", True
+                alignment_unknown.append(block["id"])
+            if raw.strip() not in (a.PAGE_BREAK_TAG, a.CHAPTER_TAG, *a.RULE_TAGS):
+                (effective,), align_state = a.carry_aligns([dict(block, text=raw)], align_state)
+                if align_uncertain and any(not value for value in effective):
+                    alignment_unknown.append(block["id"])
+                if align_state:
+                    align_uncertain = False
+                block = dict(block, _line_aligns=effective,
+                             _line_starts=[0] + [m.end() for m in re.finditer("\n", raw)])
             flat += [(Line("", [], kind="blank"), op, cover) for _ in range(int(block.get("blank_before") or 0))]
             pattern = "(" + "|".join(re.escape(t) for t in [a.PAGE_BREAK_TAG, a.CHAPTER_TAG, *a.RULE_TAGS]) + ")"
             cursor = 0
@@ -223,4 +242,5 @@ def compose(job):
     # are byte-for-byte representations of the exported BRF, not another layout.
     return {"brf": brf, "replaced": {f"U+{ord(c):04X}": n for c, n in bad.items()},
             "pages": parse_brf(brf) if pages else [], "maps": maps, "ends": ends,
-            "kinds": kinds, "numbers": numbers}
+            "kinds": kinds, "numbers": numbers, "alignment_protocol": 1,
+            "alignment_unknown": list(dict.fromkeys(alignment_unknown))}
