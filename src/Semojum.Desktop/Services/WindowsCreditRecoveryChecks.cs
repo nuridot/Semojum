@@ -264,7 +264,7 @@ internal static class WindowsCreditRecoveryChecks
             var loaded = await SmjFile.LoadAsync(path);
             check(loaded.Blocks[0].Source == "edited local text", "A save during resume keeps the current edits in the local work file");
             check(fixture.SaveRequests == 0, "A save during resume must not send the stale snapshot to the server");
-            check(loaded.PendingRestart is { Unconfirmed: true, Pages: [2] } && SmjFile.Snapshot(loaded).Manifest.Version == SmjFile.ConflictVersion,
+            check(loaded.PendingRestart is { Unconfirmed: true, Pages: [2] } && SmjFile.Snapshot(loaded).Manifest.Version == SmjFile.EngineDraftVersion,
                 "An unconfirmed resume and its target pages survive a local save and reopen");
             fixture.Cancel();
             await Task.Delay(100);
@@ -664,7 +664,7 @@ internal static class WindowsCreditRecoveryChecks
                         var snapshot = SmjFile.Snapshot(window.Session);
                         await SmjFile.SaveAsync(path, snapshot);
                         var loaded = await SmjFile.LoadAsync(path);
-                        conflictSaved = snapshot.Manifest.Version == SmjFile.ConflictVersion
+                        conflictSaved = snapshot.Manifest.Version == SmjFile.EngineDraftVersion
                             && loaded.Blocks.Any(b => b.Page == 2 && b.Source == "local edit" && b.Memos.Any(m => m.Body == "교정 메모"))
                             && loaded.PendingServerPages.TryGetValue(2, out var saved) && saved.Blocks.Any(b => b.Source == "new server content")
                             && pending.Blocks.Any(b => b.Source == "new server content") && loaded.ErrorNotice.Length > 0;
@@ -695,7 +695,7 @@ internal static class WindowsCreditRecoveryChecks
                         {
                             var savedBackup = await SmjFile.LoadAsync(backup);
                             var clean = SmjFile.Snapshot(original);
-                            recoveryWorked = separateTab && !original.HasPendingServerPages && clean.Manifest.Version == SmjFile.Version
+                            recoveryWorked = separateTab && !original.HasPendingServerPages && clean.Manifest.Version == SmjFile.EngineDraftVersion
                                 && original.Blocks.Any(b => b.Page == 2 && b.Source == "new server content")
                                 && savedBackup.HasPendingServerPages && savedBackup.Blocks.Any(b => b.Page == 2 && b.Source == "local edit" && b.Memos.Any(m => m.Body == "교정 메모"));
                             JobClient.PlanSave(clean.Manifest);
