@@ -179,6 +179,7 @@ public partial class MainWindow
 
     private void RemoveDocument(OpenDocument context)
     {
+        CloseEventDocument(context.Model);
         tabSwitching = true;
         try
         {

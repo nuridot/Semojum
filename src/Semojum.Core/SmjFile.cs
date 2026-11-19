@@ -12,7 +12,8 @@ public sealed record SmjBlock(int Id, string? ServerId, int Page, string Heading
     string Memo, bool HasManualBraille, BlockMetadata Metadata, BrailleTranslation? Translation, LineMemo[] Memos,
     int SourceCaret = 0, int BrailleCaret = 0, string? ClientId = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReviewMark[]? ReviewMarks = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EngineDraftState? EngineDraft = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EngineDraftState? EngineDraft = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AiBaselineState? AiBaseline = null);
 public sealed record PendingServerPage(int Page, SmjBlock[] Blocks, ServerBlockRecord[] ServerBlocks,
     QualityIssue[] Quality, double? OcrConfidenceAverage, string? OriginalType, string Status);
 public sealed record PendingRestart(bool Unconfirmed, int[] Pages);
@@ -23,7 +24,8 @@ public sealed record SmjManifest(string Format, int Version, string? JobId, stri
     Dictionary<int, ServerBlockRecord[]>? ServerPages = null, Dictionary<int, QualityIssue[]>? QualityReports = null, bool? IsTextJob = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<int, PendingServerPage>? PendingServerPages = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PendingRestart? PendingRestart = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? TotalOriginalPages = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? TotalOriginalPages = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AppDocumentIdentity? AppIdentity = null);
 public sealed record SmjSnapshot(SmjManifest Manifest, IReadOnlyDictionary<string, byte[]> Assets);
 
 /// <summary>Versioned, self-contained ZIP. All reading happens in memory; archive paths are never extracted.</summary>
@@ -53,13 +55,13 @@ public static class SmjFile
         var pending = session.HasPendingServerPages ? new Dictionary<int, PendingServerPage>(session.PendingServerPages) : null;
         var hasReviews = blocks.Any(b => b.ReviewMarks is { Length: > 0 })
             || (pending?.Values.Any(p => p.Blocks.Any(b => b.ReviewMarks is { Length: > 0 })) ?? false);
-        var hasEngineDrafts = blocks.Any(b => b.EngineDraft is not null)
-            || (pending?.Values.Any(p => p.Blocks.Any(b => b.EngineDraft is not null)) ?? false);
+        var hasEngineDrafts = session.AppIdentity is not null || blocks.Any(b => b.EngineDraft is not null || b.AiBaseline is not null)
+            || (pending?.Values.Any(p => p.Blocks.Any(b => b.EngineDraft is not null || b.AiBaseline is not null)) ?? false);
         var manifest = new SmjManifest(Format, hasEngineDrafts ? EngineDraftVersion : hasReviews ? ReviewVersion : pending is null && session.PendingRestart is null ? Version : ConflictVersion, session.JobId, session.OwnerLoginId, session.JobStatus,
             session.Layout, session.Options, session.FooterText, session.ActiveBlock?.Id, blocks, originals,
             new(session.PageStatuses), new(session.OriginalPages), session.FooterRanges.ToArray(),
             new(session.ServerPages), new(session.QualityReports), session.IsTextJob, pending, session.PendingRestart,
-            session.IsTextJob == true ? null : session.TotalOriginalPages);
+            session.IsTextJob == true ? null : session.TotalOriginalPages, session.AppIdentity);
         // Detach nested arrays from live editor/engine state before awaiting disk or network I/O.
         manifest = JsonSerializer.Deserialize<SmjManifest>(JsonSerializer.SerializeToUtf8Bytes(manifest, Json), Json)!;
         Validate(manifest);
@@ -68,7 +70,7 @@ public static class SmjFile
 
     public static SmjBlock[] CaptureBlocks(IEnumerable<EditorBlock> blocks) => blocks.Select(b => new SmjBlock(b.Id, b.ServerId, b.Page, b.Heading, b.Source, b.Braille,
         b.Memo, b.HasManualBraille, b.Metadata, b.Translation, b.Memos.ToArray(), b.SourceCaret, b.BrailleCaret, b.ClientId,
-        b.ReviewMarks.Count == 0 ? null : b.ReviewMarks.ToArray(), b.EngineDraft)).ToArray();
+        b.ReviewMarks.Count == 0 ? null : b.ReviewMarks.ToArray(), b.EngineDraft, b.AiBaseline)).ToArray();
 
     public static EditorBlock RestoreBlock(SmjBlock b)
     {
@@ -76,7 +78,7 @@ public static class SmjFile
         {
             Id = b.Id, ServerId = b.ServerId, ClientId = b.ClientId ?? "app_" + Guid.NewGuid().ToString("N"), Page = b.Page, Heading = b.Heading, Source = b.Source, Braille = b.Braille,
             Memo = b.Memo, HasManualBraille = b.HasManualBraille, Metadata = b.Metadata, Translation = b.Translation,
-            EngineDraft = b.EngineDraft,
+            EngineDraft = b.EngineDraft, AiBaseline = b.AiBaseline,
             SourceCaret = Math.Clamp(b.SourceCaret, 0, b.Source.Length), BrailleCaret = Math.Clamp(b.BrailleCaret, 0, b.Braille.Length),
             State = b.HasManualBraille ? "직접 수정" : b.Translation?.NeedsReview == true ? "검토 필요" : "저장된 점자"
         };
@@ -160,7 +162,7 @@ public static class SmjFile
         {
             Title = title, JobId = manifest.JobId, OwnerLoginId = manifest.OwnerLoginId, JobStatus = manifest.JobStatus, IsTextJob = manifest.IsTextJob,
             Layout = manifest.Layout, Options = manifest.Options, FooterText = manifest.FooterText, FooterRanges = manifest.FooterRanges ?? [],
-            TotalOriginalPages = manifest.IsTextJob == true ? null : manifest.TotalOriginalPages
+            TotalOriginalPages = manifest.IsTextJob == true ? null : manifest.TotalOriginalPages, AppIdentity = manifest.AppIdentity
         };
         foreach (var pair in manifest.PageStatuses ?? []) model.PageStatuses.Add(pair.Key, pair.Value);
         foreach (var pair in manifest.OriginalPages ?? []) model.OriginalPages.Add(pair.Key, pair.Value);
@@ -193,8 +195,9 @@ public static class SmjFile
         if (m.Version is not (ReviewVersion or EngineDraftVersion) && (m.Blocks.Any(b => b?.ReviewMarks is { Length: > 0 })
             || (m.PendingServerPages?.Values.Any(p => p?.Blocks?.Any(b => b?.ReviewMarks is { Length: > 0 }) == true) ?? false)))
             throw new InvalidDataException("검토 표시가 작업 파일 버전과 일치하지 않습니다.");
-        if (m.Version != EngineDraftVersion && (m.Blocks.Any(b => b?.EngineDraft is not null)
-            || (m.PendingServerPages?.Values.Any(p => p?.Blocks?.Any(b => b?.EngineDraft is not null) == true) ?? false)))
+        if (m.AppIdentity is { } identity && (identity.Id == Guid.Empty || identity.WorkRevision < 1)) throw new InvalidDataException("앱 문서 식별 정보가 올바르지 않습니다.");
+        if (m.Version != EngineDraftVersion && (m.AppIdentity is not null || m.Blocks.Any(b => b?.EngineDraft is not null || b?.AiBaseline is not null)
+            || (m.PendingServerPages?.Values.Any(p => p?.Blocks?.Any(b => b?.EngineDraft is not null || b?.AiBaseline is not null) == true) ?? false)))
             throw new InvalidDataException("엔진 초안 정보가 작업 파일 버전과 일치하지 않습니다.");
         m.Layout.Validate();
         FooterRange.Validate(m.FooterRanges ?? []);

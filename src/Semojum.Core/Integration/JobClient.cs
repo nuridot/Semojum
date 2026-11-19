@@ -84,18 +84,18 @@ public sealed partial class JobClient(SemojumApiClient api)
     /// <summary>Several images go up in one request whose total has the same 100 MB limit (BE 2026-11-02, 413 JOB4009).</summary>
     public static bool ExceedsImageTotal(IReadOnlyCollection<long> sizes) => sizes.Count > 1 && sizes.Sum() > MaximumUploadBytes;
     public static string ImageTotalMessage(int count) => $"이미지 {count}장의 합계가 100 MB를 넘습니다. 여러 장은 합계 100 MB까지 올릴 수 있습니다. 나누어 다시 올려 주세요.";
-    public async Task<JobCreated> CreateTextAsync(string fileName, DocumentSession settings, CancellationToken ct = default, string? formId = null)
+    public async Task<JobCreated> CreateTextAsync(string fileName, DocumentSession settings, CancellationToken ct = default, string? formId = null, object? analyticsContext = null)
     {
         var result = await api.SendAuthenticatedAsync(HttpMethod.Post, "/api/jobs/text", new
         {
             fileName = DisplayFileName.Normalize(fileName), formId, insertPageNumber = settings.Layout.ShowSourcePageNumber, footerText = settings.FooterText,
-            layoutOptions = LayoutBody(settings.Layout), brailleOptions = OptionsBody(settings.Options)
+            layoutOptions = LayoutBody(settings.Layout), brailleOptions = OptionsBody(settings.Options), analyticsContext
         }, ct);
         return Created(result);
     }
 
     /// <param name="password">The document password of an encrypted PDF, sent only after the server asked for it (JOB4018/JOB4019). Never stored or logged.</param>
-    public async Task<JobCreated> UploadAsync(IReadOnlyList<UploadFile> files, DocumentSession settings, CancellationToken ct = default, string? formId = null, string? password = null)
+    public async Task<JobCreated> UploadAsync(IReadOnlyList<UploadFile> files, DocumentSession settings, CancellationToken ct = default, string? formId = null, string? password = null, object? analyticsContext = null)
     {
         var allowed = new[] { ".pdf", ".hwp", ".hwpx", ".txt", ".png", ".jpg", ".jpeg" };
         if (files.Count == 0 || files.Any(f => !allowed.Contains(Path.GetExtension(f.FileName).ToLowerInvariant())))
@@ -124,6 +124,7 @@ public sealed partial class JobClient(SemojumApiClient api)
             form.Add(new StringContent(settings.Layout.ShowSourcePageNumber ? "true" : "false"), "insertPageNumber");
             // A form part, never the query string, so the password does not appear in a URL.
             if (password is not null) form.Add(new StringContent(password), "password");
+            if (analyticsContext is not null) form.Add(new StringContent(JsonSerializer.Serialize(analyticsContext, AppEvents.Json), Encoding.UTF8, "application/json"), "analyticsContext");
             return form;
         };
         return Created(await api.SendAuthenticatedAsync(HttpMethod.Post, "/api/jobs", body, ct));
@@ -151,12 +152,12 @@ public sealed partial class JobClient(SemojumApiClient api)
     }
 
     /// <summary>BE 2026-10-27: re-queues pages blocked by AI errors or timeouts; canceled and credit-exhausted pages are never included.</summary>
-    public Task<JobRestart> RetryAsync(string jobId, CancellationToken ct = default) => RestartAsync(jobId, "retry", "retriedPages", ct);
+    public Task<JobRestart> RetryAsync(string jobId, CancellationToken ct = default, object? analyticsContext = null) => RestartAsync(jobId, "retry", "retriedPages", ct, analyticsContext);
     /// <summary>BE 2026-10-27 (기획 10-1): re-queues pages blocked by CREDIT_EXHAUSTED once credits are available.</summary>
-    public Task<JobRestart> ResumeAsync(string jobId, CancellationToken ct = default) => RestartAsync(jobId, "resume", "resumedPages", ct);
-    private async Task<JobRestart> RestartAsync(string jobId, string action, string field, CancellationToken ct)
+    public Task<JobRestart> ResumeAsync(string jobId, CancellationToken ct = default, object? analyticsContext = null) => RestartAsync(jobId, "resume", "resumedPages", ct, analyticsContext);
+    private async Task<JobRestart> RestartAsync(string jobId, string action, string field, CancellationToken ct, object? analyticsContext)
     {
-        var result = await api.SendAuthenticatedAsync(HttpMethod.Post, JobPath(jobId, action), cancellationToken: ct);
+        var result = await api.SendAuthenticatedAsync(HttpMethod.Post, JobPath(jobId, action), analyticsContext is null ? null : new { analyticsContext }, ct);
         if (!result.TryGetProperty(field, out var list) || list.ValueKind != JsonValueKind.Array)
             throw new InvalidDataException("서버가 재개 대상 쪽을 확인해 주지 않았습니다.");
         var pages = list.EnumerateArray().Select(p => p.GetInt32()).ToArray();
@@ -231,7 +232,8 @@ public sealed partial class JobClient(SemojumApiClient api)
                     // A restored server result may contain manual edits. Do not overwrite on open.
                     HasManualBraille = braille.ContainsKey(id),
                     // Existing server braille is the final edited text; it cannot reconstruct the first engine output.
-                    EngineDraft = braille.ContainsKey(id) ? null : new(null, CapturePending: true)
+                    EngineDraft = braille.ContainsKey(id) ? null : new(null, CapturePending: true),
+                    AiBaseline = Text(result, "baseline_version_id") is { } baseline ? new(baseline, null) : null
                 };
                 foreach (var memo in Array(data, "memos").Where(m => Text(m, "elementId") == id))
                     block.Memos.Add(new(Guid.NewGuid().ToString("N"), memo.TryGetProperty("memoId", out var mid) && mid.ValueKind == JsonValueKind.Number && mid.TryGetInt64(out var n) ? n : null,

@@ -231,7 +231,7 @@ public partial class MainWindow
                 model.Layout = model.Layout with { PageNumbers = defaults.PageNumberLine == "every" ? "모든 페이지" : "홀수 페이지" };
             }
             else { model.Options = selectedSettings.Options; model.Layout = selectedSettings.Layout; }
-            var created = await jobs.CreateTextAsync(System.IO.Path.GetFileNameWithoutExtension(model.Title), model, formId: formId);
+            var created = await jobs.CreateTextAsync(System.IO.Path.GetFileNameWithoutExtension(model.Title), model, formId: formId, analyticsContext: EventContext(model));
             model.JobId = created.JobId; model.OwnerLoginId = api.Account!.LoginId;
             await jobs.ReadSettingsAsync(model, uploadSettings: selectedSettings);
         }
