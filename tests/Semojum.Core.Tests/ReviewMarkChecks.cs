@@ -94,7 +94,7 @@ internal static class ReviewMarkChecks
             // A file saved before open warnings existed (report only, no marks) opens with its warnings, still unmodified.
             var fresh = new DocumentSession { JobId = "job_w", OwnerLoginId = "test" };
             Semojum.Core.Integration.JobClient.Remember(fresh, page);
-            fresh.Add(new EditorBlock { Id = 1, Page = 1, ServerId = "t1", Source = "원문 하나", Braille = "⠁⠃" });
+            fresh.Add(new EditorBlock { Id = 1, Page = 1, ServerId = "t1", Source = "원문 하나", Braille = "⠁⠃", EngineDraft = null });
             var legacy = SmjFile.Snapshot(fresh);
             Check(legacy.Manifest.Version == SmjFile.Version && legacy.Manifest.Blocks[0].ReviewMarks is null, "A report without marks keeps the older file version");
             await SmjFile.SaveAsync(path, legacy);
@@ -133,6 +133,7 @@ internal static class ReviewMarkChecks
         {
             var path = Path.Combine(directory, "work.smj");
             var legacy = Document();
+            legacy.Blocks[0].EngineDraft = null;
             var snapshot = SmjFile.Snapshot(legacy);
             foreach (var version in new[] { 1, 2, 3, 4, 5 })
             {
@@ -362,7 +363,7 @@ internal static class ReviewMarkChecks
             foreach (var invalid in new[]
             {
                 snapshot with { Manifest = snapshot.Manifest with { Version = 4 } },
-                snapshot with { Manifest = snapshot.Manifest with { Version = 7 } },
+                snapshot with { Manifest = snapshot.Manifest with { Version = SmjFile.EngineDraftVersion + 1 } },
                 snapshot with { Manifest = snapshot.Manifest with { Blocks = [snapshot.Manifest.Blocks[0] with { ReviewMarks = [new("id", ReviewKind.HumanConfirmed, ReviewPanel.Text, 0, 1, "다른 글자")] }] } }
             })
             {

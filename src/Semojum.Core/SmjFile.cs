@@ -11,7 +11,8 @@ public sealed record LineMemo(string LocalId, long? ServerId, string Panel, int 
 public sealed record SmjBlock(int Id, string? ServerId, int Page, string Heading, string Source, string Braille,
     string Memo, bool HasManualBraille, BlockMetadata Metadata, BrailleTranslation? Translation, LineMemo[] Memos,
     int SourceCaret = 0, int BrailleCaret = 0, string? ClientId = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReviewMark[]? ReviewMarks = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReviewMark[]? ReviewMarks = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EngineDraftState? EngineDraft = null);
 public sealed record PendingServerPage(int Page, SmjBlock[] Blocks, ServerBlockRecord[] ServerBlocks,
     QualityIssue[] Quality, double? OcrConfidenceAverage, string? OriginalType, string Status);
 public sealed record PendingRestart(bool Unconfirmed, int[] Pages);
@@ -33,6 +34,8 @@ public static class SmjFile
     public const int ConflictVersion = 5;
     // Older readers reject this version rather than silently dropping local review marks.
     public const int ReviewVersion = 6;
+    // Older apps must not discard the immutable engine draft and later mistake edited cells for it.
+    public const int EngineDraftVersion = 7;
     public const long MaximumExpandedBytes = 512L * 1024 * 1024;
     private const long MaximumManifestBytes = 64L * 1024 * 1024;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -50,7 +53,9 @@ public static class SmjFile
         var pending = session.HasPendingServerPages ? new Dictionary<int, PendingServerPage>(session.PendingServerPages) : null;
         var hasReviews = blocks.Any(b => b.ReviewMarks is { Length: > 0 })
             || (pending?.Values.Any(p => p.Blocks.Any(b => b.ReviewMarks is { Length: > 0 })) ?? false);
-        var manifest = new SmjManifest(Format, hasReviews ? ReviewVersion : pending is null && session.PendingRestart is null ? Version : ConflictVersion, session.JobId, session.OwnerLoginId, session.JobStatus,
+        var hasEngineDrafts = blocks.Any(b => b.EngineDraft is not null)
+            || (pending?.Values.Any(p => p.Blocks.Any(b => b.EngineDraft is not null)) ?? false);
+        var manifest = new SmjManifest(Format, hasEngineDrafts ? EngineDraftVersion : hasReviews ? ReviewVersion : pending is null && session.PendingRestart is null ? Version : ConflictVersion, session.JobId, session.OwnerLoginId, session.JobStatus,
             session.Layout, session.Options, session.FooterText, session.ActiveBlock?.Id, blocks, originals,
             new(session.PageStatuses), new(session.OriginalPages), session.FooterRanges.ToArray(),
             new(session.ServerPages), new(session.QualityReports), session.IsTextJob, pending, session.PendingRestart,
@@ -63,7 +68,7 @@ public static class SmjFile
 
     public static SmjBlock[] CaptureBlocks(IEnumerable<EditorBlock> blocks) => blocks.Select(b => new SmjBlock(b.Id, b.ServerId, b.Page, b.Heading, b.Source, b.Braille,
         b.Memo, b.HasManualBraille, b.Metadata, b.Translation, b.Memos.ToArray(), b.SourceCaret, b.BrailleCaret, b.ClientId,
-        b.ReviewMarks.Count == 0 ? null : b.ReviewMarks.ToArray())).ToArray();
+        b.ReviewMarks.Count == 0 ? null : b.ReviewMarks.ToArray(), b.EngineDraft)).ToArray();
 
     public static EditorBlock RestoreBlock(SmjBlock b)
     {
@@ -71,6 +76,7 @@ public static class SmjFile
         {
             Id = b.Id, ServerId = b.ServerId, ClientId = b.ClientId ?? "app_" + Guid.NewGuid().ToString("N"), Page = b.Page, Heading = b.Heading, Source = b.Source, Braille = b.Braille,
             Memo = b.Memo, HasManualBraille = b.HasManualBraille, Metadata = b.Metadata, Translation = b.Translation,
+            EngineDraft = b.EngineDraft,
             SourceCaret = Math.Clamp(b.SourceCaret, 0, b.Source.Length), BrailleCaret = Math.Clamp(b.BrailleCaret, 0, b.Braille.Length),
             State = b.HasManualBraille ? "직접 수정" : b.Translation?.NeedsReview == true ? "검토 필요" : "저장된 점자"
         };
@@ -174,8 +180,8 @@ public static class SmjFile
 
     private static void Validate(SmjManifest m)
     {
-        if (m.Format != Format || m.Version is not (1 or 2 or 3 or Version or ConflictVersion or ReviewVersion)) throw new InvalidDataException("지원하지 않는 .smj 형식 또는 버전입니다.");
-        if (m.Version is not (ConflictVersion or ReviewVersion) && (m.PendingServerPages is { Count: > 0 } || m.PendingRestart is not null)) throw new InvalidDataException("재개 확인 정보가 작업 파일 버전과 일치하지 않습니다.");
+        if (m.Format != Format || m.Version is not (1 or 2 or 3 or Version or ConflictVersion or ReviewVersion or EngineDraftVersion)) throw new InvalidDataException("지원하지 않는 .smj 형식 또는 버전입니다.");
+        if (m.Version is not (ConflictVersion or ReviewVersion or EngineDraftVersion) && (m.PendingServerPages is { Count: > 0 } || m.PendingRestart is not null)) throw new InvalidDataException("재개 확인 정보가 작업 파일 버전과 일치하지 않습니다.");
         if (m.PendingRestart is { } restart && (restart.Pages is null || restart.Pages.Any(n => n < 1) || restart.Pages.Distinct().Count() != restart.Pages.Length))
             throw new InvalidDataException("확인할 재개 쪽 정보가 올바르지 않습니다.");
         if (m.Layout is null || m.Options is null || m.FooterText is null || m.Blocks is not { Length: > 0 } || m.Originals is null)
@@ -184,9 +190,12 @@ public static class SmjFile
             || (m.PageStatuses?.Keys.Any(p => p > originalPageTotal) ?? false)
             || (m.OriginalPages?.Keys.Any(p => p > originalPageTotal) ?? false)))
             throw new InvalidDataException("원본 전체 쪽 정보가 올바르지 않습니다.");
-        if (m.Version != ReviewVersion && (m.Blocks.Any(b => b?.ReviewMarks is { Length: > 0 })
+        if (m.Version is not (ReviewVersion or EngineDraftVersion) && (m.Blocks.Any(b => b?.ReviewMarks is { Length: > 0 })
             || (m.PendingServerPages?.Values.Any(p => p?.Blocks?.Any(b => b?.ReviewMarks is { Length: > 0 }) == true) ?? false)))
             throw new InvalidDataException("검토 표시가 작업 파일 버전과 일치하지 않습니다.");
+        if (m.Version != EngineDraftVersion && (m.Blocks.Any(b => b?.EngineDraft is not null)
+            || (m.PendingServerPages?.Values.Any(p => p?.Blocks?.Any(b => b?.EngineDraft is not null) == true) ?? false)))
+            throw new InvalidDataException("엔진 초안 정보가 작업 파일 버전과 일치하지 않습니다.");
         m.Layout.Validate();
         FooterRange.Validate(m.FooterRanges ?? []);
         if ((m.ServerPages ?? []).Any(p => p.Key < 1 || p.Value is null || p.Value.Any(b => b is null || string.IsNullOrEmpty(b.Id)))
@@ -219,6 +228,8 @@ public static class SmjFile
     }
 
     private static bool InvalidBlock(SmjBlock? b) => b is null || b.Id < 1 || b.Page < 1 || b.Heading is null || b.Source is null || b.Braille is null
+        || b.EngineDraft is { CapturePending: true, Contents: not null }
+        || b.EngineDraft is { CapturePending: false, Contents: null }
         || (b.ReviewMarks ?? []).Any(mark => !ReviewAnchors.Valid(mark, b.Source, b.Braille))
         || (b.ReviewMarks ?? []).Select(mark => mark.Id).Distinct(StringComparer.Ordinal).Count() != (b.ReviewMarks?.Length ?? 0)
         || b.Memo is null || b.Metadata is null || b.Memos is null || b.Memos.Any(x => x is null || x.Panel is not ("TEXT" or "BRAILLE") || x.LineIndex < 0 || x.Body is null

@@ -71,7 +71,8 @@ internal static class OriginalPageTotalChecks
             Check(loaded.TotalOriginalPages == 128 && loaded.JobId == "current" && !loaded.IsDirty, "SMJ did not restore the confirmed total as a clean document");
             foreach (var version in Enumerable.Range(1, SmjFile.ReviewVersion))
             {
-                var legacy = snapshot with { Manifest = snapshot.Manifest with { Version = version, TotalOriginalPages = null } };
+                var legacy = snapshot with { Manifest = snapshot.Manifest with { Version = version, TotalOriginalPages = null,
+                    Blocks = snapshot.Manifest.Blocks.Select(b => b with { EngineDraft = null }).ToArray() } };
                 var oldPath = Path.Combine(directory, $"old-{version}.smj");
                 await SmjFile.SaveAsync(oldPath, legacy);
                 Check((await SmjFile.LoadAsync(oldPath)).TotalOriginalPages is null, $"Version {version} invented a missing total");

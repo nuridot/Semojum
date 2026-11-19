@@ -191,13 +191,14 @@ internal static class SyncChecks
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".smj");
         try
         {
-            var snapshot = SmjFile.Snapshot(model); Equal(SmjFile.Version, snapshot.Manifest.Version);
+            var snapshot = SmjFile.Snapshot(model); Equal(SmjFile.EngineDraftVersion, snapshot.Manifest.Version);
             await SmjFile.SaveAsync(path, snapshot); var loaded = await SmjFile.LoadAsync(path);
             Equal(3, loaded.QualityReports[3].Length); Equal("deleted", loaded.QualityReports[3][1].ElementId);
             Equal("t1:True,t2:False", string.Join(",", loaded.ServerPages[3].Select(r => $"{r.Id}:{r.HasBraille}")));
             // v2 readers would not know these fields; a v2 file still opens and plans without server records.
             var legacy = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(snapshot.Manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)))!;
             legacy["version"] = 2; legacy.AsObject().Remove("serverPages"); legacy.AsObject().Remove("qualityReports");
+            foreach (var block in legacy["blocks"]!.AsArray()) block!.AsObject().Remove("engineDraft");
             File.Delete(path);
             using (var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create))
             using (var writer = new StreamWriter(zip.CreateEntry("manifest.json").Open())) await writer.WriteAsync(legacy.ToJsonString());

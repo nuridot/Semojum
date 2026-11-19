@@ -189,7 +189,7 @@ internal static class SaveContractChecks
     {
         var snapshot = SmjFile.Snapshot(Document());
         var legacy = snapshot with { Manifest = snapshot.Manifest with { Version = 3, IsTextJob = null,
-            Blocks = snapshot.Manifest.Blocks.Select(b => b with { ClientId = null, Memos = [new("legacy", null, "TEXT", 0, "", "기존 메모", DateTimeOffset.Now, true)] }).ToArray() } };
+            Blocks = snapshot.Manifest.Blocks.Select(b => b with { ClientId = null, EngineDraft = null, Memos = [new("legacy", null, "TEXT", 0, "", "기존 메모", DateTimeOffset.Now, true)] }).ToArray() } };
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".smj");
         try
         {

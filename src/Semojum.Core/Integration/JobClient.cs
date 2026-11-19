@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Semojum.Core.Integration;
 
@@ -35,7 +36,8 @@ public sealed record JobCancellation(bool Accepted, string Status, int InFlightP
         IsTerminal || alreadyFinished ? "변환 중단 처리가 끝났습니다. 처리된 쪽은 계속 편집할 수 있습니다." :
         "변환 중단을 요청했습니다. 처리 중인 쪽이 마무리되면 반영됩니다.";
 }
-public sealed record SaveElement(string? Id, string[] Contents, int? SelectedIdx);
+public sealed record SaveElement(string? Id, string[] Contents, int? SelectedIdx,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? EngineContents = null);
 public sealed record SaveReply(string? Author, string Body, string CreatedAt);
 public sealed record SaveMemo(long? MemoId, string Panel, string ElementId, int LineIndex, string LineText, string Body, string CreatedAt,
     string? Author = null, bool Resolved = false, string? ResolvedAt = null, SaveReply[]? Replies = null, string? ClientMemoId = null);
@@ -227,7 +229,9 @@ public sealed partial class JobClient(SemojumApiClient api)
                         Text(item, "visual_subtype"), Bool(item, "is_blocked"), Confidence(item, "ocr_confidence"),
                         Text(item, "review_flag") is "open" or "sug" or "note" ? Text(item, "review_flag") : null),
                     // A restored server result may contain manual edits. Do not overwrite on open.
-                    HasManualBraille = braille.ContainsKey(id)
+                    HasManualBraille = braille.ContainsKey(id),
+                    // Existing server braille is the final edited text; it cannot reconstruct the first engine output.
+                    EngineDraft = braille.ContainsKey(id) ? null : new(null, CapturePending: true)
                 };
                 foreach (var memo in Array(data, "memos").Where(m => Text(m, "elementId") == id))
                     block.Memos.Add(new(Guid.NewGuid().ToString("N"), memo.TryGetProperty("memoId", out var mid) && mid.ValueKind == JsonValueKind.Number && mid.TryGetInt64(out var n) ? n : null,
