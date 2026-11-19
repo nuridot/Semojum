@@ -110,7 +110,7 @@ public partial class MainWindow
     }
     private EventDocument? TrackEvents(DocumentSession model, bool announce = true)
     {
-        if (appEvents?.ContextId is not { } context || model.IsReadOnly
+        if (appEvents?.ContextId is not { } context
             || model.OwnerLoginId is { } owner && owner != api.Account?.LoginId) return null;
         if (openDocuments.Any(d => ReferenceEquals(d.Model, model) && IsUntouchedPlaceholder(d))) return null;
         if (eventDocuments.TryGetValue(model, out var found))

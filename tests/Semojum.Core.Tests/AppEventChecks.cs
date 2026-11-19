@@ -66,7 +66,11 @@ internal static class AppEventChecks
         client.Record(new(Guid.NewGuid(), 1), "document_open_result", null, Props());
         try { await client.FlushAsync(); } catch (HttpRequestException) { }
         Check(store.Queue!.Events.Length == 1, "Transient failure lost event");
-        fail = false; var reopened = new AppEvents(api, store, "1.0.6"); await reopened.RefreshAsync(); await reopened.FlushAsync();
+        var freshApi = new SemojumApiClient(http);
+        fail = false; var reopened = new AppEvents(freshApi, store, "1.0.6");
+        await reopened.RefreshAsync();
+        Check(store.Queue.Events.Length == 1 && reopened.ContextId is null, "Startup before login erased the previous process queue");
+        await freshApi.LoginAsync("first", "test"); await reopened.RefreshAsync(); await reopened.FlushAsync();
         Check(attempts[0] == attempts[1] && store.Queue.Events.Length == 0, "Retry changed payload or did not ack");
     }
     private static async Task Acknowledgements()

@@ -49,7 +49,7 @@ public partial class MainWindow
     private void RefreshAccount()
     {
         AccountLabel.Text = api.Account is { } account ? account.LoginId : "로그인 안 됨";
-        if (api.Account is null) { appEvents?.Disable(); eventDocuments.Clear(); }
+        if (api.Account is null) { appEvents?.Suspend(); eventDocuments.Clear(); }
         else _ = RefreshEventConfigAsync();
     }
     internal async Task<bool> EnsureAccountAsync(bool allowInstitution = false)
@@ -109,6 +109,7 @@ public partial class MainWindow
         {
             if (smoke) await api.LogoutAsync();
             else await AutomaticLogin.LogoutAsync(api, accountCredentials);
+            appEvents?.Disable(); eventDocuments.Clear();
             RefreshAccount();
             return true;
         }

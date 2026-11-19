@@ -32,6 +32,7 @@ internal sealed class WindowsAppEventStore : IAppEventStore, IDisposable
     }
     public void Save(EventQueue queue)
     {
+        if (queue.Events.Length == 0) { if (File.Exists(path)) File.Delete(path); return; }
         var clear = JsonSerializer.SerializeToUtf8Bytes(queue, AppEvents.Json);
         byte[] encrypted;
         try { encrypted = Transform(clear, protect: true); }

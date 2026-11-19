@@ -60,6 +60,11 @@ public sealed class AppEvents
             Replace(new("", []));
         }
     }
+    public void Suspend()
+    {
+        // Startup and an expired token are not consent revocation. Keep the encrypted queue until its owner signs in.
+        lock (gate) { context = null; enabled.Clear(); authSession = null; role = null; }
+    }
 
     public async Task RefreshAsync(CancellationToken ct = default)
     {
@@ -67,7 +72,8 @@ public sealed class AppEvents
         try
         {
             var marker = api.SessionMarker; var account = api.Account;
-            if (marker is null || account is null || account.Role == "ROLE_ADMIN") { Disable(); return; }
+            if (marker is null || account is null) { Suspend(); return; }
+            if (account.Role == "ROLE_ADMIN") { Disable(); return; }
             lock (gate)
             {
                 if (authSession != marker || role != account.Role) { context = null; enabled.Clear(); }
@@ -83,7 +89,7 @@ public sealed class AppEvents
                 Replace(new(account.LoginId, queue.Events.Where(e => e.CollectionContextId == context && !Expired(e)).ToArray()));
             }
         }
-        catch (SemojumApiException ex) when (ex.Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) { Disable(); }
+        catch (SemojumApiException ex) when (ex.Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) { Suspend(); }
         finally { network.Release(); }
     }
 
