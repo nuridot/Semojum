@@ -5,6 +5,11 @@ using System.Collections.Specialized;
 
 namespace Semojum.Core;
 
+/// <summary>The first engine output, never the edited cells. Null state means the original is unknown.</summary>
+public sealed record EngineDraftState(string? Contents, bool CapturePending = false);
+public sealed record AiBaselineState(string VersionId, string? Text);
+public sealed record AppDocumentIdentity(Guid Id, long WorkRevision);
+
 public sealed partial class EditorBlock : ObservableObject
 {
     public int Id { get; init; }
@@ -14,6 +19,8 @@ public sealed partial class EditorBlock : ObservableObject
     public string? ServerId { get; set; }
     // Stable across snapshots, retries and SMJ transfers, including before the first server save.
     public string ClientId { get; init; } = "app_" + Guid.NewGuid().ToString("N");
+    public EngineDraftState? EngineDraft { get; set; } = new(null, CapturePending: true);
+    public AiBaselineState? AiBaseline { get; set; }
     [ObservableProperty] private BlockMetadata metadata = new();
     [ObservableProperty] private BrailleTranslation? translation;
     public ObservableCollection<LineMemo> Memos { get; } = [];
@@ -51,6 +58,7 @@ public sealed partial class EditorBlock : ObservableObject
     /// <summary>Sets cells from an automatic (re)translation. Unlike a person's edit it leaves server warnings open, now covering the new cells.</summary>
     public void ApplyTranslatedBraille(string cells)
     {
+        if (EngineDraft is { CapturePending: true }) EngineDraft = new(cells);
         var open = ServerWarnings.OpenKeys(this);
         applyingTranslation = true;
         try { Braille = cells; } finally { applyingTranslation = false; }
@@ -123,6 +131,7 @@ public sealed partial class DocumentSession : ObservableObject
     public ObservableCollection<EditorBlock> Blocks { get; } = [];
     public Dictionary<string, byte[]> OriginalFiles { get; } = [];
     public long ChangeVersion { get; private set; }
+    public AppDocumentIdentity? AppIdentity { get; set; }
     [ObservableProperty] private EditorBlock? activeBlock;
     private string title = "제목 없음.smj";
     public string Title

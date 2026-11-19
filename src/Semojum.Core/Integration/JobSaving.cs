@@ -47,7 +47,8 @@ public sealed partial class JobClient
             }
             var text = pageBlocks.Select(b => new SaveElement(BlockId(b), Lines(b.Source), b.Metadata.SelectedIndex)).ToArray();
             // The first braille block is created with its text block's ID, including empty/blocked blocks.
-            var braille = pageBlocks.Select(b => new SaveElement(BlockId(b), Lines(b.Braille), b.Metadata.SelectedIndex)).ToArray();
+            var braille = pageBlocks.Select(b => new SaveElement(BlockId(b), Lines(b.Braille), b.Metadata.SelectedIndex,
+                b.EngineDraft is { CapturePending: false, Contents: { } draft } ? Lines(draft) : null)).ToArray();
             var memos = pageBlocks.SelectMany(b => b.Memos.Select(m => new SaveMemo(m.ServerId, m.Panel, BlockId(b), m.LineIndex,
                 m.LineText, m.Body, Timestamp(m.CreatedAt), m.Author, m.Resolved,
                 m.Resolved && m.ResolvedAt.HasValue ? Timestamp(m.ResolvedAt.Value) : null,

@@ -46,7 +46,12 @@ public partial class MainWindow
         catch (OperationCanceledException) { }
         catch (Exception ex) { model.ErrorNotice = model.Status = "TXT 점역 실패 · 원문은 유지됩니다: " + ex.Message; }
     }
-    private void RefreshAccount() => AccountLabel.Text = api.Account is { } account ? account.LoginId : "로그인 안 됨";
+    private void RefreshAccount()
+    {
+        AccountLabel.Text = api.Account is { } account ? account.LoginId : "로그인 안 됨";
+        if (api.Account is null) { appEvents?.Suspend(); eventDocuments.Clear(); }
+        else _ = RefreshEventConfigAsync();
+    }
     internal async Task<bool> EnsureAccountAsync(bool allowInstitution = false)
     {
         await accountScreenGate.WaitAsync();
@@ -67,6 +72,7 @@ public partial class MainWindow
                     continue;
                 }
                 RefreshAccount();
+                await RefreshEventConfigAsync();
                 return api.Account is { } account && AutomaticLogin.IsEditorAllowed(account);
             }
         }
@@ -103,6 +109,7 @@ public partial class MainWindow
         {
             if (smoke) await api.LogoutAsync();
             else await AutomaticLogin.LogoutAsync(api, accountCredentials);
+            appEvents?.Disable(); eventDocuments.Clear();
             RefreshAccount();
             return true;
         }
@@ -148,14 +155,18 @@ public partial class MainWindow
             { await OpenAsync(orderedFiles[0], settings, dialog.FormId); return; }
             if (orderedFiles.Length > 1) { var order = new ImageOrderDialog(orderedFiles) { Owner = this }; if (order.ShowDialog() != true) return; orderedFiles = order.Paths; }
             fileBusy = true;
+            using var openEvent = EventOpen(() => settings);
             try
             {
                 var files = await UploadFileReader.ReadAsync(orderedFiles, documentLifetime.Token);
+                openEvent.Success();
                 session.Status = "파일 업로드 중…";
                 if (await UploadJobAsync(files, settings, dialog.FormId) is not { } job) return;
                 await LoadJobAsync(job.JobId, Path.GetFileNameWithoutExtension(orderedFiles[0]) + ".smj", files, uploadSettings: settings);
                 if (openDocument?.Model.JobId == job.JobId) openDocument.UploadPaths = orderedFiles;
             }
+            catch (OperationCanceledException) { openEvent.Abandon(); throw; }
+            catch (Exception ex) { openEvent.Failure(ex); throw; }
             finally { fileBusy = false; }
         }
         finally { uploadFlowBusy = false; }
@@ -168,7 +179,7 @@ public partial class MainWindow
         string? password = null;
         while (true)
         {
-            try { return await jobs.UploadAsync(files, settings, documentLifetime.Token, formId, password); }
+            try { return await jobs.UploadAsync(files, settings, documentLifetime.Token, formId, password, EventContext(settings)); }
             catch (SemojumApiException ex) when (ex.Code is "JOB4018" or "JOB4019" && files is [var pdf] && Path.GetExtension(pdf.FileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
             {
                 var prompt = FileNotices.EncryptedPdf(wrongPassword: ex.Code == "JOB4019"); prompt.Owner = this; prompt.ShowDialog();
@@ -183,10 +194,12 @@ public partial class MainWindow
     {
         var existing = openDocuments.FirstOrDefault(d => d.Model.JobId == id);
         if (existing is not null) { SetSession(existing.Model, existing.Path, existing.ShowOriginal); return; }
+        var model = new DocumentSession { JobId = id, OwnerLoginId = api.Account!.LoginId, Title = title, JobStatus = "PENDING" };
+        using var openEvent = originals is null ? EventOpen(() => model) : null;
         fileBusy = true;
         try
         {
-            var model = new DocumentSession { JobId = id, OwnerLoginId = api.Account!.LoginId, Title = title, JobStatus = "PENDING" };
+            if (uploadSettings is not null) TransferEvents(uploadSettings, model);
             if (originals is not null) model.IsTextJob = originals.All(f => Path.GetExtension(f.FileName).Equals(".txt", StringComparison.OrdinalIgnoreCase));
             await jobs.ReadSettingsAsync(model, documentLifetime.Token, uploadSettings);
             var status = await jobs.StatusAsync(id, documentLifetime.Token);
@@ -195,7 +208,10 @@ public partial class MainWindow
             SetSession(model, null, originals?.Any(f => !Path.GetExtension(f.FileName).Equals(".txt", StringComparison.OrdinalIgnoreCase)) ?? false);
             openDocument!.OriginalKindKnown = originals is not null;
             _ = MonitorJobAsync(openDocument!, status, restorePage, applyInitialChoices: uploadSettings is not null);
+            openEvent?.Success();
         }
+        catch (OperationCanceledException) { openEvent?.Abandon(); throw; }
+        catch (Exception ex) { openEvent?.Failure(ex); throw; }
         finally { fileBusy = false; }
     }
     // replacePages: pages being re-run by retry/resume/re-attach. Only their blocks are replaced in place; every other block stays as edited.
@@ -271,7 +287,14 @@ public partial class MainWindow
                         { loadedPages.Add(page.Key); MarkPageChecked(page.Key); continue; }
                         result = new RemotePage(page.Key, page.Value, [], null, null, null, 0, 0);
                     }
-                    if (applyInitialChoices) foreach (var block in result.Blocks) VisualDraftSelection.ApplyInitial(block, model.Options);
+                    foreach (var block in result.Blocks)
+                    {
+                        // Only a newly requested conversion supplies a known AI original. A reopened server result may already be edited.
+                        if (block.AiBaseline is { } baseline && (applyInitialChoices || replacePages?.Contains(page.Key) == true
+                            && model.Blocks.Where(b => b.Page == page.Key).All(b => b.AiBaseline?.VersionId != baseline.VersionId)))
+                            block.AiBaseline = baseline with { Text = block.Source };
+                        if (applyInitialChoices) VisualDraftSelection.ApplyInitial(block, model.Options);
+                    }
                     var keepLocalPage = replacePages?.Contains(page.Key) == true && model.Blocks.Any(b => b.Page == page.Key
                         && (b.ServerId is not null || !b.Metadata.IsBlocked || b.Source.Length > 0 || b.Braille.Length > 0 || b.Memos.Count > 0 || b.ReviewMarks.Count > 0));
                     if (keepLocalPage && !missingCreditResult)
@@ -416,7 +439,7 @@ public partial class MainWindow
         var requestAccepted = false;
         try
         {
-            var restart = retry ? await jobs.RetryAsync(model.JobId, ct) : await jobs.ResumeAsync(model.JobId, ct);
+            var restart = retry ? await jobs.RetryAsync(model.JobId, ct, EventContext(model)) : await jobs.ResumeAsync(model.JobId, ct, EventContext(model));
             requestAccepted = true;
             if (restart.Pages.Length == 0)
             {

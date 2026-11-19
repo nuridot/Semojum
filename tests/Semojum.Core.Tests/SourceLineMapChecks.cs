@@ -33,7 +33,7 @@ for line in sys.stdin:
                 throw new Exception("The mapped translation must be tied to the exact applied block revisions.");
             var model = new DocumentSession(); model.Add(block);
             var saved = SmjFile.Snapshot(model);
-            if (saved.Manifest.Version != 4 || saved.Manifest.Blocks[0].Translation?.SourceLineMap is not null)
+            if (saved.Manifest.Version != SmjFile.EngineDraftVersion || saved.Manifest.Blocks[0].Translation?.SourceLineMap is not null)
                 throw new Exception("The temporary mapping must not alter or persist in a normal SMJ file.");
             var malformed = await engine.TranslateElementAsync("다\n라", new(), new());
             var legacy = await engine.TranslateElementAsync("마\n바", new(), new());

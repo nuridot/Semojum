@@ -35,6 +35,7 @@ internal static class RemainingChecks
         var snapshot = SmjFile.Snapshot(session);
         var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(snapshot.Manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)))!;
         json["version"] = 1; json["layout"]!.AsObject().Remove("numberRanges"); json.AsObject().Remove("footerRanges");
+        foreach (var block in json["blocks"]!.AsArray()) block!.AsObject().Remove("engineDraft");
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".smj");
         try
         {

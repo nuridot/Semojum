@@ -126,9 +126,10 @@ public sealed class SemojumApiClient
         SendOnceAsync(HttpMethod.Post, "/api/public/inquiries", inquiry, null, cancellationToken);
 
     public async Task<JsonElement> SendAuthenticatedAsync(HttpMethod method, string path, object? body = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, Guid? expectedSession = null)
     {
         var before = Volatile.Read(ref session) ?? throw AuthenticationRequired();
+        if (expectedSession.HasValue && before.Id != expectedSession) throw AuthenticationRequired();
         try { return await SendOnceAsync(method, path, body, before.AccessToken, cancellationToken).ConfigureAwait(false); }
         catch (SemojumApiException ex) when (ex.Status == HttpStatusCode.Unauthorized && ex.Code is "AUTH4003" or "COMMON4001")
         {

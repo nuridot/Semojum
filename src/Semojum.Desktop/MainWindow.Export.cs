@@ -23,6 +23,13 @@ public partial class MainWindow
     private async Task ExportAsync(string? path = null, int format = 1, bool chooseRange = true)
     {
         if (fileBusy || session.Blocks.Count == 0) return;
+        var eventOwner = session;
+        var eventDocument = TrackEvents(eventOwner);
+        var exportProperties = new Dictionary<string, object?> {
+            ["format"] = format == 1 ? "brf" : "text",
+            ["source_revision_id"] = eventDocument is null ? Guid.NewGuid() : EventRevision(eventOwner, eventDocument)
+        };
+        using var exportEvent = EventOperation(eventOwner, "export_result", exportProperties, eventDocument);
         var dialog = new SaveFileDialog { Title = "문서 내보내기", FileName = path ?? Path.GetFileNameWithoutExtension(session.Title),
             Filter = "BRF 점자문서|*.brf|원문 텍스트|*.txt|점자 텍스트 (판면 포함)|*.txt", DefaultExt = ".brf", FilterIndex = format };
         fileBusy = true;
@@ -65,6 +72,7 @@ public partial class MainWindow
             if (ExportRangeSelection is null) ranges.Owner = this;
             if (chooseRange && !(ExportRangeSelection is { } selectRange ? await selectRange(ranges) : ranges.ShowDialog() == true)) return;
             var selectedFormat = chooseRange ? ranges.SelectedFormat : initialFormat;
+            exportProperties["format"] = selectedFormat == ".brf" ? "brf" : selectedFormat == ".md" ? "other" : "text";
             var plainText = selectedFormat is ".txt — 원문" or ".md";
             var brailleBrf = selectedFormat == ".brf";
             var extension = selectedFormat == ".md" ? ".md" : brailleBrf ? ".brf" : ".txt";
@@ -99,8 +107,11 @@ public partial class MainWindow
                 File.Move(temp, targetPath, overwrite: true);
             }
             finally { if (File.Exists(temp)) File.Delete(temp); }
+            exportEvent.Success();
             if (session == owner) session.Status = "선택한 범위를 내보냈습니다. 작업 파일 저장은 Ctrl+S를 눌러 주세요.";
         }
+        catch (OperationCanceledException) { if (ct.IsCancellationRequested) exportEvent.Abandon(); else exportEvent.Cancel(); throw; }
+        catch (Exception ex) { exportEvent.Failure(ex); throw; }
         finally { cancellation.Cancel(); fileBusy = false; }
     }
 }

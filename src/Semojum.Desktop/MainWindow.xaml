@@ -12,6 +12,7 @@
             <MenuItem Header="열기" InputGestureText="Ctrl+O" Tag="open" Click="Action_Click"/>
             <Separator/>
             <MenuItem Header="저장" InputGestureText="Ctrl+S" Tag="save" Click="Action_Click"/>
+            <MenuItem Header="작업 완료" Tag="completeWork" Click="Action_Click" AutomationProperties.Name="저장하고 작업 완료"/>
             <MenuItem Header="다른 이름으로 저장" Tag="saveAs" Click="Action_Click"/>
             <MenuItem Header="범위 지정 저장" Tag="export" Click="Action_Click"/>
             <MenuItem x:Name="RecentFilesMenu" Visibility="Collapsed" Header="최근 문서" SubmenuOpened="RecentFiles_Opened"/>

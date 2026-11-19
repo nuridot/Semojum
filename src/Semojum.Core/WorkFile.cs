@@ -38,7 +38,7 @@ public static class WorkFile
         foreach (var b in snapshot.Blocks) session.Add(new EditorBlock
         {
             Id = b.Id, Page = b.Page, Heading = b.Heading, Source = b.Source, Braille = b.Braille,
-            Memo = b.Memo, HasManualBraille = b.HasManualBraille, State = b.HasManualBraille ? "직접 수정" : "샘플 점역"
+            Memo = b.Memo, HasManualBraille = b.HasManualBraille, EngineDraft = null, State = b.HasManualBraille ? "직접 수정" : "샘플 점역"
         });
         session.IsDirty = false;
         return session;

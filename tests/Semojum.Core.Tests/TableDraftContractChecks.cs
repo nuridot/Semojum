@@ -30,7 +30,7 @@ for line in sys.stdin:
             if (legacy.Drafts is not [{ SourceText: null }]) throw new Exception("Legacy draft without source text was not preserved");
             var model = new DocumentSession(); model.Add(new EditorBlock { Id = 1, Page = 1, Source = "표", Braille = next.Cells, Translation = next });
             var snapshot = SmjFile.Snapshot(model);
-            if (snapshot.Manifest.Version != SmjFile.Version || snapshot.Manifest.Blocks[0].Translation?.Drafts[0].SourceText != next.Drafts[0].SourceText)
+            if (snapshot.Manifest.Version != SmjFile.EngineDraftVersion || snapshot.Manifest.Blocks[0].Translation?.Drafts[0].SourceText != next.Drafts[0].SourceText)
                 throw new Exception("SMJ did not retain optional draft source without changing its version");
         }
         finally { if (File.Exists(script)) File.Delete(script); }

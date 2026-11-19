@@ -45,8 +45,10 @@ public partial class MainWindow : Window
         // Disposing editor buffers raises caret/text events. Block new work before cancellation
         // or the first await, otherwise those events can create a debounce against disposed tokens.
         resourcesReleased = true;
+        StopAppEvents();
         previewGeneration++; pendingSourceTranslation = false;
         appLifetime.Cancel(); debounce?.Cancel(); dotSpeech.Dispose(); documentLifetime.Cancel(); Braille.Dispose(); PageEditor.Dispose();
+        await FinishAppEventsAsync();
         foreach (var opened in openDocuments) { opened.JobLifetime.Cancel(); opened.Lease?.Dispose(); opened.Buffers.Dispose(); }
         if (sidecar is not null) await sidecar.DisposeAsync();
         documentLifetime.Dispose(); http.Dispose();
@@ -113,6 +115,7 @@ public partial class MainWindow : Window
         ZoomPicker.ItemsSource = new[] { "75%", "100%", "125%", "150%", "175%", "200%" };
         ZoomPicker.SelectedItem = "100%";
         SetSession(smoke && !startEmpty ? DocumentSession.Sample() : BlankDocument(), null, true, showUpload: !smoke || startEmpty);
+        if (!testWithoutAccount) InitializeAppEvents();
         if (!smoke || startEmpty) { openDocument!.IsStartupPlaceholder = true; openDocument.PlaceholderVersion = session.ChangeVersion; }
         RestorePreferences(); ApplyAppearance(new());
         SixDotToggle.IsChecked = true;
@@ -332,6 +335,7 @@ public partial class MainWindow : Window
                 case "workFolder": await OpenWorkFolderAsync(true); break;
                 case "lastFolder": await OpenWorkFolderAsync(false); break;
                 case "save": await SaveAsync(false); break;
+                case "completeWork": await CompleteWorkAsync(); break;
                 case "saveAs": await SaveAsync(true); break;
                 case "composition": await ShowCompositionAsync(); break;
                 case "export": await ExportAsync(); break;
@@ -573,31 +577,37 @@ public partial class MainWindow : Window
         UpdatePanelLayout();
     }
 
-    private async Task<bool> SaveAsync(bool saveAs)
+    private Task<bool> SaveAsync(bool saveAs) => SaveTrackedAsync(saveAs, completion: false);
+    private async Task<bool> SaveTrackedAsync(bool saveAs, bool completion)
     {
         if (fileBusy) return false;
+        var eventOwner = session;
+        var eventDocument = TrackEvents(eventOwner);
+        var revisionId = eventDocument is null ? Guid.NewGuid() : EventRevision(eventOwner, eventDocument);
+        var saveProperties = new Dictionary<string, object?> { ["trigger"] = completion ? "completion" : "manual", ["saved_revision_id"] = null };
+        using var saveEvent = EventOperation(eventOwner, "save_result", saveProperties, eventDocument);
         var path = filePath;
         if (saveAs)
         {
             var dialog = new SaveAsDialog(session.Title, filePath) { Owner = this };
             if (dialog.ShowDialog() != true) return false;
-            if (dialog.Format > 0) { await ExportAsync(dialog.FileName, dialog.Format, false); return false; }
+            if (dialog.Format > 0) { saveEvent.Abandon(); await ExportAsync(dialog.FileName, dialog.Format, false); return false; }
             path = dialog.FileName;
         }
         else if (session.IsReadOnly || path is null)
         {
             var dialog = new SaveFileDialog { Title = saveAs ? "다른 이름으로 저장" : "누리닷 작업 저장", Filter = saveAs ? "누리닷 작업 파일|*.smj|BRF 점자문서|*.brf|원문 텍스트|*.txt" : "누리닷 작업 파일|*.smj", DefaultExt = ".smj", FileName = session.Title, AddExtension = true };
             if (dialog.ShowDialog(this) != true) return false;
-            if (saveAs && dialog.FilterIndex > 1) { await ExportAsync(dialog.FileName, dialog.FilterIndex - 1, false); return false; }
+            if (saveAs && dialog.FilterIndex > 1) { saveEvent.Abandon(); await ExportAsync(dialog.FileName, dialog.FilterIndex - 1, false); return false; }
             path = dialog.FileName;
         }
         WorkFileLease? candidate = null;
         var samePath = filePath is not null && LocalWorkspace.SamePath(filePath, path);
         if (!samePath || openDocument?.Lease is null)
         {
-            if (openDocuments.Any(d => d != openDocument && d.Path is not null && LocalWorkspace.SamePath(d.Path, path))) { ShowError(new IOException("다른 탭에서 열어 둔 파일입니다.")); return false; }
+            if (openDocuments.Any(d => d != openDocument && d.Path is not null && LocalWorkspace.SamePath(d.Path, path))) { var error = new IOException("다른 탭에서 열어 둔 파일입니다."); saveEvent.Failure(error); ShowError(error); return false; }
             candidate = WorkFileLease.TryAcquire(path);
-            if (candidate is null) { ShowError(new IOException("다른 창에서 편집 중이거나 쓸 수 없는 경로입니다. 다른 이름으로 저장해 주세요.")); return false; }
+            if (candidate is null) { var error = new UnauthorizedAccessException("다른 창에서 편집 중이거나 쓸 수 없는 경로입니다. 다른 이름으로 저장해 주세요."); saveEvent.Failure(error); ShowError(error); return false; }
         }
         fileBusy = true;
         var saveContext = openDocument;
@@ -622,7 +632,8 @@ public partial class MainWindow : Window
                     owner.Status = "로컬 작업 파일은 저장했습니다. 재개 상태와 충돌 결과를 확인한 뒤 서버에 저장해 주세요.";
                     owner.ErrorNotice = owner.PendingRestart is { Unconfirmed: true } ? UnconfirmedRestartNotice
                         : "다른 탭을 닫고 재개 상태를 확인해 주세요. 재개 작업을 닫았다면 원본 파일을 다시 열어 확인해 주세요.";
-                    return !owner.IsDirty;
+                    saveEvent.Failure(new SemojumApiException(System.Net.HttpStatusCode.Conflict, "LOCAL_SYNC_PENDING", ""));
+                    return !completion && !owner.IsDirty;
                 }
                 try
                 {
@@ -647,6 +658,7 @@ public partial class MainWindow : Window
                 }
                 catch (Exception ex)
                 {
+                    saveEvent.Failure(ex);
                     owner.IsDirty = true;
                     owner.Status = "로컬 저장 완료 · 서버 저장 미완료";
                     NoticeDialog.Choose(this, "서버에 저장하지 못했습니다.", $"로컬 .smj 파일은 저장했습니다. {ex.Message}", ["확인"], error: true, height: 226);
@@ -665,14 +677,18 @@ public partial class MainWindow : Window
                     NoticeDialog.Choose(this, "일부 항목은 .smj 파일에만 보존됩니다.", "서버 저장은 완료했지만 다음 항목은 현재 서버 계약에 없습니다. 서버에서 다시 열면 복원되지 않으니 .smj를 보관하세요.\n\n" + notice, ["확인"], height: 316);
                 }
             }
+            saveProperties["saved_revision_id"] = revisionId;
+            saveEvent.Success();
+            await EmitRevisionSummariesAsync(owner, snapshot.Manifest, revisionId, completion);
             return !owner.IsDirty;
         }
         catch (Exception ex)
         {
+            saveEvent.Failure(ex);
             var failed = FileNotices.SaveFailed(ex.Message); failed.Owner = this; failed.ShowDialog();
             if (failed.Choice < 0) return false;
             candidate?.Dispose(); candidate = null; fileBusy = false;
-            return await SaveAsync(failed.Choice == 0);
+            return await SaveTrackedAsync(failed.Choice == 0, completion);
         }
         finally { if (saveContext is not null) saveContext.ServerSaveInProgress = false; candidate?.Dispose(); fileBusy = false; }
     }
@@ -706,6 +722,8 @@ public partial class MainWindow : Window
         var existing = openDocuments.FirstOrDefault(d => d.Path is not null && LocalWorkspace.SamePath(d.Path, requestedPath));
         if (existing is not null) { SetSession(existing.Model, existing.Path, existing.ShowOriginal); return; }
         if (!smoke && !await EnsureAccountAsync()) return;
+        var eventModel = new DocumentSession();
+        using var openEvent = EventOpen(() => eventModel);
         fileBusy = true; IsEnabled = false;
         try
         {
@@ -717,6 +735,7 @@ public partial class MainWindow : Window
                 using var reader = new StreamReader(input, new System.Text.UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
                 var text = await reader.ReadToEndAsync(documentLifetime.Token);
                 model = new DocumentSession { Title = Path.GetFileNameWithoutExtension(requestedPath) + ".smj" };
+                eventModel = model;
                 var index = 0;
                 foreach (var chunk in TextImport.Split(text)) model.Add(new EditorBlock { Id = ++index, Page = 1, Heading = $"불러온 텍스트 {index}", Source = chunk, State = "점역 전" });
                 model.OriginalFiles[Path.GetFileName(requestedPath)] = original;
@@ -726,13 +745,13 @@ public partial class MainWindow : Window
                 _ = TranslateImportedTextAsync(openDocument!);
             }
             else if (requestedPath.EndsWith(".mock.smi", StringComparison.OrdinalIgnoreCase))
-            { model = await WorkFile.LoadAsync(requestedPath); model.Title = Path.GetFileNameWithoutExtension(requestedPath) + ".smj"; SetSession(model, null, OriginalToggle.IsChecked); }
+            { model = await WorkFile.LoadAsync(requestedPath); eventModel = model; model.Title = Path.GetFileNameWithoutExtension(requestedPath) + ".smj"; SetSession(model, null, OriginalToggle.IsChecked); }
             else
             {
                 var lease = WorkFileLease.TryAcquire(requestedPath, out var accessDenied);
                 try
                 {
-                    model = await SmjFile.LoadAsync(requestedPath); model.IsReadOnly = lease is null;
+                    model = await SmjFile.LoadAsync(requestedPath); eventModel = model; model.IsReadOnly = lease is null;
                     if (model.IsReadOnly)
                     {
                         var readOnly = FileNotices.ReadOnlyDocument(accessDenied); readOnly.Owner = this; readOnly.ShowDialog();
@@ -745,7 +764,10 @@ public partial class MainWindow : Window
                 finally { lease?.Dispose(); }
             }
             session.Status = "문서를 열었습니다. 자동 저장은 사용하지 않습니다.";
+            openEvent.Success();
         }
+        catch (OperationCanceledException) { openEvent.Abandon(); throw; }
+        catch (Exception ex) { openEvent.Failure(ex); throw; }
         finally { IsEnabled = true; fileBusy = false; }
     }
     private async void Window_Closing(object? sender, CancelEventArgs e)
