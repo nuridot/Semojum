@@ -7,7 +7,7 @@ namespace Semojum.Desktop.Services;
 internal static class WindowsFocusedChecks
 {
     private static readonly HashSet<string> Areas = new(StringComparer.OrdinalIgnoreCase)
-        { "recovery", "events", "math", "qa1117", "incremental", "original", "imefont", "export", "tablememo", "drafts", "qa1110", "board", "institution", "editor", "appearance", "usage", "rules", "dialogs", "windows", "account" };
+        { "panels", "recovery", "events", "math", "qa1117", "incremental", "original", "imefont", "export", "tablememo", "drafts", "qa1110", "board", "institution", "editor", "appearance", "usage", "rules", "dialogs", "windows", "account" };
 
     internal static bool IsKnownArea(string area) => Areas.Contains(area);
 
@@ -29,6 +29,16 @@ internal static class WindowsFocusedChecks
         {
             switch (area.ToLowerInvariant())
             {
+                case "panels":
+                    await WindowsStatusZoomChecks.RunAsync(directory, Check);
+                    await WindowsPanelWheelChecks.RunAsync(Check);
+                    await WindowsOriginalWheelChecks.RunAsync(Check);
+                    await WindowsPanelDesignChecks.RunAsync(directory, Check);
+                    await WindowsSelectionNavigationChecks.RunAsync(Check, directory);
+                    await WindowsPanelPositionChecks.RunAsync(Check);
+                    await WindowsRegionSelectionChecks.RunAsync(Check, directory);
+                    await WindowsRuleDesignChecks.RunAsync(Check);
+                    break;
                 case "recovery":
                     await WindowsCreditRecoveryChecks.RunAsync(Check, directory);
                     break;

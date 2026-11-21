@@ -57,6 +57,19 @@ public partial class MainWindow
             if (decision == ManualEditDecision.Keep) translatedRevisions[spans[0].Block] = spans[0].Block.SourceRevision;
             QueuePreview(decision != ManualEditDecision.Keep);
         };
+        var clickedText = false;
+        PageEditor.Editor.TextArea.TextView.PreviewMouseLeftButtonDown += (_, _) => clickedText = true;
+        PageEditor.Editor.AddHandler(Mouse.MouseUpEvent, new MouseButtonEventHandler((_, e) =>
+        {
+            if (e.ChangedButton != MouseButton.Left || !clickedText) return;
+            clickedText = false;
+            if (PageEditor.Editor.SelectionLength != 0) return;
+            if (PageEditor.Selection.FirstOrDefault() is not { } hit) return;
+            session.ActiveBlock = hit.Block;
+            SyncOriginalToBlock(hit.Block);
+            Braille.FollowBlock(hit.Block); detachedPane?.FollowBlock(hit.Block);
+            RefreshLinkedSource();
+        }), true);
         PageEditor.Editor.PreviewMouseWheel += SourceEditor_MouseWheel;
         PageEditor.Editor.GotKeyboardFocus += (_, _) => SetActiveEditor(PageEditor.Editor);
         PageEditor.Editor.PreviewMouseDown += (_, _) => { ClearOriginalRegion(); RefreshLinkedSource(); };

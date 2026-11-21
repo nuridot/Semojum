@@ -72,8 +72,9 @@ internal static class WindowsIncrementalTranslationChecks
                     "Incremental: large paste and subsequent typing retain the full source and braille");
                 window.PageEditor.Editor.Document.Insert(0, "이동 전 수정 ");
                 await window.NavigateAsync(NavigationTarget.OriginalPage, "2", SearchPanel.Text);
-                check(model.ActiveBlock?.Page == 2 && first.Translation?.SourceText == first.Source,
-                    "Incremental: pending source translation completes before page navigation without losing edits");
+                await Until(() => first.Translation?.SourceText == first.Source, "Pending edits translate while browsing");
+                check(window.PageEditor.DisplayedPage == 2 && model.ActiveBlock == first && first.Translation?.SourceText == first.Source,
+                    "Incremental: pending source translation completes during independent page browsing without losing edits");
             }
             finally { heartbeat.Stop(); }
         }

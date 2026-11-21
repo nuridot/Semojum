@@ -31,9 +31,11 @@ public partial class MainWindow
         originalZoom = Math.Clamp(zoom, .25, 4);
         var x = (OriginalScroll.HorizontalOffset + OriginalScroll.ViewportWidth / 2) / old;
         var y = (OriginalScroll.VerticalOffset + OriginalScroll.ViewportHeight / 2) / old;
+        OriginalText.FontSize = 14 * originalZoom;
         UpdateOriginalWidth(); OriginalScroll.UpdateLayout();
         OriginalScroll.ScrollToHorizontalOffset(x * originalZoom - OriginalScroll.ViewportWidth / 2);
         OriginalScroll.ScrollToVerticalOffset(y * originalZoom - OriginalScroll.ViewportHeight / 2);
+        RefreshZoomControls();
         OriginalZoomFit.ToolTip = $"{originalZoom:P0} · 클릭하면 너비에 맞춤 · 이미지를 드래그해서 이동";
     }
     private void OriginalZoomOut_Click(object sender, RoutedEventArgs e) => SetOriginalZoom(originalZoom / 1.25);

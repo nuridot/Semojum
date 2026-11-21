@@ -47,6 +47,15 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
         linkedRegionBlocks = blocks.ToArray(); Editor.TextArea.TextView.Redraw();
     }
     private int page;
+    public int DisplayedPage => page;
+    public void BrowsePage(int number)
+    {
+        page = number;
+        Refresh();
+        syncing = true;
+        try { Editor.Select(0, 0); Editor.CaretOffset = 0; Editor.ScrollToVerticalOffset(0); }
+        finally { syncing = false; }
+    }
     public ContinuousSourceEditor()
     {
         // Figma 훑어보기 띠: an independent 12px column right of the text, visible even when

@@ -86,6 +86,7 @@ public partial class MainWindow
         ApplyGridAppearance(Braille.GridView);
         if (detachedPane is not null) ApplyGridAppearance(detachedPane.GridView);
         Braille.GridView.FontSize = value.BrailleSize; Braille.GridView.HighContrast = value.HighContrast; Braille.GridView.CurrentLineBrush = gridLine; Braille.GridView.SelectionHighlightBrush = C(value.SelectionColor); Braille.GridView.SelectionTextBrush = C(value.SelectionTextColor); Braille.GridView.ShowLineNumbers = value.ShowLineNumbers; Braille.GridView.InvalidateFaces();
+        RefreshZoomControls();
         if (detachedPane is not null) { detachedPane.GridView.FontSize = value.BrailleSize; detachedPane.GridView.HighContrast = value.HighContrast; detachedPane.GridView.CurrentLineBrush = gridLine; detachedPane.GridView.SelectionHighlightBrush = C(value.SelectionColor); detachedPane.GridView.SelectionTextBrush = C(value.SelectionTextColor); detachedPane.GridView.ShowLineNumbers = value.ShowLineNumbers; detachedPane.GridView.InvalidateFaces(); }
         LineNumbersToggle.IsChecked = value.ShowLineNumbers;
         FormattingToggle.IsChecked = value.ShowFormattingMarks;

@@ -21,6 +21,16 @@ public partial class BraillePane : UserControl, IDisposable
     public Func<BlockSpan[], string, Task>? ReplaceGridAsync { get; set; }
     private bool gridBusy, gridPending;
     private int? selectedFace;
+    private bool browsingFace;
+    public int? DisplayedFace => selectedFace;
+    public void FollowBlock(EditorBlock block)
+    {
+        browsingFace = false;
+        GridView.SetLocalCaret(new(block, block.BrailleCaret, '⠀', true));
+        pendingReveal = GridView.RevealBlock(block, block.BrailleCaret) ? null : block;
+        RefreshIndicators();
+    }
+
     private long gridVersion = -1;
     public Func<GridCell, Task>? NavigateGridAsync { get; set; }
     private readonly SixDotInput chord = new();
@@ -37,11 +47,19 @@ public partial class BraillePane : UserControl, IDisposable
     {
         InitializeComponent();
         FacePageBar.SetIcons("panel-face-prev.svg", "panel-face-next.svg");
-        FacePageBar.PageRequested += page => { if (GridView.GoToFace(page)) { selectedFace = page; RefreshFacePageBar(); } };
+        FacePageBar.PageRequested += page => GridView.GoToFace(page);
+        GridView.FaceBrowsed += page =>
+        {
+            pendingReveal = null;
+            browsingFace = true;
+            selectedFace = page;
+            RefreshPositionLabel(); RefreshFacePageBar();
+        };
         FacePageBar.InvalidPageRequested += () => { if (session is not null) session.Status = "이동할 수 있는 점자 면 번호를 입력해 주세요."; };
         gridTimer.Tick += (_, _) => { gridTimer.Stop(); RefreshGrid(); };
         GridView.CellSelected += async cell =>
         {
+            browsingFace = false;
             selectedFace = GridView.CaretCoordinates?.Face;
             if (NavigateGridAsync is not null) await NavigateGridAsync(cell);
             else if (session is not null) { session.ActiveBlock = cell.Block; Editor.CaretOffset = Math.Min(cell.Offset, Editor.Document.TextLength); }
@@ -88,7 +106,7 @@ public partial class BraillePane : UserControl, IDisposable
     }
     public void Attach(DocumentSession model, EditorDocuments store)
     {
-        Dispose(); selectedFace = null; session = model; documents = store;
+        Dispose(); browsingFace = false; pendingReveal = null; selectedFace = null; session = model; documents = store;
         session.PropertyChanged += SessionChanged;
         session.Blocks.CollectionChanged += GridBlocksChanged; ObserveGridBlocks(); RefreshGrid();
         SwitchBlock();
@@ -125,8 +143,13 @@ public partial class BraillePane : UserControl, IDisposable
                 ? BrailleGrid.FromComposition(composition, GridView.Blocks, owner.Layout)
                 : BrailleGrid.Project(owner.Blocks, owner.Layout);
             gridVersion = version; GridView.CoordinatesCurrent = true; GridView.IsReadOnly = owner.IsReadOnly;
-            GridView.ActiveBlock = owner.ActiveBlock; GridView.CaretOffset = Editor.CaretOffset;
-            selectedFace = GridView.CaretCoordinates?.Face;
+            if (browsingFace && selectedFace is { } page && GridView.Items.Count > 0)
+                GridView.GoToFace(Math.Min(page, GridView.Items.Count), focus: false);
+            else
+            {
+                GridView.ActiveBlock = owner.ActiveBlock; GridView.CaretOffset = Editor.CaretOffset;
+                selectedFace = GridView.CaretCoordinates?.Face;
+            }
             RefreshFacePageBar();
             RefreshPositionLabel();
             if (pendingReveal is { } target && GridView.RevealBlock(target, target.BrailleCaret)) pendingReveal = null;
@@ -150,6 +173,7 @@ public partial class BraillePane : UserControl, IDisposable
     private EditorBlock? pendingReveal;
     private void SwitchBlock()
     {
+        browsingFace = false;
         chord.Reset();
         if (active is not null) active.PropertyChanged -= BlockChanged;
         active = session?.ActiveBlock;
@@ -176,8 +200,12 @@ public partial class BraillePane : UserControl, IDisposable
         Editor.IsReadOnly = active.IsBrailleLocked || session.IsReadOnly;
         GridView.IsReadOnly = session.IsReadOnly || gridVersion != session.ChangeVersion;
         Editor.Options.ColumnRulerPosition = session.Layout.Columns;
-        GridView.ActiveBlock = active; GridView.CaretOffset = Editor.CaretOffset; GridView.InvalidateFaces();
-        if (GridView.CoordinatesCurrent && GridView.CaretCoordinates?.Face is { } face) selectedFace = face;
+        if (!browsingFace)
+        {
+            GridView.ActiveBlock = active; GridView.CaretOffset = Editor.CaretOffset;
+            if (GridView.CoordinatesCurrent && GridView.CaretCoordinates?.Face is { } face) selectedFace = face;
+        }
+        GridView.InvalidateFaces();
         RefreshPositionLabel();
         RefreshFacePageBar();
         StateLabel.Text = active.State;

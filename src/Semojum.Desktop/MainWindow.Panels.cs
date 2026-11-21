@@ -17,6 +17,8 @@ public partial class MainWindow
 
     private void BindCommonKeys(Window target)
     {
+        target.PreviewKeyDown += PanelZoom_KeyDown;
+        target.PreviewMouseWheel += PanelZoom_MouseWheel;
         target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => ExecuteAsync("help")), new KeyGesture(Key.F1)));
         for (var i = 0; i < 10; i++)
         {

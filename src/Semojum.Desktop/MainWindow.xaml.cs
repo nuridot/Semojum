@@ -61,10 +61,10 @@ public partial class MainWindow : Window
     internal Window? DetachedWindow => detachedWindow;
     internal void PrepareSmokeShutdown() => allowClose = true;
 
-    internal MainWindow(bool smoke = false, bool testWithoutAccount = false, bool startEmpty = false)
+    internal MainWindow(bool smoke = false, bool testWithoutAccount = false, bool startEmpty = false, SemojumApiClient? apiClient = null)
     {
         this.smoke = smoke;
-        api = new(http); api.RefreshedIdentityAllowed = account => AutomaticLogin.IsSameDesktopArea(api.Account, account); api.RefreshRequiresIdentity = account => account.Role == "ROLE_ORG_ADMIN"; jobs = new(api);
+        api = apiClient ?? new(http); api.RefreshedIdentityAllowed = account => AutomaticLogin.IsSameDesktopArea(api.Account, account); api.RefreshRequiresIdentity = account => account.Role == "ROLE_ORG_ADMIN"; jobs = new(api);
         if (smoke) engine = new MockTranslationEngine();
         else { sidecar = EngineRuntime.Create(); engine = new LocalBrailleEngine(sidecar, () => session.Options); }
         translator = new(engine);
@@ -108,6 +108,8 @@ public partial class MainWindow : Window
         Braille.DetachRequested += (_, _) => ToggleDetached();
         Braille.HideRequested += (_, _) => HidePanel("hideBraille");
         ConnectGrid(Braille);
+        SourcePanel.PreviewMouseDown += (_, _) => ActivateZoom(ZoomPanel.Source);
+        OriginalPanel.GotKeyboardFocus += (_, _) => ActivateZoom(ZoomPanel.Original);
         Braille.Editor.TextArea.Caret.PositionChanged += (_, _) => { RefreshEditorStatus(); SpeakCaret(Braille.Editor); };
         LineStrip.CloseRequested += (_, _) => SetLinePreviewVisible(false);
         SourceEditor.TextArea.SelectionBrush = new SolidColorBrush(Color.FromRgb(204, 228, 247));
@@ -146,6 +148,7 @@ public partial class MainWindow : Window
         switching = true;
         try
         {
+            originalRevealTarget = null;
             documentLifetime.Cancel(); documentLifetime.Dispose(); documentLifetime = new();
             if (session is not null) session.PropertyChanged -= SessionChanged;
             var previous = openDocument;
@@ -390,9 +393,9 @@ public partial class MainWindow : Window
                 case "detach": ToggleDetached(); break;
                 case "detachSource": ToggleSourcePanel(); break;
                 case "detachOriginal": ToggleOriginalPanel(); break;
-                case "zoomIn": SetFontSize(SourceEditor.FontSize + 2); break;
-                case "zoomOut": SetFontSize(SourceEditor.FontSize - 2); break;
-                case "zoomReset": SetFontSize(14); break;
+                case "zoomIn": StepPanelZoom(1); break;
+                case "zoomOut": StepPanelZoom(-1); break;
+                case "zoomReset": SetPanelSize(ZoomScale.Normal); break;
                 case "translate": if (session.ActiveBlock is { } block) await TranslateAsync(block, ChooseTranslation(block)); break;
                 case "translateAll":
                     var translationSession = session;
@@ -499,31 +502,6 @@ public partial class MainWindow : Window
         target.Select(start + open.Length, selected.Length); target.Focus();
     }
     private void InsertText(string value) { if (session.IsReadOnly || SourceEditor.IsReadOnly) return; var target = PageEditor.Visibility == Visibility.Visible ? PageEditor.Editor : SourceEditor; target.SelectedText = value; target.Focus(); }
-    private bool settingFontSize;
-    private void SetFontSize(double size)
-    {
-        if (settingFontSize) return;
-        settingFontSize = true;
-        try
-        {
-        SourceEditor.FontSize = Math.Clamp(size, 10, 32);
-        PageEditor.Editor.FontSize = SourceEditor.FontSize;
-        Braille.Editor.FontSize = SourceEditor.FontSize * 22 / 14;
-        if (detachedPane is not null) detachedPane.Editor.FontSize = Braille.Editor.FontSize;
-        Braille.GridView.FontSize = Braille.Editor.FontSize; Braille.GridView.InvalidateFaces();
-        if (detachedPane is not null) { detachedPane.GridView.FontSize = Braille.Editor.FontSize; detachedPane.GridView.InvalidateFaces(); }
-        var label = SourceEditor.FontSize.ToString("0.#");
-        var choice = FontSizeLabel.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content?.ToString() == label);
-        if (choice is null) { choice = new ComboBoxItem { Content = label }; FontSizeLabel.Items.Add(choice); }
-        FontSizeLabel.SelectedItem = choice;
-        var percent = (SourceEditor.FontSize / 14 * 100).ToString("0") + "%";
-        if (ZoomPicker.Text != percent) ZoomPicker.Text = percent;
-        ZoomPercent.Text = percent;
-        ZoomSlider.Value = SourceEditor.FontSize <= 14 ? (SourceEditor.FontSize - 10) * 50 / 4 : 50 + (SourceEditor.FontSize - 14) * 50 / 18;
-        }
-        finally { settingFontSize = false; }
-    }
-
     internal void ToggleDetached()
     {
         if (detachedWindow is not null) { detachedWindow.Close(); return; }
@@ -538,7 +516,11 @@ public partial class MainWindow : Window
         detachedPane.SetLinePreview(currentPreviewLine, currentPreviewCells);
         detachedPane.DetachRequested += (_, _) => detachedWindow?.Close();
         BrailleToggle.IsChecked = true;
+        var sourceSize = SourceEditor.FontSize;
+        var brailleSize = Braille.Editor.FontSize;
         CopyBrailleSettings(); ApplyAppearance(appearance);
+        SourceEditor.FontSize = PageEditor.Editor.FontSize = sourceSize;
+        SetBrailleSize(brailleSize); RefreshZoomControls();
         detachedPane.Editor.TextArea.Caret.PositionChanged += (_, _) => { if (detachedPane is not null) SpeakCaret(detachedPane.Editor); };
         detachedWindow = new Window { Title = $"점자 — {session.Title} - 누리닷", Owner = this, ShowInTaskbar = true, Width = 600, Height = 230, MinWidth = 420, MinHeight = 180, Content = detachedPane, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         WindowFrame.Apply(detachedWindow, editor: true);

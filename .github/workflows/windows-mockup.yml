@@ -27,8 +27,8 @@ jobs:
       - name: Check out pinned engine source
         uses: actions/checkout@v4
         with:
-          repository: Semojum/braille
-          ref: 7e7a5f74fc3a316d39cfdb3111a039c36b8c012a
+          repository: nuridot/braille
+          ref: bd594f24ec59204e055f2f131d1b02eb43939299
           persist-credentials: false
           path: artifacts/engine-build/source
       - name: Publish portable Windows app

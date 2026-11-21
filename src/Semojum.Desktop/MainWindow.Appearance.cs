@@ -25,6 +25,7 @@ public partial class MainWindow
         var sourceActive = editor == SourceEditor || editor == PageEditor.Editor;
         var originalActive = editor is null;
         var brailleActive = !originalActive && !sourceActive;
+        ActivateZoom(originalActive ? ZoomPanel.Original : sourceActive ? ZoomPanel.Source : ZoomPanel.Braille);
         SourcePanelTitle.FontWeight = sourceActive ? FontWeights.Bold : FontWeights.Normal;
         OriginalPanelTitle.FontWeight = originalActive ? FontWeights.Bold : FontWeights.Normal;
         Braille.PanelTitle.FontWeight = brailleActive ? FontWeights.Bold : FontWeights.Normal;
@@ -71,22 +72,24 @@ public partial class MainWindow
         var editor = lastEditor ?? SourceEditor;
         OptionsLabel.Text = $"옵션 2024 · {(session.Options.KoreanGrade1 ? "1급" : "2급")} · {session.Layout.Columns}×{session.Layout.Lines}";
         StatusOptions.Text = $"옵션 2024 · {(session.Options.KoreanGrade1 ? "1급" : "2급")} · {session.Layout.Columns}×{session.Layout.Lines}";
-        var hasOriginal = session.IsTextJob != true && session.OriginalPages.ContainsKey(block.Page);
-        var confirmedTotal = session.IsTextJob != true && session.TotalOriginalPages is { } known && block.Page <= known ? known : (int?)null;
-        StatusPage.Text = confirmedTotal is { } pageTotal ? $"쪽 {block.Page} / {pageTotal}" : $"쪽 {block.Page}";
-        StatusPage.ToolTip = session.IsTextJob == true ? $"텍스트 {block.Page}쪽"
-            : hasOriginal ? confirmedTotal is { } t ? $"원본 {block.Page}쪽 (총 {t}쪽)" : $"원본 {block.Page}쪽 (전체 쪽수 미확인)"
-            : confirmedTotal is { } pendingTotal ? $"작업 {block.Page}쪽 (총 {pendingTotal}쪽 · 원본 미수신)" : $"작업 {block.Page}쪽 (원본 없음)";
+        var page = zoomPanel == ZoomPanel.Original ? DisplayedOriginalPage
+            : PageEditor.Visibility == Visibility.Visible ? PageEditor.DisplayedPage : block.Page;
+        var hasOriginal = session.IsTextJob != true && session.OriginalPages.ContainsKey(page);
+        var confirmedTotal = session.IsTextJob != true && session.TotalOriginalPages is { } known && page <= known ? known : (int?)null;
+        StatusPage.Text = confirmedTotal is { } pageTotal ? $"쪽 {page} / {pageTotal}" : $"쪽 {page}";
+        StatusPage.ToolTip = session.IsTextJob == true ? $"텍스트 {page}쪽"
+            : hasOriginal ? confirmedTotal is { } t ? $"원본 {page}쪽 (총 {t}쪽)" : $"원본 {page}쪽 (전체 쪽수 미확인)"
+            : confirmedTotal is { } pendingTotal ? $"작업 {page}쪽 (총 {pendingTotal}쪽 · 원본 미수신)" : $"작업 {page}쪽 (원본 없음)";
         CaretStatus.Text = $"줄 {editor.TextArea.Caret.Line} · 칸 {editor.TextArea.Caret.Column} / {session.Layout.Columns}";
-        if (lastGrid is not null)
+        if (lastGrid is not null && zoomPanel == ZoomPanel.Braille)
         {
             var position = lastGrid.CaretCoordinates;
             StatusPage.Text = position is { } p ? $"면 {p.Face} / {lastGrid.Items.Count}" : $"총 {lastGrid.Items.Count}면";
             StatusPage.ToolTip = lastGrid.DescribeCaret();
             CaretStatus.Text = $"줄 {position?.Line.ToString() ?? "—"} · 칸 {position?.Cell.ToString() ?? "—"} / {session.Layout.Columns}";
         }
-        OriginalPosition.Text = session.IsTextJob == true || !session.OriginalPages.ContainsKey(block.Page) ? ""
-            : session.TotalOriginalPages is { } total && block.Page <= total ? $"{block.Page} / {total}쪽" : $"{block.Page}쪽";
+        OriginalPosition.Text = session.IsTextJob == true || !session.OriginalPages.ContainsKey(DisplayedOriginalPage) ? ""
+            : session.TotalOriginalPages is { } total && DisplayedOriginalPage <= total ? $"{DisplayedOriginalPage} / {total}쪽" : $"{DisplayedOriginalPage}쪽";
         OriginalPosition.ToolTip = OriginalPosition.Text;
         UpdateSourcePosition(block);
         RefreshPanelPageBars();
@@ -97,7 +100,7 @@ public partial class MainWindow
         int line, column;
         if (PageEditor.Visibility == Visibility.Visible)
         {
-            if (!PageEditor.TryGetPageCaretPosition(block.Page, out line, out column))
+            if (!PageEditor.TryGetPageCaretPosition(PageEditor.DisplayedPage, out line, out column))
             { SourcePosition.Text = ""; SourcePosition.ToolTip = null; return; }
         }
         else
@@ -110,27 +113,10 @@ public partial class MainWindow
                 .Sum(b => b.Source.Count(c => c == '\n') + 1);
             column = SourceEditor.TextArea.Caret.Column;
         }
-        SourcePosition.Text = $"{block.Page}쪽 {line}줄 {column}칸";
+        SourcePosition.Text = $"{(PageEditor.Visibility == Visibility.Visible ? PageEditor.DisplayedPage : block.Page)}쪽 {line}줄 {column}칸";
         SourcePosition.ToolTip = SourcePosition.Text;
     }
 
-    private void ZoomPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (SourceEditor is null || ZoomPicker.SelectedItem is not string text) return;
-        if (double.TryParse(text.TrimEnd('%'), out var percent)) SetFontSize(14 * percent / 100);
-    }
-
-    private void ZoomSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (settingFontSize || SourceEditor is null) return;
-        var size = e.NewValue <= 50 ? 10 + e.NewValue * 4 / 50 : 14 + (e.NewValue - 50) * 18 / 50;
-        SetFontSize(size);
-    }
-
-    private void FontSizePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (SourceEditor is not null && FontSizeLabel.SelectedItem is ComboBoxItem item && double.TryParse(item.Content?.ToString(), out var size)) SetFontSize(size);
-    }
     private void TextStylePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (SourceEditor is null || TextStylePicker.SelectedIndex <= 0 || TextStylePicker.SelectedItem is not ComboBoxItem item) return;

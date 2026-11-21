@@ -142,6 +142,13 @@ public sealed partial class BrailleGridView
         caret = cell; ActiveBlock = cell.Block; CaretOffset = cell.Offset;
         CellSelected?.Invoke(cell); InvalidateFaces();
     }
+    internal void SetLocalCaret(GridCell? cell)
+    {
+        anchor = caret = cell;
+        selectedBlock = false;
+        ActiveBlock = cell?.Block;
+        CaretOffset = cell?.Offset ?? 0;
+    }
     public void ResetSelection()
     { anchor = caret = null; selectedBlock = false; SetLinkedRanges([]); InvalidateFaces(); }
     public Task InsertAsync(string text) => InsertCoreAsync(text, false);
@@ -211,13 +218,16 @@ public sealed partial class BrailleGridView
     }
     public string DescribeCaret() => CaretCoordinates is { } p
         ? $"{p.Face}면 · {p.Line}줄 {p.Cell}칸 · 총 {Items.Count}면" : $"총 {Items.Count}면";
-    public bool GoToFace(int number)
+    internal event Action<int>? FaceBrowsed;
+    public bool GoToFace(int number, bool focus = true)
     {
         if (number < 1 || number > Items.Count) return false;
         var face = (BrailleGridFace)Items[number - 1];
         ScrollIntoView(face);
-        if (face.Rows.SelectMany(r => r).FirstOrDefault(c => c is not null) is { } cell) Point(cell, false);
-        Focus(); return true;
+        SetLocalCaret(face.Rows.SelectMany(r => r).FirstOrDefault(c => c is not null));
+        FaceBrowsed?.Invoke(number);
+        if (focus) Focus();
+        InvalidateFaces(); return true;
     }
     private void InstallEditing()
     {

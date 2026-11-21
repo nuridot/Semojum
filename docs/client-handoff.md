@@ -31,7 +31,7 @@
 
 - 저장소: [Semojum/Semojum](https://github.com/Semojum/Semojum). 로컬 경로: `/Users/adamatia123/Documents/ChatGPT/세모점`.
 - 확인한 로컬 브랜치: `main`, 커밋 `8e63161155b40c7e93de183886899b06fcec5faa`. [PR #2](https://github.com/Semojum/Semojum/pull/2)의 데스크톱 편집·조판 변경이 반영된 상태다. 다음 세션 시작 시 원격 main과 작업 중 변경을 다시 확인한다.
-- 기술: C#/.NET 10, WPF, AvalonEdit. 로컬 점역 엔진은 `Semojum/braille` **v3.4.45**, 커밋 `7e7a5f74fc3a316d39cfdb3111a039c36b8c012a`에 고정되어 있다.
+- 기술: C#/.NET 10, WPF, AvalonEdit. 로컬 점역 엔진은 `nuridot/braille` **v3.4.46**, 커밋 `bd594f24ec59204e055f2f131d1b02eb43939299`에 고정되어 있다.
 - 기획 우선순위: 사용자 확정 사항 → [Service](https://app.notion.com/p/3a643813bc2e801aa2b9eaf48dde8f2e)의 [최신 세부 기능](https://app.notion.com/p/3ef43813bc2e802f9ea2c8a7858b9083) → 나머지 기획·Figma. 구현에 들어갈 때 원문 변경 여부를 확인한다.
 - Figma 참고: [Semojum-UI 복사본](https://www.figma.com/design/2s2voe2zE4M6xaKwYZRB6J/Semojum-UI--%EB%B3%B5%EC%82%AC-?node-id=1-3). 모든 상태의 시각 검증이 완료된 것은 아니다.
 - 상세 근거: [구현 상태](implementation-status.md), [서비스 우선순위](service-priority.md), [BE 수정 목록](backend-save-review.md), [엔진 계약](engine-contract.md), [검증 기록](verification.md).

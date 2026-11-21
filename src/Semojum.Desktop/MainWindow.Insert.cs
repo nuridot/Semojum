@@ -588,10 +588,15 @@ public partial class MainWindow
         new AppliedRulesDialog(api, rows, block.HasManualBraille || block.Translation?.SourceText is { } source && source != block.Source,
             block.Source, editor.SelectionLength > 0 ? editor.SelectedText : block.Braille, $"{at.Line}줄 {at.Column}칸") { Owner = this }.ShowDialog();
     }
-    private async void RuleSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    private async void RuleSearch_Click(object sender, RoutedEventArgs e)
     {
-        if (e.Key != System.Windows.Input.Key.Enter) return;
-        e.Handled = true;
-        if (await EnsureAccountAsync()) new RuleDialog(api, [], "", "", RuleSearch.Text.Trim()) { Owner = this }.ShowDialog();
+        if (!RuleSearch.IsEnabled) return;
+        RuleSearch.IsEnabled = false;
+        try
+        {
+            if (api.Account is { } account && AutomaticLogin.IsEditorAllowed(account) || await EnsureAccountAsync())
+                new RuleDialog(api, [], "", "", "") { Owner = this }.ShowDialog();
+        }
+        finally { RuleSearch.IsEnabled = true; }
     }
 }

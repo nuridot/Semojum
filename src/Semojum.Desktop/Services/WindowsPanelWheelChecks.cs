@@ -31,12 +31,12 @@ internal static class WindowsPanelWheelChecks
             scroll.ScrollToBottom(); window.UpdateLayout();
             var next = Wheel(-120);
             var deadline = DateTime.UtcNow.AddSeconds(5);
-            while (model.ActiveBlock != second && DateTime.UtcNow < deadline) await Task.Delay(20);
+            while (window.PageEditor.DisplayedPage != 2 && DateTime.UtcNow < deadline) await Task.Delay(20);
             await Settle();
-            check(next.Handled && model.ActiveBlock == second && scroll.VerticalOffset < 1,
+            check(next.Handled && window.PageEditor.DisplayedPage == 2 && model.ActiveBlock == first && window.DisplayedOriginalPage == 1 && scroll.VerticalOffset < 1,
                 $"QA1110: source wheel at bottom opens next page at top (handled={next.Handled}, page={model.ActiveBlock?.Page}, offset={scroll.VerticalOffset}, extent={scroll.ScrollableHeight}, status={model.Status})");
             var previous = Wheel(120); await Settle();
-            check(previous.Handled && model.ActiveBlock == first && scroll.VerticalOffset >= scroll.ScrollableHeight - 1,
+            check(previous.Handled && window.PageEditor.DisplayedPage == 1 && model.ActiveBlock == first && scroll.VerticalOffset >= scroll.ScrollableHeight - 1,
                 "QA1110: source wheel at top opens previous page at bottom");
             scroll.ScrollToTop(); window.UpdateLayout();
             var boundary = Wheel(120); await Settle();
@@ -64,6 +64,37 @@ internal static class WindowsPanelWheelChecks
             var forward = brailleScroll.VerticalOffset;
             BrailleWheel(120); await Settle();
             check(brailleScroll.VerticalOffset < forward, "QA1110: braille wheel can scroll back toward previous faces");
+            // Re-select the active block after each neighbouring panel has browsed away.
+            model.ActiveBlock = first;
+            window.PageEditor.BrowsePage(2);
+            grid.GoToFace(grid.Items.Count);
+            await Settle();
+            check(window.DisplayedOriginalPage == 1 && window.PageEditor.DisplayedPage == 2
+                && model.ActiveBlock == first && window.Braille.DisplayedFace == grid.Items.Count,
+                "Each panel can display a different location without selecting a new block");
+
+            editor.Focus();
+            editor.TextArea.TextView.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent });
+            editor.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                { RoutedEvent = Mouse.MouseUpEvent });
+            await Settle();
+            check(model.ActiveBlock == second && window.DisplayedOriginalPage == 2 && grid.ActiveBlock == second,
+                "Clicking browsed source text selects its matching original page and braille block");
+
+            window.PageEditor.BrowsePage(1);
+            grid.Point(new(second, 0, '⠃'), false);
+            await Settle();
+            check(model.ActiveBlock == second && window.PageEditor.DisplayedPage == 2 && window.DisplayedOriginalPage == 2,
+                "Clicking the same braille block again brings the independently browsed source back");
+
+            window.PageEditor.BrowsePage(1);
+            grid.GoToFace(1);
+            await window.SelectOriginalRegionAsync(second);
+            await Settle();
+            check(window.PageEditor.DisplayedPage == 2 && grid.ActiveBlock == second && window.Braille.DisplayedFace == grid.Items.Count,
+                "Clicking the same original block again brings both browsed panels back");
+
             MouseWheelEventArgs Wheel(int delta)
             {
                 var args = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, delta)

@@ -19,6 +19,21 @@ internal static class WindowsRuleDesignChecks
     {
         var fixture = new Fixture(); using var http = new HttpClient(fixture);
         var api = new SemojumApiClient(http); await api.LoginAsync("fixture", "fixture");
+        var editor = new MainWindow(smoke: true, testWithoutAccount: true, apiClient: api) { ShowInTaskbar = false };
+        editor.Show();
+        try
+        {
+            bool opened = false;
+            _ = editor.Dispatcher.BeginInvoke(() =>
+            {
+                var modal = editor.OwnedWindows.OfType<RuleDialog>().SingleOrDefault(w => w.IsVisible);
+                opened = modal is not null;
+                modal?.Close();
+            }, DispatcherPriority.ApplicationIdle);
+            editor.RuleSearch.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            check(opened, "One toolbar click opens the owned rule search without entering a query");
+        }
+        finally { editor.PrepareSmokeShutdown(); editor.Close(); }
         var evidence = new AppliedRuleRow("원본 자료 (원문)", "", "제1항", "근거", "제공된 원문", "규정", "id", true);
         var applied = new AppliedRulesDialog(api, [evidence], false, "원문", "⠁", "1줄 1칸");
         check(applied.Width == 900 && applied.Height == 488, "Applied rules requests its final Figma dimensions");

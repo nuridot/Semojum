@@ -19,6 +19,8 @@ public partial class MainWindow
     private const string SpacingReason = "직접 고친 점자의 빈 줄이 조판 빈 줄과 겹치거나 엔진이 쪽 빈 줄을 정하지 못한 블록입니다.";
     private void ConnectGrid(BraillePane pane)
     {
+        pane.PreviewMouseDown += (_, _) => ActivateZoom(ZoomPanel.Braille);
+        pane.GotKeyboardFocus += (_, _) => ActivateZoom(ZoomPanel.Braille);
         pane.GridView.PreviewMouseDown += (_, _) => { if (regionOwner is not null) SetActiveEditor(pane.Editor); };
         pane.GridView.PreviewKeyDown += (_, _) => { if (regionOwner is not null) SetActiveEditor(pane.Editor); };
         pane.GridView.ShowMemos = MemoToggle.IsChecked; pane.GridView.ShowReviews = ReviewToggle.IsChecked;
@@ -67,6 +69,11 @@ public partial class MainWindow
         pane.NavigateGridAsync = async cell =>
         {
             await NavigateToAsync(new(cell.Block, SearchPanel.Braille, cell.Offset));
+            if (session.ActiveBlock == cell.Block)
+            {
+                SyncOriginalToBlock(cell.Block);
+                PageEditor.FollowActive();
+            }
             lastGrid = pane.GridView; RefreshEditorStatus();
         };
         pane.ComposeGridAsync = model =>
@@ -131,7 +138,7 @@ public partial class MainWindow
     {
         if (RefreshOriginalRegion()) return;
         BlockSpan[] linked = [];
-        if (lastEditor == PageEditor.Editor && session?.ActiveBlock is { } block && session.Blocks.Contains(block)
+        if (zoomPanel == ZoomPanel.Source && lastEditor == PageEditor.Editor && session?.ActiveBlock is { } block && session.Blocks.Contains(block)
             && block.Source.Length > 0
             && !block.HasManualBraille && !block.IsBrailleLocked && !block.Metadata.IsBlocked
             && block.Translation is { SourceText: { } source } translation && source == block.Source

@@ -26,8 +26,8 @@ internal static class WindowsStatusZoomChecks
                 "Status zoom starts at the Figma 100-percent midpoint with a 106-pixel track");
             await CheckStatusCellsAsync(window, check);
             plus.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            check(window.SourceEditor.FontSize == 16 && Math.Abs(window.Braille.GridView.FontSize - 16 * 22.0 / 14) < 0.001 && window.ZoomPercent.Text == "114%",
-                "Zoom-in updates the source, braille grid, and displayed percentage together");
+            check(window.SourceEditor.FontSize == 16 && window.Braille.GridView.FontSize == 22 && window.ZoomPercent.Text == "114%",
+                "Zoom-in updates only the active text panel and its displayed percentage");
             minus.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             check(window.SourceEditor.FontSize == 14 && window.ZoomSlider.Value == 50 && window.ZoomPercent.Text == "100%",
                 "Zoom-out returns to the original size and synchronizes the slider");
@@ -40,6 +40,17 @@ internal static class WindowsStatusZoomChecks
             check(window.SourceEditor.FontSize == 10, "Slider retains the existing minimum font size");
             window.ZoomSlider.Value = 100;
             check(window.SourceEditor.FontSize == 32, "Slider retains the existing maximum font size");
+            window.Braille.GridView.Focus();
+            plus.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            check(window.Braille.GridView.FontSize == 24 && window.SourceEditor.FontSize == 32 && Equals(window.FontSizeLabel.SelectedItem, "24"),
+                "Toolbar and status controls follow the focused braille grid");
+            check(window.TryPanelZoomKey(Key.OemPlus, ModifierKeys.Control | ModifierKeys.Shift)
+                && window.Braille.GridView.FontSize == 26 && window.SourceEditor.FontSize == 32, "Ctrl plus resizes only braille");
+            check(window.TryPanelZoomKey(Key.Subtract, ModifierKeys.Control)
+                && window.TryPanelZoomWheel(-120, ModifierKeys.Control) && window.Braille.GridView.FontSize == 22
+                && !window.TryPanelZoomWheel(120, ModifierKeys.None), "Keypad minus and Ctrl wheel share the active size; ordinary scrolling stays available");
+            window.PageEditor.Editor.Focus();
+            check(Equals(window.FontSizeLabel.SelectedItem, "32"), "Returning to source restores its independent zoom reading");
             check(window.ZoomSlider.Focusable && minus.Focusable && plus.Focusable && AutomationProperties.GetName(window.ZoomSlider) == "편집기 확대 비율",
                 "Zoom slider and both actions are keyboard focusable and named for assistive technology");
             window.MinWidth = 480; // as WindowBounds.Fit allows on a monitor narrower than the 1280-pixel minimum

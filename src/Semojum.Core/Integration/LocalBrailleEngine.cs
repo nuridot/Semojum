@@ -7,7 +7,7 @@ namespace Semojum.Core.Integration;
 /// <summary>One element of an engine <c>translate_page</c> answer. Rows are the blank lines already merged with the neighbours.</summary>
 public sealed record PageElementBraille(string Cells, int[] Breaks, int PrefixRows, int SuffixRows);
 
-/// <summary>Wire adapter for Semojum/braille v3.4.45, commit 7e7a5f74fc3a316d39cfdb3111a039c36b8c012a.</summary>
+/// <summary>Wire adapter for nuridot/braille v3.4.46, commit bd594f24ec59204e055f2f131d1b02eb43939299.</summary>
 public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptions>? options = null) : ITranslationEngine
 {
     public static TimeSpan TranslationTimeout(int sourceLength) => TimeSpan.FromSeconds(Math.Clamp(35d + sourceLength / 1000d, 35, 300));
@@ -165,7 +165,7 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
     }
 
     /// <summary>
-    /// Engine 3.4.45 <c>translate_page</c>: every element of one original page in reading order, laid out once like the server.
+    /// Engine 3.4.46 <c>translate_page</c>: every element of one original page in reading order, laid out once like the server.
     /// Joining the cells in order equals the server composition (merged blank lines, page-head and consecutive-visual rules).
     /// </summary>
     public Task<PageElementBraille[]> TranslatePageAsync(IReadOnlyList<(string Text, BlockMetadata Metadata)> elements, BrailleOptions settings,

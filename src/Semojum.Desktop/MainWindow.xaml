@@ -84,10 +84,12 @@
       <ScrollViewer x:Name="EditorToolbarScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" AutomationProperties.Name="기본 도구 모음 가로 스크롤">
       <DockPanel Height="39">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-          <Border BorderBrush="#D1D1D1" BorderThickness="1" CornerRadius="4" Background="White" Width="240" Height="32" Margin="8,0,4,0" Padding="7,0">
-            <DockPanel><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/common-rulebook.svg" Width="16" Height="16" Stretch="None" Margin="0,0,8,0" IsHitTestVisible="False"/><Grid><TextBox x:Name="RuleSearch" Height="30" MinHeight="30" Padding="0" FontSize="12" BorderThickness="0" MaxLength="100" ToolTip="점자 규정 검색 · Enter" AutomationProperties.Name="점자 규정 검색" KeyDown="RuleSearch_KeyDown"/>
-            <TextBlock Text="점역 규정 검색..." FontSize="12" Foreground="#8A8A8A" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=RuleSearch}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Grid></DockPanel>
-          </Border>
+          <Button x:Name="RuleSearch" Width="240" Height="32" Margin="8,0,4,0" Padding="7,0" HorizontalContentAlignment="Stretch"
+                  Background="White" BorderBrush="#D1D1D1" BorderThickness="1" Click="RuleSearch_Click" AutomationProperties.Name="점자 규정 검색">
+            <Button.Template><ControlTemplate TargetType="Button"><Border CornerRadius="4" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            <DockPanel><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/common-rulebook.svg" Width="16" Height="16" Stretch="None" Margin="0,0,8,0"/>
+              <TextBlock Text="점역 규정 검색..." FontSize="12" Foreground="#8A8A8A" IsHitTestVisible="False"/></DockPanel>
+          </Button>
         </StackPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed">
           <Button Content="‹" Tag="previous" Click="Action_Click" Style="{StaticResource FormatButton}" ToolTip="이전 블록"/>
@@ -129,7 +131,7 @@
       <ScrollViewer x:Name="FormatToolbarScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="서식 도구 모음 가로 스크롤">
       <StackPanel Orientation="Horizontal" Height="31">
         <ComboBox x:Name="TextStylePicker" Width="104" Height="24" MinHeight="24" FontSize="12" SelectedIndex="0" SelectionChanged="TextStylePicker_SelectionChanged" AutomationProperties.Name="텍스트 서식"><ComboBoxItem Content="본문"/><ComboBoxItem Content="강조"/><ComboBoxItem Content="굵은"/><ComboBoxItem Content="색강조"/><ComboBoxItem Content="취소선"/></ComboBox>
-        <ComboBox x:Name="FontSizeLabel" ToolTip="텍스트 글자 크기" Width="66" Height="24" MinHeight="24" Margin="4,0" FontSize="12" SelectionChanged="FontSizePicker_SelectionChanged"><ComboBoxItem Content="12"/><ComboBoxItem Content="14" IsSelected="True"/><ComboBoxItem Content="16"/><ComboBoxItem Content="18"/><ComboBoxItem Content="20"/><ComboBoxItem Content="24"/><ComboBoxItem Content="30"/><ComboBoxItem Content="32"/></ComboBox>
+        <ComboBox x:Name="FontSizeLabel" Width="72" Height="24" MinHeight="24" Margin="4,0" FontSize="12" SelectionChanged="FontSizePicker_SelectionChanged" AutomationProperties.Name="활성 패널 표시 크기"/>
         <Border Background="#F0F0F0" CornerRadius="12" Padding="12,0" Height="24" MinWidth="173"><TextBlock x:Name="OptionsLabel" FontSize="12" Foreground="#8A8A8A"/></Border>
 <Border Width="1" Height="16" Background="#EAEAEA" Margin="8,0"/>
         <Button Tag="tag:쪽바꿈" ToolTip="쪽바꿈" AutomationProperties.Name="쪽바꿈" Click="Action_Click" Style="{StaticResource FormatButton}"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/main-toolbar-pagebreak.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
