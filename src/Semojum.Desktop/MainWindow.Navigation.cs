@@ -12,23 +12,33 @@ public partial class MainWindow
         new GoToDialog(panel, (target, value) => NavigateAsync(target, value, panel)) { Owner = this }.ShowDialog();
     }
 
-    internal async Task<string> NavigateAsync(NavigationTarget target, string input, SearchPanel panel, bool preserveSourceVisibility = false)
+    internal async Task<string> NavigateAsync(NavigationTarget target, string input, SearchPanel panel)
     {
         if (target == NavigationTarget.BraillePage)
         {
             var pane = detachedPane ?? Braille;
-            var currentFace = pane.GridView.CaretCoordinates?.Face ?? lastPreviewPage;
+            var currentFace = pane.DisplayedFace ?? lastPreviewPage;
             var face = DocumentNavigation.Number(input, currentFace);
             if (!pane.GridView.GoToFace(face)) throw new ArgumentException($"점자 면은 1–{pane.GridView.Items.Count} 범위로 입력해 주세요.");
-            lastPreviewPage = face; return $"점자 {face}면으로 이동했습니다.";
+            lastPreviewPage = face; RefreshEditorStatus(); return $"점자 {face}면으로 이동했습니다.";
         }
         if (session.ActiveBlock is not { } active) return "열린 작업 블록이 없습니다.";
+        if (target == NavigationTarget.OriginalPage)
+        {
+            var original = zoomPanel == ZoomPanel.Original && session.IsTextJob != true;
+            var page = DocumentNavigation.Number(input, original ? DisplayedOriginalPage : PageEditor.DisplayedPage);
+            if (!session.Blocks.Any(b => b.Page == page && !b.Metadata.IsBlocked) ||
+                original && !session.OriginalPages.ContainsKey(page))
+                throw new ArgumentException("이동할 수 있는 쪽 번호를 입력해 주세요.");
+            if (original) BrowseOriginalPage(page); else BrowseSourcePage(page);
+            return $"{page}쪽으로 이동했습니다.";
+        }
         var editor = SearchEditor(panel);
         var destination = DocumentNavigation.Resolve(session.Blocks, active, panel, editor.CaretOffset, target, input);
-        return await NavigateToAsync(destination, preserveSourceVisibility);
+        return await NavigateToAsync(destination);
     }
 
-    private async Task<string> NavigateToAsync(NavigationLocation destination, bool preserveSourceVisibility = false)
+    private async Task<string> NavigateToAsync(NavigationLocation destination)
     {
         var owner = session;
         var navigationLifetime = documentLifetime.Token;
@@ -49,9 +59,7 @@ public partial class MainWindow
         session.ActiveBlock = destination.Block;
         var editor = SearchEditor(destination.Panel);
         if (destination.Panel == SearchPanel.Text)
-        {
-            if (!preserveSourceVisibility) SourceToggle.IsChecked = true;
-        }
+            SourceToggle.IsChecked = true;
         else BrailleToggle.IsChecked = true;
         UpdatePanelLayout();
         editor.Select(Math.Clamp(destination.Offset, 0, editor.Document.TextLength), 0);

@@ -138,7 +138,12 @@ public sealed class RuleDialog : CompactDialog
             var applied = Action("적용 규정", AppliedRules); Actions.Children.Remove(applied); applied.Width = 88; applied.MinWidth = 0; applied.Height = 32; applied.MinHeight = 0; applied.Template = FigmaDialogElements.SurfaceTemplate(4); footerActions.Children.Add(applied);
         }
         var close = Action("닫기", Close, true); Actions.Children.Remove(close); close.Width = 88; close.MinWidth = 0; close.Height = 32; close.MinHeight = 0; close.Template = FigmaDialogElements.SurfaceTemplate(4); footerActions.Children.Add(close);
-        if (initialQuery is null && evidence.Length > 0) AppliedRules(); else OnLoad(SearchAsync);
+        if (initialQuery is null && evidence.Length > 0) AppliedRules();
+        else Loaded += async (_, _) =>
+        {
+            await RunAsync(SearchAsync);
+            if (IsVisible) query.Focus();
+        };
     }
 
     private Style CreateRuleCardStyle()

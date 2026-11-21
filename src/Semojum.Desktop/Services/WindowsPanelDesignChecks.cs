@@ -115,18 +115,12 @@ internal static class WindowsPanelDesignChecks
             check(failed is { IsEnabled: false } && third is { IsEnabled: true }, "A failed page is shown but cannot be selected while an editable page remains reachable");
             third?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); await Task.Delay(500);
-            check(model.ActiveBlock?.Page == 3, $"The source page bar navigates to the real third-page block (page {model.ActiveBlock?.Page}; status {model.Status})");
-
-            var firstBlock = model.Blocks.First(b => b.Page == 1);
-            model.ActiveBlock = firstBlock;
-            var textBeforeTranslation = firstBlock.Source;
-            typeof(MainWindow).GetField("autoTranslate", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(window, true);
-            third = Descendants(window.SourcePageBar).OfType<Button>().FirstOrDefault(b => Equals(b.Content, "3"));
-            third?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            for (var i = 0; i < 60 && model.ActiveBlock?.Page != 3; i++) await Task.Delay(50);
-            check(model.ActiveBlock?.Page == 3 && firstBlock.Source == textBeforeTranslation,
-                $"Source navigation completes after automatic translation and preserves the original text (page {model.ActiveBlock?.Page}; status {model.Status})");
-            typeof(MainWindow).GetField("autoTranslate", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(window, false);
+            check(window.PageEditor.DisplayedPage == 3 && window.PageEditor.Editor.Text == "셋째 쪽" && model.ActiveBlock?.Page == 1,
+                "The source page bar browses page three without selecting a different working block");
+            var thirdBlock = model.Blocks.First(b => b.Page == 3);
+            await window.SelectOriginalRegionAsync(thirdBlock);
+            check(model.ActiveBlock == thirdBlock && window.DisplayedOriginalPage == 3 && window.PageEditor.DisplayedPage == 3,
+                "Selecting an original region synchronizes the other panels to that block");
 
             model.Blocks.Clear(); model.ActiveBlock = null; model.PageStatuses.Clear();
             model.Layout = new(Columns: 8, Lines: 4, StartPage: 7, PageNumbers: "출력 안 함", Footer: "출력 안 함");

@@ -82,8 +82,8 @@ internal static class WindowsSmoke
         Check(window.Session.ChangeVersion == initialVersion, "Panel visibility changes do not dirty the document");
         var beforeNavigation = window.Session.ChangeVersion;
         await window.NavigateAsync(NavigationTarget.OriginalPage, "+1", SearchPanel.Text);
-        Check(window.Session.ActiveBlock!.Page == 13 && window.SourceEditor.CaretOffset == 0,
-            "Relative original-page navigation synchronizes source and braille");
+        Check(window.PageEditor.DisplayedPage == 13 && window.Session.ActiveBlock!.Page == 12,
+            "Relative page browsing changes only the text panel");
         await window.NavigateAsync(NavigationTarget.OriginalPage, "12", SearchPanel.Text);
         await window.NavigateAsync(NavigationTarget.Line, "2", SearchPanel.Text);
         Check(window.SourceEditor.TextArea.Caret.Line == 2 && window.Session.ChangeVersion == beforeNavigation,
@@ -491,7 +491,7 @@ internal static class WindowsSmoke
             finally { math.Close(); }
             var about = new AboutDialog("1.0.0", async () => { await engineConnection.InvokeAsync("ping"); return engineConnection.EngineVersion!; }) { Owner = window };
             about.Show(); await RenderAsync(about, Path.Combine(directory, "28-about.png"));
-            Check(about.EngineVersion.Text == engineConnection.EngineVersion && about.EngineVersion.Text == "3.4.45", "QA4 about dialog shows the running bundled engine version 3.4.45, not a hardcoded build label"); about.Close();
+            Check(about.EngineVersion.Text == engineConnection.EngineVersion && about.EngineVersion.Text == "3.4.46", "QA4 about dialog shows the running bundled engine version 3.4.46, not a hardcoded build label"); about.Close();
         }
         var layoutDialog = new LayoutDialog(new()) { Owner = window };
         layoutDialog.Show(); await RenderAsync(layoutDialog, Path.Combine(directory, "29-page-settings.png"));

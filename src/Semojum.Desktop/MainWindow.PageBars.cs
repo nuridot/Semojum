@@ -10,17 +10,18 @@ namespace Semojum.Desktop;
 
 public partial class MainWindow
 {
+    internal int DisplayedOriginalPage { get; private set; }
     private bool sourceWheelBusy;
     private async void SourceEditor_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (e.Handled || e.Delta == 0 || Keyboard.Modifiers != ModifierKeys.None || session?.ActiveBlock is not { } active) return;
+        if (e.Handled || e.Delta == 0 || Keyboard.Modifiers != ModifierKeys.None || session?.ActiveBlock is null) return;
         if (sourceWheelBusy) { e.Handled = true; return; }
         var view = (System.Windows.Controls.Primitives.IScrollInfo)PageEditor.Editor.TextArea.TextView;
         var backwards = e.Delta > 0;
         if (backwards ? view.VerticalOffset > .5 : view.VerticalOffset < view.ExtentHeight - view.ViewportHeight - .5) return;
         var owner = session;
         var pages = owner.Blocks.Select(b => b.Page).Concat(owner.PageStatuses.Keys).Distinct().Order().ToArray();
-        var index = Array.IndexOf(pages, active.Page) + (backwards ? -1 : 1);
+        var index = Array.IndexOf(pages, PageEditor.DisplayedPage) + (backwards ? -1 : 1);
         if (index < 0 || index >= pages.Length) return;
         var page = pages[index];
         var target = owner.Blocks.FirstOrDefault(b => b.Page == page);
@@ -30,10 +31,10 @@ public partial class MainWindow
         sourceWheelBusy = true;
         try
         {
-            await NavigateAsync(NavigationTarget.OriginalPage, page.ToString(System.Globalization.CultureInfo.InvariantCulture), SearchPanel.Text, preserveSourceVisibility: true);
+            BrowseSourcePage(page);
             await Dispatcher.InvokeAsync(() =>
             {
-                if (session != owner || owner.ActiveBlock?.Page != page) return;
+                if (session != owner || PageEditor.DisplayedPage != page) return;
                 PageEditor.Editor.UpdateLayout();
                 PageEditor.Editor.ScrollToVerticalOffset(backwards ? double.MaxValue : 0);
             }, DispatcherPriority.Loaded);
@@ -41,28 +42,26 @@ public partial class MainWindow
         catch (Exception ex) { if (session == owner) owner.Status = ex.Message; }
         finally { sourceWheelBusy = false; }
     }
-    private bool originalWheelBusy;
     private (DocumentSession Owner, int Page, bool Bottom)? originalWheelDestination;
 
     private void OriginalScroll_MouseWheel(object sender, MouseWheelEventArgs e) => HandleOriginalWheel((ScrollViewer)sender, e);
     private void OriginalPreview_MouseWheel(object sender, MouseWheelEventArgs e) => HandleOriginalWheel(Original.PreviewScroll, e);
 
-    private async void HandleOriginalWheel(ScrollViewer scroll, MouseWheelEventArgs e)
+    private void HandleOriginalWheel(ScrollViewer scroll, MouseWheelEventArgs e)
     {
-        if (originalWheelBusy) return;
-        if (originalWheelDestination is { } stale && (stale.Owner != session || session.ActiveBlock?.Page != stale.Page))
+        if (originalWheelDestination is { } stale && (stale.Owner != session || DisplayedOriginalPage != stale.Page))
             originalWheelDestination = null;
         if (e.Handled || e.Delta == 0 || Keyboard.Modifiers != ModifierKeys.None ||
             originalWheelDestination is not null ||
-            session?.IsTextJob == true || session?.ActiveBlock is not { } active ||
-            !HasReadableOriginal(session, active.Page)) return;
+            session?.IsTextJob == true || session?.ActiveBlock is null ||
+            !HasReadableOriginal(session, DisplayedOriginalPage)) return;
 
         // Preserve normal scrolling inside a page. Only leave it when the wheel
         // points past the existing top or bottom edge.
         var backwards = e.Delta > 0;
         if (backwards ? scroll.VerticalOffset > .5 : scroll.VerticalOffset < scroll.ScrollableHeight - .5) return;
         var pages = session.OriginalPages.Keys.Concat(session.PageStatuses.Keys).Distinct().Order().ToArray();
-        var index = Array.IndexOf(pages, active.Page) + (backwards ? -1 : 1);
+        var index = Array.IndexOf(pages, DisplayedOriginalPage) + (backwards ? -1 : 1);
         if (index < 0 || index >= pages.Length) return;
         var page = pages[index];
         var target = session.Blocks.FirstOrDefault(b => b.Page == page);
@@ -71,21 +70,9 @@ public partial class MainWindow
 
         e.Handled = true;
         var owner = session;
-        originalWheelBusy = true;
         originalWheelDestination = (owner, page, backwards);
-        try
-        {
-            await NavigateAsync(NavigationTarget.OriginalPage, page.ToString(System.Globalization.CultureInfo.InvariantCulture), SearchPanel.Text, preserveSourceVisibility: true);
-            if (owner != session || session.ActiveBlock?.Page != page)
-                originalWheelDestination = null;
-            else if (smoke)
-                FinishOriginalWheelTransition(owner, page, scroll);
-        }
-        catch (Exception ex) { originalWheelDestination = null; if (owner == session) session.Status = ex.Message; }
-        finally
-        {
-            originalWheelBusy = false;
-        }
+        BrowseOriginalPage(page);
+        if (smoke) FinishOriginalWheelTransition(owner, page, scroll);
     }
 
     private static bool HasReadableOriginal(DocumentSession owner, int page)
@@ -102,7 +89,7 @@ public partial class MainWindow
         // Wait for the new image/text to be measured before moving to its edge.
         Dispatcher.BeginInvoke(() =>
         {
-            if (session != owner || session.ActiveBlock?.Page != page) return;
+            if (session != owner || DisplayedOriginalPage != page) return;
             scroll.UpdateLayout();
             if (pending.Bottom) scroll.ScrollToBottom(); else scroll.ScrollToTop();
         }, DispatcherPriority.Loaded);
@@ -110,8 +97,8 @@ public partial class MainWindow
     private void OriginalPageBar_Loaded(object sender, RoutedEventArgs e)
     {
         OriginalPageBar.SetIcons("panel-original-prev.svg", "panel-original-next.svg");
-        OriginalPageBar.PageRequested -= NavigateOriginalPage;
-        OriginalPageBar.PageRequested += NavigateOriginalPage;
+        OriginalPageBar.PageRequested -= BrowseOriginalPage;
+        OriginalPageBar.PageRequested += BrowseOriginalPage;
         OriginalPageBar.InvalidPageRequested -= InvalidPage;
         OriginalPageBar.InvalidPageRequested += InvalidPage;
         RefreshPanelPageBars();
@@ -119,8 +106,8 @@ public partial class MainWindow
     private void SourcePageBar_Loaded(object sender, RoutedEventArgs e)
     {
         SourcePageBar.SetIcons("panel-page-prev.svg", "panel-page-next.svg");
-        SourcePageBar.PageRequested -= NavigateOriginalPage;
-        SourcePageBar.PageRequested += NavigateOriginalPage;
+        SourcePageBar.PageRequested -= BrowseSourcePage;
+        SourcePageBar.PageRequested += BrowseSourcePage;
         SourcePageBar.InvalidPageRequested -= InvalidPage;
         SourcePageBar.InvalidPageRequested += InvalidPage;
         RefreshPanelPageBars();
@@ -131,15 +118,25 @@ public partial class MainWindow
         var editable = session.Blocks.Select(b => b.Page).Distinct().Order().ToArray();
         var all = editable.Concat(session.OriginalPages.Keys).Concat(session.PageStatuses.Keys).Distinct().Order().ToArray();
         var original = session.OriginalPages.Keys.Concat(session.PageStatuses.Keys).Distinct().Order().ToArray();
-        var selected = session.ActiveBlock?.Page;
         OriginalPageBar.Visibility = OriginalUpload.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-        OriginalPageBar.SetPages(original, editable.Intersect(original), selected);
-        SourcePageBar.SetPages(all, editable, selected);
+        OriginalPageBar.SetPages(original, editable.Intersect(original), DisplayedOriginalPage);
+        SourcePageBar.SetPages(all, editable, PageEditor.DisplayedPage);
     }
-    private async void NavigateOriginalPage(int page)
+    private void BrowseOriginalPage(int page)
     {
-        try { await NavigateAsync(NavigationTarget.OriginalPage, page.ToString(System.Globalization.CultureInfo.InvariantCulture), SearchPanel.Text); }
-        catch (Exception ex) { session.Status = ex.Message; }
+        ClearOriginalRegion();
+        originalRevealTarget = null;
+        Original.SelectBlock(0, page);
+        ShowOriginal(page);
+        RefreshEditorStatus();
     }
+
+    private void BrowseSourcePage(int page)
+    {
+        ClearOriginalRegion();
+        PageEditor.BrowsePage(page);
+        RefreshEditorStatus();
+    }
+
     private void InvalidPage() => session.Status = "편집할 수 있는 쪽 번호를 입력해 주세요. 실패한 쪽은 쪽별 변환 상태에서 확인할 수 있습니다.";
 }

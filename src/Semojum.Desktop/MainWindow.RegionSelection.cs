@@ -15,6 +15,8 @@ public partial class MainWindow
         if (!owner.Blocks.Contains(block)) return;
         await NavigateToAsync(new(block, SearchPanel.Text, block.SourceCaret));
         if (session != owner || session.ActiveBlock != block || !owner.Blocks.Contains(block)) return;
+        SetActiveEditor(null);
+        Braille.FollowBlock(block); detachedPane?.FollowBlock(block);
         // Equal bounding boxes denote the same original region; overlapping neighbours do not.
         var box = block.Metadata.BoundingBox;
         regionBlocks = owner.Blocks.Where(b => b == block || b.Page == block.Page

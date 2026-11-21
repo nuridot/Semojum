@@ -62,16 +62,38 @@ public partial class MainWindow
     private async void SelectOriginalImageRegion(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         var point = e.GetPosition(OriginalImageGrid);
-        var selected = session.Blocks.Where(b => b.Page == session.ActiveBlock?.Page && b.Metadata.BoundingBox is { Length: 4 } r
+        var selected = session.Blocks.Where(b => b.Page == DisplayedOriginalPage && b.Metadata.BoundingBox is { Length: 4 } r
             && point.X >= r[0] && point.X <= r[2] && point.Y >= r[1] && point.Y <= r[3])
             .OrderBy(b => (b.Metadata.BoundingBox![2] - b.Metadata.BoundingBox[0]) * (b.Metadata.BoundingBox[3] - b.Metadata.BoundingBox[1])).FirstOrDefault();
         if (selected is null) return;
         try { await SelectOriginalRegionAsync(selected); }
         catch (Exception ex) { ShowError(ex); }
     }
+    private EditorBlock? originalRevealTarget;
+    private void RevealSelectedOriginal()
+    {
+        if (originalRevealTarget is not { } block || session.ActiveBlock != block || DisplayedOriginalPage != block.Page
+            || !OriginalSelection.IsVisible) return;
+        OriginalScroll.UpdateLayout();
+        if (OriginalScroll.Template.FindName("PART_ScrollContentPresenter", OriginalScroll)
+            is System.Windows.Controls.Primitives.IScrollInfo presenter)
+            presenter.MakeVisible(OriginalSelection, new Rect(OriginalSelection.RenderSize));
+        originalRevealTarget = null;
+    }
+
+    private void SyncOriginalToBlock(EditorBlock block)
+    {
+        originalRevealTarget = block;
+        Original.SelectBlock(block.Id, block.Page);
+        if (DisplayedOriginalPage == block.Page) { RevealSelectedOriginal(); return; }
+        ShowOriginal(block.Page);
+        RefreshEditorStatus();
+    }
+
     private long originalGeneration;
     private async void ShowOriginal(int page)
     {
+        DisplayedOriginalPage = page;
         if (smoke) return;
         var generation = ++originalGeneration; var owner = session;
         OriginalEmpty.Visibility = Visibility.Visible;
@@ -99,13 +121,14 @@ public partial class MainWindow
             var width = original.Width > 0 ? original.Width : image.PixelWidth;
             var height = original.Height > 0 ? original.Height : image.PixelHeight;
             OriginalImageGrid.Width = width; OriginalImageGrid.Height = height;
-            if (session.ActiveBlock?.Metadata.BoundingBox is { Length: 4 } box && box.All(double.IsFinite))
+            if (session.ActiveBlock is { } active && active.Page == page && active.Metadata.BoundingBox is { Length: 4 } box && box.All(double.IsFinite))
             {
                 var x = Math.Clamp(box[0], 0, width); var y = Math.Clamp(box[1], 0, height);
                 OriginalSelection.Width = Math.Max(0, Math.Clamp(box[2], 0, width) - x);
                 OriginalSelection.Height = Math.Max(0, Math.Clamp(box[3], 0, height) - y);
                 System.Windows.Controls.Canvas.SetLeft(OriginalSelection, x); System.Windows.Controls.Canvas.SetTop(OriginalSelection, y);
                 OriginalSelection.Visibility = Visibility.Visible;
+                RevealSelectedOriginal();
             }
             FinishOriginalWheelTransition(owner, page, OriginalScroll);
         }

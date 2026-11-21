@@ -124,9 +124,10 @@ internal static class WindowsQa4Checks
             .Invoke(faceElement, [new Point(61 + firstCell.x * 16 + 4, firstCell.y * 28 + 4)]);
         check(hit?.Block == firstCell.cell!.Block && hit.Offset == firstCell.cell.Offset,
             "Visual parity braille pointer geometry maps the 61px first cell position and 16x28 cells to the original document offsets");
+        owner.Activate(); owner.PageEditor.Editor.Focus();
         owner.ZoomPicker.SelectedItem = "125%";
-        check(owner.SourceEditor.FontSize == 17.5 && owner.Braille.GridView.FontSize == 27.5,
-            "Editor zoom resizes the visible braille grid and source text together");
+        check(owner.SourceEditor.FontSize == 17.5 && owner.Braille.GridView.FontSize == 22,
+            "Zooming the source leaves the braille grid at its own size");
         owner.ZoomPicker.SelectedItem = "100%";
         owner.UpdateLayout();
         File.WriteAllText(Path.Combine(directory, "visual-geometry.json"), JsonSerializer.Serialize(new

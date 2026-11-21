@@ -34,19 +34,19 @@ internal static class WindowsOriginalWheelChecks
             scroll.ScrollToBottom(); window.UpdateLayout();
             var beforeOffset = scroll.VerticalOffset; var beforeExtent = scroll.ScrollableHeight;
             var next = Wheel(scroll, -120); await SettleAsync(window);
-            check(next.Handled && model.ActiveBlock?.Page == 2 && scroll.VerticalOffset < 1,
+            check(next.Handled && window.DisplayedOriginalPage == 2 && model.ActiveBlock?.Page == 1 && scroll.VerticalOffset < 1,
                 $"Wheel beyond the bottom moves to the next available original and starts at its top " +
                 $"(handled={next.Handled}, page={model.ActiveBlock?.Page}, before={beforeOffset:F2}/{beforeExtent:F2}, " +
                 $"after={scroll.VerticalOffset:F2}/{scroll.ScrollableHeight:F2}, modifiers={Keyboard.Modifiers}, status={model.Status})");
             scroll.ScrollToBottom(); window.UpdateLayout();
             var failed = Wheel(scroll, -120); await SettleAsync(window);
-            check(!failed.Handled && model.ActiveBlock?.Page == 2,
+            check(!failed.Handled && window.DisplayedOriginalPage == 2 && model.ActiveBlock?.Page == 1,
                 "Wheel cannot pass into a failed or missing original page");
 
             window.SourceToggle.IsChecked = false; window.BrailleToggle.IsChecked = false; window.UpdateLayout();
             scroll.ScrollToTop(); window.UpdateLayout();
             var previous = Wheel(scroll, 120); await SettleAsync(window);
-            check(previous.Handled && model.ActiveBlock?.Page == 1 && scroll.VerticalOffset >= scroll.ScrollableHeight - 1 && window.SourceToggle.IsChecked == false && window.BrailleToggle.IsChecked == false,
+            check(previous.Handled && window.DisplayedOriginalPage == 1 && model.ActiveBlock?.Page == 1 && scroll.VerticalOffset >= scroll.ScrollableHeight - 1 && window.SourceToggle.IsChecked == false && window.BrailleToggle.IsChecked == false,
                 "Wheel above the top returns to the previous page bottom and preserves original-only layout");
             scroll.ScrollToTop(); window.UpdateLayout();
             var first = Wheel(scroll, 120);
@@ -56,29 +56,12 @@ internal static class WindowsOriginalWheelChecks
             model.ActiveBlock!.Source += " 수정";
             scroll.ScrollToBottom(); window.UpdateLayout();
             var pending = Wheel(scroll, -120);
-            var heldAtOriginal = model.ActiveBlock?.Page == 1;
-            // The user can independently turn the source panel on while translation awaits.
-            window.SourceToggle.IsChecked = true;
-            var deadline = DateTime.UtcNow.AddSeconds(3);
-            while (model.ActiveBlock?.Page != 2 && DateTime.UtcNow < deadline) await Task.Delay(20);
             await SettleAsync(window);
-            check(pending.Handled && heldAtOriginal && model.ActiveBlock?.Page == 2 && window.SourceToggle.IsChecked == true && window.BrailleToggle.IsChecked == false,
-                "Wheel navigation preserves a source-panel choice made during pending translation");
-            model.ActiveBlock = model.Blocks.First(b => b.Page == 1);
-            window.SourceToggle.IsChecked = false; window.BrailleToggle.IsChecked = false;
-            model.ActiveBlock.Source += " 다시 수정";
-            scroll.ScrollToBottom(); window.UpdateLayout();
-            var pendingBraille = Wheel(scroll, -120);
-            var heldBeforeBrailleChange = model.ActiveBlock?.Page == 1;
-            window.BrailleToggle.IsChecked = true;
-            deadline = DateTime.UtcNow.AddSeconds(3);
-            while (model.ActiveBlock?.Page != 2 && DateTime.UtcNow < deadline) await Task.Delay(20);
-            await SettleAsync(window);
-            check(pendingBraille.Handled && heldBeforeBrailleChange && model.ActiveBlock?.Page == 2 &&
-                  window.SourceToggle.IsChecked == false && window.BrailleToggle.IsChecked == true,
-                "Wheel navigation preserves a braille-panel choice made during pending translation");
+            check(pending.Handled && window.DisplayedOriginalPage == 2 && model.ActiveBlock?.Page == 1
+                && window.PageEditor.DisplayedPage == 1 && model.ActiveBlock.Source.EndsWith(" 수정", StringComparison.Ordinal),
+                "Browsing the original preserves pending source edits and the text page");
+            scroll.ScrollToTop(); window.UpdateLayout(); Wheel(scroll, 120); await SettleAsync(window);
             typeof(MainWindow).GetField("autoTranslate", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(window, false);
-            model.ActiveBlock = model.Blocks.First(b => b.Page == 1);
 
             model.OriginalPages.Remove(2); scroll.ScrollToBottom(); window.UpdateLayout();
             var missing = Wheel(scroll, -120); await SettleAsync(window);
@@ -87,7 +70,7 @@ internal static class WindowsOriginalWheelChecks
             window.ToggleOriginalPanel(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
             scroll.ScrollToBottom(); window.UpdateLayout();
             var detached = Wheel(scroll, -120); await SettleAsync(window);
-            check(window.DetachedOriginalWindow is { IsVisible: true } && detached.Handled && model.ActiveBlock?.Page == 2,
+            check(window.DetachedOriginalWindow is { IsVisible: true } && detached.Handled && window.DisplayedOriginalPage == 2 && model.ActiveBlock?.Page == 1,
                 "Original page wheel navigation works when the same panel is detached");
             window.ToggleOriginalPanel(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             model.IsTextJob = true; model.ActiveBlock = model.Blocks.First(b => b.Page == 1);
@@ -119,17 +102,18 @@ internal static class WindowsOriginalWheelChecks
             typeof(MainWindow).GetMethod("ShowOriginal", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [1]);
             await SettleAsync(window); window.OriginalScroll.ScrollToBottom(); window.UpdateLayout();
             var next = Wheel(window.OriginalScroll, -120); await SettleAsync(window);
-            check(next.Handled && model.ActiveBlock?.Page == 2 && window.OriginalText.Text.StartsWith("둘째 쪽 원본", StringComparison.Ordinal)
+            check(next.Handled && window.DisplayedOriginalPage == 2 && model.ActiveBlock?.Page == 1 && window.OriginalText.Text.StartsWith("둘째 쪽 원본", StringComparison.Ordinal)
                 && window.OriginalScroll.VerticalOffset < 1,
                 "Actual original rendering opens the next page at its top after wheel navigation");
             window.OriginalScroll.ScrollToTop(); window.UpdateLayout();
             var previous = Wheel(window.OriginalScroll, 120); await SettleAsync(window);
-            check(previous.Handled && model.ActiveBlock?.Page == 1 && window.OriginalText.Text.StartsWith("첫째 쪽 원본", StringComparison.Ordinal)
+            check(previous.Handled && window.DisplayedOriginalPage == 1 && model.ActiveBlock?.Page == 1 && window.OriginalText.Text.StartsWith("첫째 쪽 원본", StringComparison.Ordinal)
                 && window.OriginalScroll.VerticalOffset >= window.OriginalScroll.ScrollableHeight - 1,
                 "Actual original rendering opens the previous page at its bottom after wheel navigation");
 
             model.OriginalFiles["preview.pdf"] = WindowsSmoke.PdfFixture();
-            model.OriginalPages[1] = new OriginalPage("pdf", "preview.pdf");
+            model.OriginalPages[1] = new OriginalPage("pdf", "preview.pdf", Width: 600, Height: 800);
+            model.ActiveBlock!.Metadata = new(BoundingBox: [520, 710, 570, 760]);
             void Show(int page) => typeof(MainWindow).GetMethod("ShowOriginal", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(window, [page]);
             Show(1);
             var deadline = DateTime.UtcNow.AddSeconds(10);
@@ -153,6 +137,13 @@ internal static class WindowsOriginalWheelChecks
             window.BeginOriginalDrag(new Point(160, 160)); window.MoveOriginalDrag(new Point(100, 80)); window.UpdateLayout();
             check(Math.Abs(window.OriginalScroll.HorizontalOffset - 60) < 2 && Math.Abs(window.OriginalScroll.VerticalOffset - 80) < 2,
                 $"QA1110: dragging enlarged original pans both axes by the pointer distance (offset={window.OriginalScroll.HorizontalOffset},{window.OriginalScroll.VerticalOffset}; scrollable={window.OriginalScroll.ScrollableWidth},{window.OriginalScroll.ScrollableHeight})");
+            window.OriginalScroll.ScrollToTop(); window.OriginalScroll.ScrollToLeftEnd(); await SettleAsync(window);
+            await window.Braille.NavigateGridAsync!(new(model.ActiveBlock!, 0, '⠁')); await SettleAsync(window);
+            var linkedBox = window.OriginalSelection.TransformToAncestor(window.OriginalScroll)
+                .TransformBounds(new Rect(window.OriginalSelection.RenderSize));
+            check(linkedBox.Top >= -1 && linkedBox.Bottom <= window.OriginalScroll.ViewportHeight + 1
+                && linkedBox.Left >= -1 && linkedBox.Right <= window.OriginalScroll.ViewportWidth + 1,
+                $"Selecting a braille cell scrolls its original PDF layout box into view at 300% (box={linkedBox})");
             await WindowsSmoke.RenderElementAsync(window.OriginalEmpty, System.IO.Path.Combine(System.IO.Path.GetTempPath(), "qa1110-original-zoom.png"));
             window.OriginalZoomFit.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); await SettleAsync(window);
             check(Math.Abs(window.OriginalImageView.ActualWidth - window.OriginalScroll.ViewportWidth) < 2 && window.OriginalScroll.HorizontalOffset < 1,

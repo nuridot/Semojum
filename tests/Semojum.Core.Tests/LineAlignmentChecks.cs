@@ -81,7 +81,7 @@ internal static class LineAlignmentChecks
         var composed = await engine.ComposeAsync(SmjFile.Snapshot(model).Manifest);
         var actual = composed.Pages!.SelectMany(p => p.Lines).Take(5).ToArray();
         if (actual is not ["⠀⠀⠀⠀⠀⠀⠀⠫", "⠀⠀⠀⠀⠀⠀⠀⠉", "⠀⠀⠀⠀⠀⠀⠀⠊", "⠐⠣", "⠑"] || composed.AlignmentUnknownBlockIds is not { Length: 0 })
-            throw new Exception("3.4.45 alignment did not carry across lines, blocks and original pages until the left tag: " + string.Join("/", actual));
+            throw new Exception("3.4.46 alignment did not carry across lines, blocks and original pages until the left tag: " + string.Join("/", actual));
         var brf = await engine.ReadBrfAsync(composed.Brf);
         if (!brf.SelectMany(p => p).Take(5).SequenceEqual(actual)) throw new Exception("Aligned preview differs from exported BRF");
         var first = model.Blocks[0]; var original = first.Braille; first.HasManualBraille = true;
