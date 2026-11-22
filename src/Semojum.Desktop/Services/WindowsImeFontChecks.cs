@@ -55,6 +55,7 @@ internal static class WindowsImeFontChecks
             }
             check(editor.Text == original, "IME font notifications do not alter document text");
             if (failures.Count > 0) throw new InvalidOperationException(string.Join("\n", failures));
+            await WindowsInlineImeChecks.RunAsync(window, check);
         }
         finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
     }

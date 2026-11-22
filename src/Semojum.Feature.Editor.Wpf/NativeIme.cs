@@ -12,6 +12,9 @@ internal static class NativeIme
 {
     public static void Attach(TextEditor editor, Action? completeForTest = null)
     {
+        var inline = new InlineImeComposition(editor);
+        editor.TextArea.TextView.ElementGenerators.Insert(0, inline);
+        editor.LostKeyboardFocus += (_, _) => inline.End();
         void Commit()
         {
             if (!editor.TextArea.IsKeyboardFocused) return;
@@ -49,11 +52,18 @@ internal static class NativeIme
             // editor's context. PreviewLostKeyboardFocus alone is too late.
             if ((message is 0x001C or 0x0086 && wParam == 0)
                 || (message == 0x0006 && (wParam.ToInt64() & 0xFFFF) == 0)) Commit();
-            if (message is 0x010D or 0x010F) { UpdateCompositionFont(editor); QueueCompositionFont(); }
+            if (message is WM_IME_STARTCOMPOSITION or WM_IME_COMPOSITION) { UpdateCompositionFont(editor); QueueCompositionFont(); }
+            if (message == 0x0051) inline.End(); // WM_INPUTLANGCHANGE
+            if (message is WM_IME_SETCONTEXT or WM_IME_STARTCOMPOSITION or WM_IME_COMPOSITION or WM_IME_ENDCOMPOSITION
+                && editor.TextArea.IsKeyboardFocused && editor.Document is not null && !editor.IsReadOnly && editor.Options.EnableImeSupport
+                && editor.TextArea.ReadOnlySectionProvider.CanInsert(editor.CaretOffset)
+                && (GetKeyboardLayout(0).ToInt64() & 0x3ff) == 0x12) // LANG_KOREAN
+                return HandleKoreanComposition(inline, hwnd, message, wParam, lParam, ref handled);
             return 0;
         }
         void Detach()
         {
+            inline.End();
             if (owner is not null) owner.PreviewMouseDown -= BeforeMouseDown;
             source?.RemoveHook(BeforeDeactivate); source = null;
             owner = null;
@@ -69,6 +79,67 @@ internal static class NativeIme
         editor.AddHandler(CommandManager.PreviewExecutedEvent,
             new ExecutedRoutedEventHandler((_, _) => Commit()));
     }
+
+    private const int WM_IME_STARTCOMPOSITION = 0x010D, WM_IME_ENDCOMPOSITION = 0x010E,
+        WM_IME_COMPOSITION = 0x010F, WM_IME_SETCONTEXT = 0x0281;
+    private const uint GCS_COMPSTR = 0x0008, GCS_RESULTSTR = 0x0800;
+
+    private static nint HandleKoreanComposition(InlineImeComposition inline, nint hwnd, int message,
+        nint wParam, nint lParam, ref bool handled)
+    {
+        handled = true;
+        switch (message)
+        {
+            case WM_IME_SETCONTEXT:
+                // Windows still owns the candidate and status windows.
+                return DefWindowProcW(hwnd, message, wParam, (nint)(lParam.ToInt64() & ~0x80000000L));
+            case WM_IME_STARTCOMPOSITION:
+                inline.Begin();
+                break;
+            case WM_IME_ENDCOMPOSITION:
+                inline.End();
+                break;
+            case WM_IME_COMPOSITION:
+                var flags = lParam.ToInt64();
+                if (flags == 0) { inline.End(); break; }
+                var context = ImmGetContext(hwnd);
+                if (context == 0) { inline.End(); handled = false; break; }
+                try
+                {
+                    var result = (flags & GCS_RESULTSTR) != 0 ? ReadString(context, GCS_RESULTSTR) : null;
+                    if ((flags & GCS_RESULTSTR) != 0 && result is null)
+                    {
+                        inline.End();
+                        handled = false; // Let the IME deliver a result we could not read.
+                        break;
+                    }
+                    var composing = (flags & GCS_COMPSTR) != 0 ? ReadString(context, GCS_COMPSTR) : null;
+                    if (composing is null && (flags & 0x2000) != 0) // CS_INSERTCHAR
+                        composing = ((char)wParam.ToInt32()).ToString();
+                    inline.Update(result, composing);
+                }
+                finally { ImmReleaseContext(hwnd, context); }
+                break;
+        }
+        return 0;
+    }
+
+    private static string? ReadString(nint context, uint field)
+    {
+        var length = ImmGetCompositionStringW(context, field, 0, 0);
+        if (length < 0) return null;
+        if (length == 0) return "";
+        var buffer = Marshal.AllocHGlobal(length);
+        try
+        {
+            var bytes = ImmGetCompositionStringW(context, field, buffer, (uint)length);
+            return bytes < 0 || bytes > length ? null : Marshal.PtrToStringUni(buffer, bytes / 2);
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    [DllImport("user32.dll")] private static extern nint GetKeyboardLayout(uint threadId);
+    [DllImport("user32.dll", ExactSpelling = true)] private static extern nint DefWindowProcW(nint hwnd, int message, nint wParam, nint lParam);
 
     // AvalonEdit uses the visual line height as a positive LOGFONT cell height.
     // Our composite font deliberately has extra line spacing, so that makes the
