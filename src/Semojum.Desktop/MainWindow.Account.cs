@@ -124,8 +124,11 @@ public partial class MainWindow
             LoadAccountPreferences();
             if (preferences.WorkFolder is not null) await OpenWorkFolderAsync(false);
             await RestoreActiveJobAsync();
-            if (availableVersion?.Available(CurrentVersion) == true)
+            if (!resourcesReleased && IsVisible && availableVersion?.Available(CurrentVersion) == true)
+            {
                 session.Status = $"새 버전 {availableVersion.Latest}이 있습니다. 버전 정보에서 확인해 주세요.";
+                ShowVersion(startup: true);
+            }
         }
         catch (Exception ex) { ShowError(ex); }
         finally { accountStarting = false; IsEnabled = windowWasEnabled; content.IsEnabled = true; }
@@ -137,7 +140,7 @@ public partial class MainWindow
         automaticLoginMessage = result.Message;
         if (result.Account is not null) RefreshAccount();
     }
-    private void ShowVersion()
+    private void ShowVersion(bool startup = false)
     {
         var message = $"누리닷 {CurrentVersion.ToString(3)}\n";
         if (availableVersion is not { } info) { NoticeDialog.Choose(this, "버전 정보를 확인할 수 없습니다.", message + "버전 정보가 등록되지 않았거나 서버에 연결할 수 없습니다.", ["확인"]); return; }
@@ -148,7 +151,8 @@ public partial class MainWindow
         if (info.DownloadUrl is null) { NoticeDialog.Choose(this, "업데이트 다운로드 주소가 아직 등록되지 않았습니다.", message.TrimEnd() + "\n관리자에게 문의해 주세요.", ["확인"], height: 316); return; }
         var question = message + "\n\n업데이트를 다운로드하시겠습니까?";
         if ((UpdateConfirmationForChecks is { } confirm) ? confirm(question) == MessageBoxResult.Yes
-            : NoticeDialog.Choose(this, "업데이트를 다운로드하시겠습니까?", message.TrimEnd(), ["다운로드", "취소"], height: 316) == 0)
+            : NoticeDialog.Choose(this, startup ? $"새 버전 {info.Latest}이 있습니다." : "업데이트를 다운로드하시겠습니까?",
+                message.TrimEnd(), ["다운로드", startup ? "나중에" : "취소"], height: 316) == 0)
             _ = DownloadUpdateAsync();
     }
     private async Task CheckVersionAsync()
