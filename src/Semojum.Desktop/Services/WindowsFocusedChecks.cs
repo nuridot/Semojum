@@ -119,6 +119,7 @@ internal static class WindowsFocusedChecks
                     await WindowsEmbeddedScreenChecks.RunAsync(Check);
                     break;
                 case "account":
+                    await WindowsUpdateSafetyChecks.RunAsync(Check);
                     await WindowsAccountChecks.RunAsync(Check);
                     WindowsLoginDesignChecks.Run(Check);
                     await WindowsLoginLegalChecks.RunAsync(Check, directory);
