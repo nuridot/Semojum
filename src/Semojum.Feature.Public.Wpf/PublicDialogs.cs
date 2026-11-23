@@ -134,6 +134,7 @@ public sealed class PublicNoticesDialog : CompactDialog
 }
 // Same order as PublicInquiryDialog.Categories.
 public enum PublicInquiryCategory { AccountIssue, BrailleResult, CreditPayment, Usage }
+public sealed record InquiryMessage(string Category, string Email, string Organization, string Title, string Body, UploadFile[] Files);
 public sealed class PublicInquiryDialog : CompactDialog
 {
     // The Figma categories in order; the server takes each code as the inquiry type.
@@ -146,7 +147,8 @@ public sealed class PublicInquiryDialog : CompactDialog
 
     public bool Standalone { get; }
     public PublicInquiryDialog(SemojumApiClient api, string? initialTitle = null,
-        PublicInquiryCategory category = PublicInquiryCategory.AccountIssue, bool standalone = false)
+        PublicInquiryCategory category = PublicInquiryCategory.AccountIssue, bool standalone = false,
+        string? initialEmail = null, Func<InquiryMessage, CancellationToken, Task>? sendMemberInquiry = null)
         : base("문의하기 - 누리닷", standalone ? 1440 : 820, standalone ? 1000 : 510, editor: true)
     {
         Standalone = standalone;
@@ -156,6 +158,7 @@ public sealed class PublicInquiryDialog : CompactDialog
         type.SelectedIndex = (int)category;
         var initialType = type.SelectedItem;
         var email = form.EmailInput;
+        email.Text = initialEmail ?? "";
         var organization = form.OrganizationInput;
         var title = form.TitleInput;
         title.Text = initialTitle ?? "";
@@ -163,6 +166,12 @@ public sealed class PublicInquiryDialog : CompactDialog
         var attachment = form.AttachmentButton;
         var attached = form.AttachedFiles;
         var consent = form.Consent;
+        if (sendMemberInquiry is not null)
+        {
+            const string memberConsent = "문의 답변을 위한 개인정보 수집 · 이용에 동의합니다.";
+            ((TextBlock)consent.Content).Text = memberConsent;
+            AutomationProperties.SetName(consent, memberConsent);
+        }
         var actions = form.FormActions;
 
         var formContainer = new Border { Padding = new(32, 24, 32, 24), Child = form, VerticalAlignment = VerticalAlignment.Top };
@@ -216,7 +225,7 @@ public sealed class PublicInquiryDialog : CompactDialog
         var submitted = false; var discardConfirmed = false;
         Closing += (_, e) =>
         {
-            if (e.Cancel || submitted || discardConfirmed || Equals(type.SelectedItem, initialType) && string.IsNullOrWhiteSpace(email.Text)
+            if (e.Cancel || submitted || discardConfirmed || Equals(type.SelectedItem, initialType) && email.Text.Trim() == (initialEmail ?? "").Trim()
                 && string.IsNullOrWhiteSpace(organization.Text) && string.Equals(title.Text.Trim(), (initialTitle ?? "").Trim(), StringComparison.Ordinal) && string.IsNullOrWhiteSpace(message.Text)
                 && attachments.Count == 0) return;
             var choice = NoticeDialog.Choose(this, "작성 중인 문의를 닫으시겠습니까?", "계속 작성하면 입력한 내용을 유지합니다.", ["계속 작성", "닫기"], width: 440);
@@ -248,11 +257,15 @@ public sealed class PublicInquiryDialog : CompactDialog
                 foreach (var file in files) { var part = new ByteArrayContent(file.Bytes); part.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream"); form.Add(part, "files", file.FileName); }
                 return form;
             }
-            try { await api.SubmitInquiryAsync((Func<HttpContent>)Form, Lifetime.Token); }
+            try
+            {
+                if (sendMemberInquiry is null) await api.SubmitInquiryAsync((Func<HttpContent>)Form, Lifetime.Token);
+                else await sendMemberInquiry(new(Categories[Math.Max(type.SelectedIndex, 0)].Type, address.Address, orgName, subject, body, files.ToArray()), Lifetime.Token);
+            }
             catch (SemojumApiException ex) when (ex.Code == "INQUIRY4001") { throw new InvalidOperationException("첨부는 이미지·문서·zip 파일로 최대 3개까지 보낼 수 있습니다.", ex); }
             catch (SemojumApiException ex) when (ex.Code == "INQUIRY4130" || ex.Status == HttpStatusCode.RequestEntityTooLarge) { throw new InvalidOperationException("첨부 파일은 한 개에 10MB까지 보낼 수 있습니다.", ex); }
             submitted = true;
-            NoticeDialog.Choose(this, "문의를 접수했습니다.", "적어 주신 메일 주소로 회신해드립니다.", ["확인"], width: 440); DialogResult = true;
+            NoticeDialog.Choose(this, "문의를 접수했습니다.", sendMemberInquiry is null ? "적어 주신 메일 주소로 회신해드립니다." : "마이페이지의 문의 내역에서 답변을 확인할 수 있습니다.", ["확인"], width: 440); DialogResult = true;
         }
         if (!standalone)
         {

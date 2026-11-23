@@ -37,6 +37,8 @@ internal static class WindowsMyPageActionChecks
         payments.BringIntoView(); payments.UpdateLayout();
         var invoiceButtons = Children(payments).OfType<Button>().Where(b => Equals(b.Content, "청구서")).ToArray();
         check(invoiceButtons.Length == 2 && invoiceButtons.Count(b => b.IsEnabled) == 1, "Only a payment with an issued invoice can open the E1-3 invoice");
+        check(HasText(payments, "2026-11-01") && HasText(payments, "2026-11-20"),
+            "Payment history uses the Korean settlement day for paid orders and the creation day for drafts");
         await Open("청구서 · 2026-11-01", 560, 490, invoiceButtons.Single(b => b.IsEnabled), "E1-3", w =>
         {
             check(HasText(w, "Standard 요금제") && HasText(w, "50,000원") && HasText(w, "2026-11-01")
@@ -56,6 +58,10 @@ internal static class WindowsMyPageActionChecks
             await Until(() => Action(w, "주문안 저장").IsEnabled);
             check(HasText(w, "10% 할인") && HasText(w, "30% 할인") && HasText(w, "257,400원") && HasText(w, "23,400원"),
                 "E3 quantities, discount badges, VAT and amount reflect the fixture quotes");
+            var badgeText = Children(w).OfType<TextBlock>().Single(t => t.Text == "10% 할인");
+            check(badgeText.Foreground is SolidColorBrush ink && ink.Color == Color.FromRgb(15, 123, 15)
+                && badgeText.Parent is Border { Background: SolidColorBrush fill } && fill.Color == Color.FromRgb(223, 246, 221),
+                "E3 discount uses the M1 success foreground and background");
             Children(w).OfType<RadioButton>().Single(c => AutomationProperties.GetName(c) == "직접 입력").IsChecked = true;
             var input = Input<TextBox>(w, "구매할 크레딧");
             input.Text = "2000"; input.Text = "2500";
@@ -106,7 +112,7 @@ internal static class WindowsMyPageActionChecks
     private static Button Action(Window w, string text) => Children(w).OfType<Button>().Single(b => Equals(b.Content, text));
     private static T Input<T>(Window w, string label) where T : Control =>
         Children(w).OfType<T>().Single(c => AutomationProperties.GetName(c) == label);
-    private static bool HasText(Window w, string text, bool contains = false) =>
+    private static bool HasText(DependencyObject w, string text, bool contains = false) =>
         Children(w).OfType<TextBlock>().Any(c => contains ? c.Text.Contains(text, StringComparison.Ordinal) : c.Text == text);
     private static IEnumerable<DependencyObject> Children(DependencyObject parent)
     {

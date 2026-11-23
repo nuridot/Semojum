@@ -165,7 +165,8 @@ public partial class MyPageView : UserControl
             var data = await ReadAsync("/api/members/me/profile");
             profileAlias = String(data, "alias") ?? "";
             SetName(string.IsNullOrWhiteSpace(profileAlias) ? api.Account?.DisplayName ?? "—" : profileAlias);
-            EmailValue.Text = String(data, "email") ?? "—";
+            owner.ReplyEmail = String(data, "email");
+            EmailValue.Text = owner.ReplyEmail ?? "—";
             marketingEnabled = data.GetProperty("marketing").GetBoolean();
             Marketing.IsChecked = marketingEnabled;
             bool password = data.GetProperty("passwordLogin").GetBoolean();
@@ -181,7 +182,7 @@ public partial class MyPageView : UserControl
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception) { ConfigureProfile(false, false); EmailValue.Text = "계정 정보를 불러오지 못했습니다."; }
+        catch (Exception) { owner.ReplyEmail = null; ConfigureProfile(false, false); EmailValue.Text = "계정 정보를 불러오지 못했습니다."; }
     }
 
     private async Task LoadNotificationsAsync()
@@ -367,7 +368,7 @@ public partial class MyPageView : UserControl
     }
     private static PaymentRow Payment(JsonElement item)
     {
-        var date = TimeZoneInfo.ConvertTime(item.GetProperty("createdAt").GetDateTimeOffset(), TimeZoneInfo.FindSystemTimeZoneById("Korea Standard Time"));
+        var dates = PersonalBillingDialog.OrderDates.Read(item);
         var kind = String(item, "kind") == "PLAN" ? "요금제" : "추가 크레딧";
         var state = String(item, "status") switch { "DRAFT" => "주문안", "CANCELLED" => "취소", "PAID" => "결제 완료", "REFUNDED" => "환불", var value => value };
         var itemName = String(item, "planCode") is { } code ? $"{code} 요금제" : Count(Number(item, "credits") ?? 0) + " 크레딧";
@@ -376,11 +377,9 @@ public partial class MyPageView : UserControl
         if (item.TryGetProperty("hasInvoice", out var issued) && issued.ValueKind == JsonValueKind.True
             && item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String && id.TryGetGuid(out var orderId))
         {
-            string? paidDate = item.TryGetProperty("paidAt", out var paid) && paid.ValueKind == JsonValueKind.String && paid.TryGetDateTimeOffset(out var instant)
-                ? TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.FindSystemTimeZoneById("Korea Standard Time")).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : null;
-            invoice = new(orderId, paidDate, itemName, amount);
+            invoice = new(orderId, dates.InvoiceDate, itemName, amount);
         }
-        return new(date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), kind, $"{itemName} · {state}", "—", amount, invoice);
+        return new(dates.HistoryDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), kind, $"{itemName} · {state}", "—", amount, invoice);
     }
     private void Invoice_Click(object sender, RoutedEventArgs e)
     {
