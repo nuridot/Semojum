@@ -118,9 +118,10 @@ public partial class MainWindow
         var editable = session.Blocks.Select(b => b.Page).Distinct().Order().ToArray();
         var all = editable.Concat(session.OriginalPages.Keys).Concat(session.PageStatuses.Keys).Distinct().Order().ToArray();
         var original = session.OriginalPages.Keys.Concat(session.PageStatuses.Keys).Distinct().Order().ToArray();
-        OriginalPageBar.Visibility = OriginalUpload.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-        OriginalPageBar.SetPages(original, editable.Intersect(original), DisplayedOriginalPage);
-        SourcePageBar.SetPages(all, editable, PageEditor.DisplayedPage);
+
+        var failedPages = session.PageStatuses.Keys.Where(session.IsConversionFailed).ToArray();
+        OriginalPageBar.SetPages(original, editable.Intersect(original).Union(failedPages), DisplayedOriginalPage, session.TotalOriginalPages, inferTotal: false);
+        SourcePageBar.SetPages(all, editable.Union(failedPages), PageEditor.DisplayedPage, session.TotalOriginalPages, inferTotal: session.JobId is null || session.IsTextJob == true);
     }
     private void BrowseOriginalPage(int page)
     {

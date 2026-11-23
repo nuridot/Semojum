@@ -40,6 +40,7 @@ public sealed class MemoMargin(Func<EditorBlock?> active, string panel, Action<i
     public Func<int, (EditorBlock? Block, int Line)>? ResolveLine { get; init; }
     public double GutterWidth { get; set; } = 16;
     public double SlotPadding { get; set; }
+    public bool DrawReviewStripe { get; set; } = true;
     public Brush? Background { get; set; }
     public bool ShowMemos { get; set; } = true;
     public bool ShowReviews { get; set; } = true;
@@ -82,10 +83,19 @@ public sealed class MemoMargin(Func<EditorBlock?> active, string panel, Action<i
         return DescribeReview(result);
     }
     internal static string DescribeReview(BrailleTranslation result)
+        => DescribeReview(result, compact: false);
+
+    internal static string DescribeReview(BrailleTranslation result, bool compact)
     {
-        return "점역 검토 필요" + (result.Blocked ? " · 점역 차단" : "")
-            + string.Concat(result.Dropped.Select(d => $"\n인식하지 못한 문자: {d.Text} ({d.Count}개)"))
-            + (result.UnknownTags?.Length > 0 ? "\n알 수 없는 태그: " + string.Join(", ", result.UnknownTags) : "");
+        var descriptions = new List<string>();
+        if (!compact) descriptions.Add(result.Blocked ? "점역 검토 필요 · 점역 차단" : "점역 검토 필요");
+        else if (result.Blocked) descriptions.Add("점역 차단");
+        descriptions.AddRange(result.Dropped.Select(d => compact
+            ? $"인식하지 못한 문자 {d.Text} {d.Count}개"
+            : $"인식하지 못한 문자: {d.Text} ({d.Count}개)"));
+        if (result.UnknownTags?.Length > 0)
+            descriptions.Add((compact ? "알 수 없는 태그 " : "알 수 없는 태그: ") + string.Join(", ", result.UnknownTags));
+        return string.Join(compact ? " · " : "\n", descriptions);
     }
     internal string Preview(int line)
     {
@@ -180,7 +190,7 @@ public sealed class MemoMargin(Func<EditorBlock?> active, string panel, Action<i
             if (review) Icon(WarningDrawing, SlotPadding + (memo ? 16 : 0));
             var x = SlotPadding + ((memo ? 1 : 0) + (review ? 1 : 0)) * 16;
             foreach (var kind in kinds) { Icon(ReviewVisuals.Icon(kind), x); x += 16; }
-            if (kinds.Length > 0) drawingContext.DrawRectangle(SystemParameters.HighContrast ? SystemColors.WindowTextBrush : ReviewVisuals.Ink(kinds[^1]), null,
+            if (DrawReviewStripe && kinds.Length > 0) drawingContext.DrawRectangle(SystemParameters.HighContrast ? SystemColors.WindowTextBrush : ReviewVisuals.Ink(kinds[^1]), null,
                 new Rect(0, line.VisualTop - TextView.VerticalOffset, 2, line.Height));
         }
     }

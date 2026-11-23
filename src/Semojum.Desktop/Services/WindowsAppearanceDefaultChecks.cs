@@ -95,7 +95,7 @@ internal static class WindowsAppearanceDefaultChecks
                     && Is(window.Braille.Editor.TextArea.TextView.ColumnRulerPen?.Brush, red),
                     $"The {panels}-panel braille grid draws its 32-cell boundary in Figma red #C42B1C ({string.Join(",", pens.Select(p => p.Brush))})");
             }
-            window.ApplyAppearance(new EditorAppearance(OutlineColor: "#123456", OutlineWidth: 2), explicitAppearance: true);
+            window.ApplyAppearance(new EditorAppearance(OutlineColor: "#123456", OutlineWidth: 2));
             var custom = Color.FromRgb(18, 52, 86);
             await WaitUntilAsync(() => { window.UpdateLayout(); return Boundaries(window.Braille.GridView).Any(p => Is(p.Brush, custom)); });
             check(Boundaries(window.Braille.GridView) is { Length: > 0 } customPens && customPens.All(p => Is(p.Brush, custom) && p.Thickness == 2),

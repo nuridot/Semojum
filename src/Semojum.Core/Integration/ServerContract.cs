@@ -12,6 +12,8 @@ public static class ServerContract
         "홀수 페이지" => "odd", "모든 페이지" => "every", "출력 안 함" => "none", _ => null
     };
 
+    public static string? FormPageNumberLine(string pageNumbers) => pageNumbers == "짝수 페이지" ? "even" : PageNumberLine(pageNumbers);
+
     /// <summary>BE LayoutOptions.footerPages (2026-10-27) accepts odd/every. Other footer policies stay in .smj → null (key omitted).</summary>
     public static string? FooterPages(string footer) => footer switch { "홀수 페이지" => "odd", "모든 페이지" => "every", _ => null };
 
@@ -36,7 +38,7 @@ public static class ServerContract
     public static string[] UnsupportedInForm(PageLayout layout)
     {
         var notes = new List<string>();
-        if (PageNumberLine(layout.PageNumbers) is null) notes.Add($"페이지행 ‘{layout.PageNumbers}’ (서버 양식은 홀수/전체/출력 안 함만 지원)");
+        if (FormPageNumberLine(layout.PageNumbers) is null) notes.Add($"페이지행 ‘{layout.PageNumbers}’ (서버 양식은 홀수/짝수/모든 면/출력 안 함을 지원)");
         if (layout.NumberRanges is { Length: > 0 }) notes.Add("번호 표시 범위");
         if (FooterPages(layout.Footer) is null) notes.Add($"꼬리말 출력 면 ‘{layout.Footer}’ (서버 양식은 홀수/전체만 지원)");
         if (layout.PadToEven) notes.Add("마지막 짝수 면 보정");

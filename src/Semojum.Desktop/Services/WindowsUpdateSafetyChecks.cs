@@ -20,19 +20,52 @@ internal static class WindowsUpdateSafetyChecks
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
-            if (path.EndsWith("/app-version"))
+            if (path == "/api/releases/latest")
             {
+                if (request.Headers.Authorization?.Scheme != "Bearer" ||
+                    request.RequestUri.Query != "?platform=WINDOWS&channel=STABLE&currentVersion=" + MainWindow.CurrentVersion.ToString(3))
+                    throw new InvalidOperationException("The signed-in update request lost its account or version.");
                 VersionRequests++;
                 if (offline) throw new HttpRequestException("fixture offline");
             }
             var result = path.EndsWith("/login") ? "{\"accessToken\":\"a\",\"refreshToken\":\"r\",\"role\":\"ROLE_USER\"}"
-                : path.EndsWith("/app-version") ? JsonSerializer.Serialize(new { latestVersion = latest, minSupportedVersion = "0.0.1", downloadUrl = "https://fixture.invalid/update.zip" })
+                : path == "/api/releases/latest" ? JsonSerializer.Serialize(new { version = latest, minSupportedVersion = "0.0.1", fileUrl = "https://fixture.invalid/update.zip" })
                 : path.EndsWith("/jobs/active") ? "[]" : throw new InvalidOperationException("Unexpected fixture request: " + path);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"isSuccess\":true,\"result\":" + result + "}", Encoding.UTF8, "application/json") });
         }
     }
+    private static async Task CheckPackageChecksumAsync(Action<bool,string> check)
+    {
+        var root = Directory.CreateTempSubdirectory("nuridot-package-qa-").FullName;
+        try
+        {
+            var archive = Path.Combine(root, "valid.zip");
+            var assembly = typeof(MainWindow).Assembly;
+            using (var zip = System.IO.Compression.ZipFile.Open(archive, System.IO.Compression.ZipArchiveMode.Create))
+            {
+                foreach (var name in new[] { "Semojum.Mockup.exe", "Semojum.Mockup.runtimeconfig.json", "engine/semojum-engine.exe" })
+                    using (var writer = new StreamWriter(zip.CreateEntry(name).Open())) writer.Write("fixture");
+                using var entry = zip.CreateEntry("Semojum.Mockup.dll").Open();
+                using var input = File.OpenRead(assembly.Location);
+                await input.CopyToAsync(entry);
+            }
+            var verified = Path.Combine(root, "verified");
+            try
+            {
+                await PortableUpdate.StageAsync(archive, verified, assembly.GetName().Version!, new string('0', 64), default);
+                throw new InvalidOperationException("A mismatched package checksum was accepted");
+            }
+            catch (InvalidDataException ex) { check(ex.Message.Contains("SHA-256") && !Directory.Exists(verified), "A checksum mismatch stops the ZIP before any version directory is staged"); }
+            var checksum = (await PortableUpdate.HashAsync(archive)).ToLowerInvariant();
+            await PortableUpdate.StageAsync(archive, verified, assembly.GetName().Version!, checksum, default);
+            check(File.Exists(Path.Combine(verified, "pending.json")), "A matching ZIP checksum stages the verified Windows assembly");
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     internal static async Task RunAsync(Action<bool, string> check)
     {
+        await CheckPackageChecksumAsync(check);
         using var http = new HttpClient(new Handler());
         var api = new SemojumApiClient(http); await api.LoginAsync("editor", "fixture");
         var window = new MainWindow(api); window.Show();

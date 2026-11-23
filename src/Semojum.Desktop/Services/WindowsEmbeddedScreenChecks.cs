@@ -118,29 +118,37 @@ internal static class WindowsEmbeddedScreenChecks
                 && Application.Current.Windows.Cast<Window>().Count(w => w.IsVisible) == existingWindows
                 && !Application.Current.Windows.Cast<Window>().Any(w => w.Title == "누리닷 기관 관리"),
                 "An institution login hides the editor and shows only the top-level 기관 관리 - 누리닷 window with minimize, maximize and close");
-            check(Descendants(institution).OfType<Menu>().Single().Items.OfType<MenuItem>().SelectMany(m => m.Items.OfType<MenuItem>()).Select(m => m.Header as string)
-                    .SequenceEqual(["로그아웃", "닫기", "도움말", "마이페이지 · 사용량"]),
-                "The 기관 관리 window offers no editor command, only logout, close, help and my page");
-            // 정보 › 마이페이지 · 사용량 opens my page over the admin window; its admin-only 기관 관리 section brings that window back.
-            UsageDialog? myPage = null; string[] sections = []; var ticks = 0;
+            var identity = Descendants(institution).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "계정 메뉴");
+            identity.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var accountCommands = identity.ContextMenu.Items.OfType<MenuItem>().Select(m => m.Header as string).ToArray();
+            check(identity.ContextMenu.IsOpen && accountCommands.SequenceEqual(["마이페이지 · 사용량", "계약·청구 문서"])
+                && Descendants(institution).OfType<Button>().Any(b => Equals(b.Content, "문의하기") && b.IsEnabled)
+                && institution.LogoutItem.IsVisible, "The production institution header opens the account menu, public inquiry and logout commands");
+            identity.ContextMenu.IsOpen = false;
+            MyPageWindow? myPage = null; string[] sections = []; var ticks = 0;
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
             timer.Tick += (_, _) =>
             {
-                if (Application.Current.Windows.OfType<UsageDialog>().FirstOrDefault(d => d.Owner == institution && d.IsLoaded) is { } page)
+                if (Application.Current.Windows.OfType<MyPageWindow>().FirstOrDefault(d => d.Owner == institution && d.IsLoaded) is { } page)
                 {
-                    timer.Stop(); myPage = page; sections = page.Navigation.Items.Cast<TabItem>().Select(Section).ToArray();
-                    page.Navigation.SelectedItem = page.Navigation.Items.Cast<TabItem>().FirstOrDefault(t => Section(t) == "기관 관리") ?? page.Navigation.Items[0];
-                    if (page.IsVisible) page.DialogResult = false;
+                    timer.Stop(); myPage = page;
+                    var view = Descendants(page).OfType<MyPageView>().Single();
+                    var account = (Button)view.FindName("Account"); account.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    var pageMenu = account.ContextMenu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "마이페이지"));
+                    pageMenu.IsSubmenuOpen = true;
+                    sections = pageMenu.Items.OfType<MenuItem>().Select(m => m.Header.ToString()!).ToArray();
+                    var back = pageMenu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "기관 관리"));
+                    account.ContextMenu.IsOpen = false; back.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 }
-                else if (++ticks >= 250) { timer.Stop(); foreach (var stray in Application.Current.Windows.OfType<UsageDialog>().Where(d => d.IsVisible).ToArray()) stray.DialogResult = false; }
+                else if (++ticks >= 250) { timer.Stop(); foreach (var stray in Application.Current.Windows.OfType<MyPageWindow>().Where(d => d.IsVisible).ToArray()) stray.DialogResult = false; }
             };
             timer.Start();
             institution.MyPageItem?.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            check(myPage is { IsVisible: false, LogoutRequested: false, DialogResult: true } && sections.SequenceEqual(["사용량", "과금 이력", "계정 정보", "기관 관리", "문의 내역", "로그아웃"])
+            check(myPage is { IsVisible: false, LogoutRequested: false } && sections.Contains("기관 관리") && sections.Contains("문의 내역")
                 && institution.IsVisible && !flowOwner.IsVisible && !flow.IsCompleted,
-                "The administrator's my page lists six sections and its 기관 관리 closes it back to the open 기관 관리 window");
-            institution.LogoutItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                "The administrator can return directly from the scrolling My page to the existing institution window");
+            institution.LogoutItem.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitForAsync(() => Descendants(flowOwner).OfType<PasswordBox>().Any(p => p.IsVisible));
             check(flowOwner.IsVisible && flowOwner.Title == "누리닷 로그인" && !institution.IsVisible && flowOwner.Institution is null && flowApi.Account is null && !flow.IsCompleted,
                 "Logging out of the 기관 관리 window closes it and returns to the login screen");
@@ -170,7 +178,7 @@ internal static class WindowsEmbeddedScreenChecks
         finally { if (!ownerClosed) { await closeOwner.ReleaseResourcesAsync(); closeOwner.PrepareSmokeShutdown(); closeOwner.Close(); } }
     }
 
-    private static string Section(TabItem tab) => tab.Header as string ?? Descendants((Panel)tab.Header).OfType<TextBlock>().Last().Text;
+
 
     private static IEnumerable<string?> CaptionButtons(Window window) => Descendants(window).OfType<Button>()
         .Select(b => AutomationProperties.GetName(b)).Where(name => name is "최소화" or "최대화 / 복원" or "닫기");

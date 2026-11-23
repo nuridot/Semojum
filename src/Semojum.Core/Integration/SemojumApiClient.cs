@@ -13,7 +13,7 @@ public sealed class SemojumApiException(HttpStatusCode status, string code, stri
     public JsonElement? Details { get; } = details;
 }
 
-public sealed record AccountIdentity(string LoginId, string Role, string? AdminScope, string? Alias = null)
+public sealed record AccountIdentity(string LoginId, string Role, string? AdminScope, string? Alias = null, string? MemberType = null)
 {
     public string DisplayName => string.IsNullOrWhiteSpace(Alias) ? LoginId : Alias;
 }
@@ -25,7 +25,7 @@ public sealed record SessionCredential(string LoginId, string RefreshToken)
 }
 
 /// <summary>V3.1 envelope and in-memory authentication. The caller owns the HttpClient.</summary>
-public sealed class SemojumApiClient
+public sealed partial class SemojumApiClient
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly HttpClient http;
@@ -34,8 +34,8 @@ public sealed class SemojumApiClient
     private Session? session;
     private SessionCredential? ownedCredential;
     private sealed record Session(Guid Id, AccountIdentity Account, string AccessToken, string RefreshToken);
-    private sealed record LoginResult(string AccessToken, string RefreshToken, string Role, string? AdminScope, string? Alias);
-    private sealed record RefreshResult(string AccessToken, string? LoginId = null, string? Role = null, string? AdminScope = null, string? Alias = null);
+    private sealed record LoginResult(string AccessToken, string RefreshToken, string Role, string? AdminScope, string? Alias, string? MemberType);
+    private sealed record RefreshResult(string AccessToken, string? LoginId = null, string? Role = null, string? AdminScope = null, string? Alias = null, string? MemberType = null);
     public AccountIdentity? Account => Volatile.Read(ref session)?.Account;
     /// <summary>Non-credential local session marker: stable through token refresh, replaced by a new login.</summary>
     public Guid? SessionMarker => Volatile.Read(ref session)?.Id;
@@ -65,8 +65,8 @@ public sealed class SemojumApiClient
             var tokens = result.Deserialize<RefreshResult>(Json) ?? throw InvalidResponse();
             if (string.IsNullOrWhiteSpace(tokens.AccessToken)) throw InvalidResponse();
             if (tokens.LoginId is null && tokens.Role is null) return null;
-            if (tokens.LoginId != credential.LoginId || tokens.Role is not ("ROLE_USER" or "ROLE_ADMIN" or "ROLE_ORG_ADMIN")) throw InvalidResponse();
-            var account = new AccountIdentity(tokens.LoginId, tokens.Role, tokens.AdminScope, tokens.Alias);
+            if (tokens.LoginId is null || !SameLogin(tokens.LoginId, credential.LoginId, tokens.MemberType) || tokens.Role is not ("ROLE_USER" or "ROLE_ADMIN" or "ROLE_ORG_ADMIN")) throw InvalidResponse();
+            var account = new AccountIdentity(tokens.LoginId, tokens.Role, tokens.AdminScope, tokens.Alias, tokens.MemberType);
             Volatile.Write(ref ownedCredential, credential);
             Volatile.Write(ref session, new Session(Guid.NewGuid(), account, tokens.AccessToken, credential.RefreshToken));
             return account;
@@ -95,15 +95,25 @@ public sealed class SemojumApiClient
         try
         {
             var result = await SendOnceAsync(HttpMethod.Post, "/api/auth/login", new { loginId, password, keepLoggedIn }, null, cancellationToken).ConfigureAwait(false);
-            var tokens = result.Deserialize<LoginResult>(Json) ?? throw InvalidResponse();
-            if (string.IsNullOrWhiteSpace(tokens.AccessToken) || string.IsNullOrWhiteSpace(tokens.RefreshToken)
-                || tokens.Role is not ("ROLE_USER" or "ROLE_ADMIN" or "ROLE_ORG_ADMIN")) throw InvalidResponse();
-            var account = new AccountIdentity(loginId, tokens.Role, tokens.AdminScope, tokens.Alias);
-            Volatile.Write(ref ownedCredential, new SessionCredential(loginId, tokens.RefreshToken));
-            Volatile.Write(ref session, new Session(Guid.NewGuid(), account, tokens.AccessToken, tokens.RefreshToken));
-            return account;
+            return AcceptLogin(loginId, result);
         }
         finally { authGate.Release(); }
+    }
+
+    private static bool SameLogin(string received, string stored, string? memberType) =>
+        string.Equals(received, stored, memberType == "PERSONAL" && stored.Contains('@')
+            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private AccountIdentity AcceptLogin(string loginId, JsonElement result)
+    {
+        var tokens = result.Deserialize<LoginResult>(Json) ?? throw InvalidResponse();
+        if (string.IsNullOrWhiteSpace(tokens.AccessToken) || string.IsNullOrWhiteSpace(tokens.RefreshToken)
+            || tokens.Role is not ("ROLE_USER" or "ROLE_ADMIN" or "ROLE_ORG_ADMIN")) throw InvalidResponse();
+        var account = new AccountIdentity(tokens.MemberType == "PERSONAL" && loginId.Contains('@') ? loginId.Trim().ToLowerInvariant() : loginId,
+            tokens.Role, tokens.AdminScope, tokens.Alias, tokens.MemberType);
+        Volatile.Write(ref ownedCredential, new SessionCredential(loginId, tokens.RefreshToken));
+        Volatile.Write(ref session, new Session(Guid.NewGuid(), account, tokens.AccessToken, tokens.RefreshToken));
+        return account;
     }
 
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
@@ -196,8 +206,8 @@ public sealed class SemojumApiClient
                 }
                 if (tokens.LoginId is not null || tokens.Role is not null)
                 {
-                    if (tokens.LoginId != current.Account.LoginId || tokens.Role is not ("ROLE_USER" or "ROLE_ADMIN" or "ROLE_ORG_ADMIN")) throw InvalidResponse();
-                    identity = new AccountIdentity(tokens.LoginId, tokens.Role, tokens.AdminScope, tokens.Alias);
+                    if (tokens.LoginId is null || !SameLogin(tokens.LoginId, current.Account.LoginId, tokens.MemberType ?? current.Account.MemberType) || tokens.Role is not ("ROLE_USER" or "ROLE_ADMIN" or "ROLE_ORG_ADMIN")) throw InvalidResponse();
+                    identity = new AccountIdentity(tokens.LoginId, tokens.Role, tokens.AdminScope, tokens.Alias, tokens.MemberType ?? current.Account.MemberType);
                     if (RefreshedIdentityAllowed is { } allowed && !allowed(identity))
                     {
                         ClearIfCurrent(current);

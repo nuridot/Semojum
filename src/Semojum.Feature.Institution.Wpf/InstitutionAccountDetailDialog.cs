@@ -1,46 +1,53 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
-using Semojum.Desktop.Services;
 
 namespace Semojum.Desktop.Dialogs;
 
-internal sealed class InstitutionAccountDetailDialog : CompactDialog
+internal sealed class InstitutionAccountDetailDialog : InstitutionFormDialog
 {
     internal Button LockButton { get; }
+    internal Button SaveButton { get; }
+    internal Button RecentJobs { get; }
     internal DataGrid Jobs { get; }
-    internal InstitutionAccount Account { get; }
-    internal InstitutionAccountDetailDialog(InstitutionAccount account, InstitutionAccountJobs jobs, Func<bool, Task> setLocked)
-        : base("계정 상세", 560, 564, popover: true)
+    internal TextBox AliasBox { get; } = Entry("별칭", 50);
+    internal TextBox EmailBox { get; } = Entry("메일", 100);
+    internal TextBox LimitBox { get; } = Entry("크레딧 한도", 25);
+
+    internal InstitutionAccountDetailDialog(InstitutionAccount account, InstitutionAccountJobs jobs, Func<bool, Task> setLocked,
+        Func<string?, string?, long?, Task> save)
+        : base(account.LoginId, 560, 462, "institution-account-detail-close.svg")
     {
-        Account = account;
-        if (Content is Border frame) { frame.CornerRadius = new(8); frame.BorderBrush = FigmaDialogElements.Brush("#EAEAEA"); frame.Background = FigmaDialogElements.Brush("#F3F3F3"); }
-        var layout = new Grid(); layout.RowDefinitions.Add(new() { Height = new(55) }); layout.RowDefinitions.Add(new()); layout.RowDefinitions.Add(new() { Height = new(64) }); Body(layout);
-        var header = new Grid { Margin = new(24, 0, 24, 0) }; header.Children.Add(new TextBlock { Text = account.LoginId + (string.IsNullOrWhiteSpace(account.Alias) ? "" : " · " + account.Alias), FontSize = 16, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
-        var close = new Button { Width = 28, Height = 28, MinWidth = 0, MinHeight = 0, Padding = new(0), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, HorizontalAlignment = HorizontalAlignment.Right,
-            Content = FigmaDialogElements.DesignIcon("institution-account-detail-close.svg", 16, 16, "Semojum.Feature.Institution.Wpf"), Template = FigmaDialogElements.SurfaceTemplate(0) };
-        AutomationProperties.SetName(close, "닫기"); close.Click += (_, _) => Close(); header.Children.Add(close); layout.Children.Add(header);
-        var body = new StackPanel { Margin = new(24, 15, 24, 0) };
-        var bodyScroll = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; Grid.SetRow(bodyScroll, 1); layout.Children.Add(bodyScroll);
-        void Section(string title, params (string Label, string Value, bool Bold)[] fields)
-        {
-            body.Children.Add(new TextBlock { Text = title, Foreground = FigmaDialogElements.Brush("#5F5F5F"), Margin = new(0, 0, 0, 4) });
-            var rows = new StackPanel { Margin = new(16, 8, 16, 8) };
-            foreach (var (label, value, bold) in fields)
-            {
-                var line = new Grid { MinHeight = 36 }; line.ColumnDefinitions.Add(new() { Width = new(134) }); line.ColumnDefinitions.Add(new());
-                line.Children.Add(new TextBlock { Text = label, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
-                var text = new TextBlock { Text = value, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, FontWeight = bold ? FontWeights.Bold : FontWeights.Normal }; Grid.SetColumn(text, 1); line.Children.Add(text); rows.Children.Add(line);
-            }
-            body.Children.Add(new Border { Background = FigmaDialogElements.Brush("#F9F9F9"), CornerRadius = new(6), Child = rows, Margin = new(0, 0, 0, 16) });
-        }
-        // 만든 날 is the Korean calendar day; 이 달 쓴 양 is this month's usage, or the cumulative total from an older server.
-        var created = InstitutionUsage.InKorea(account.CreatedAt)?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "정보 없음";
-        Section("계정", ("별칭", account.Alias ?? "정보 없음", false), ("메일", account.Email ?? "정보 없음", false), ("만든 날", created, false));
-        Section("이 달 쓴 양", ("크레딧", (account.MonthUsedCredits ?? account.UsedCredits).ToString("N0"), true), ("마지막 로그인", InstitutionUsage.LastSeen(account.LastLoginAt, DateTimeOffset.Now, withTime: true), false));
-        body.Children.Add(new TextBlock { Text = "최근 작업", Foreground = FigmaDialogElements.Brush("#5F5F5F"), Margin = new(0, 0, 0, 4) });
+        var fields = Card();
+        AliasBox.Text = account.Alias ?? ""; EmailBox.Text = account.Email ?? "";
+        LimitBox.Text = account.CreditLimit?.ToString("N0", CultureInfo.CurrentCulture) ?? "";
+        LimitBox.ToolTip = "비워 두면 제한 없음, 0은 크레딧 사용 불가";
+        Field(fields, "별칭", AliasBox); Field(fields, "메일", EmailBox); Field(fields, "크레딧 한도", Quantity(LimitBox, 0, long.MaxValue));
+        // Extended account responses always include this month's usage, even when the address and limit are null.
+        var canEdit = account.MonthUsedCredits.HasValue;
+        fields.IsEnabled = canEdit;
+        var facts = Card();
+        var locked = account.Status == "INACTIVE";
+        var status = Value(InstitutionStatusTextConverter.Label(account.Status, "account"));
+        if (locked && InstitutionUsage.InKorea(account.LockedAt) is { } lockedAt)
+            status.Text += " · " + lockedAt.ToString("MM-dd", CultureInfo.InvariantCulture) + " 부터";
+        status.ToolTip = "마지막 로그인 · " + InstitutionUsage.LastSeen(account.LastLoginAt, DateTimeOffset.Now, withTime: true);
+        Field(facts, "상태", status, true);
+        var created = InstitutionUsage.InKorea(account.CreatedAt)?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        Field(facts, "만든 날", Value(created ?? "—"), true);
+        var used = Value(account.MonthUsedCredits?.ToString("N0") ?? "—");
+        used.ToolTip = $"누적 사용 {account.UsedCredits:N0} 크레딧"; Field(facts, "이달 사용", used, true);
+        var latest = jobs.Items.FirstOrDefault();
+        var day = InstitutionUsage.InKorea(latest?.FinishedAt ?? latest?.StartedAt)?.ToString("MM-dd", CultureInfo.InvariantCulture);
+        var recent = latest is null ? "—" : string.IsNullOrEmpty(day) ? latest.FileName : $"{latest.FileName} · {day}";
+        var jobLabel = Value(recent); jobLabel.TextWrapping = TextWrapping.NoWrap; jobLabel.TextTrimming = TextTrimming.CharacterEllipsis;
+        RecentJobs = new Button { Content = jobLabel, Height = 28, MinHeight = 0, MinWidth = 0, Padding = new(0), Margin = new(0),
+            Template = EditorModalDesign.ButtonTemplate(typeof(Button)), HorizontalAlignment = HorizontalAlignment.Left,
+            Background = Brushes.Transparent, BorderThickness = new(0), ToolTip = latest is null ? null : "최근 작업 목록 열기 또는 닫기", IsEnabled = latest is not null };
+        Field(facts, "최근 작업", RecentJobs, true);
         var jobBackground = FigmaDialogElements.Brush("#F9F9F9");
         Jobs = new DataGrid { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.None, BorderThickness = new(0), Background = jobBackground,
             RowBackground = jobBackground, AlternatingRowBackground = jobBackground, GridLinesVisibility = DataGridGridLinesVisibility.None, RowHeight = 32,
@@ -53,17 +60,34 @@ internal sealed class InstitutionAccountDetailDialog : CompactDialog
         Jobs.Columns.Add(new DataGridTextColumn { Header = "파일", Binding = new Binding("FileName"), Width = new(1, DataGridLengthUnitType.Star), MinWidth = 80, CellStyle = nameCell, ElementStyle = nameText });
         Jobs.Columns.Add(new DataGridTextColumn { Header = "쪽", Binding = new Binding("TotalPages") { StringFormat = "{0}쪽" }, Width = 70, CellStyle = detailCell });
         Jobs.Columns.Add(new DataGridTextColumn { Header = "크레딧", Binding = new Binding("Credits") { TargetNullValue = "— 크레딧", StringFormat = "{0} 크레딧" }, Width = 118, CellStyle = detailCell });
-        AutomationProperties.SetName(Jobs, "해당 계정의 최근 작업"); body.Children.Add(new Border { Background = jobBackground, CornerRadius = new(6), Padding = new(0, 10, 0, 10), Child = Jobs });
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 16, 24, 0) }; Grid.SetRow(actions, 2); layout.Children.Add(actions);
-        var lockState = account.Status == "INACTIVE";
-        LockButton = Button(lockState ? "잠금 해제" : "잠금", async () => await RunAsync(async () =>
+        AutomationProperties.SetName(Jobs, "해당 계정의 최근 작업");
+        Jobs.Visibility = Visibility.Collapsed; facts.Children.Add(Jobs);
+        RecentJobs.Click += (_, _) => { Jobs.Visibility = Jobs.IsVisible ? Visibility.Collapsed : Visibility.Visible; if (Jobs.IsVisible) Jobs.BringIntoView(); };
+
+        LockButton = FooterAction(locked ? "잠금 해제" : "잠금", () => RunAsync(async () =>
         {
-            var message = lockState ? "이 계정의 잠금을 해제하시겠습니까?" : "계정을 잠그면 로그인 세션이 종료되고 진행 중인 작업이 취소될 수 있습니다. 계속하시겠습니까?";
-            if (NoticeDialog.Choose(this, message, "변경은 서버에 즉시 적용됩니다.", ["계속", "취소"], error: !lockState) != 0) return;
-            await setLocked(!lockState); DialogResult = true;
-        }));
-        LockButton.Width = 88; LockButton.Height = 32; LockButton.IsEnabled = !account.Self && account.Status is "ACTIVE" or "INACTIVE";
-        LockButton.ToolTip = account.Self ? "본인 계정은 여기에서 잠글 수 없습니다." : LockButton.IsEnabled ? null : "현재 계정 상태에서는 잠금 변경을 할 수 없습니다."; actions.Children.Add(LockButton);
-        var done = Button("닫기", () => { Close(); return Task.CompletedTask; }, true); done.Width = 88; done.Height = 32; done.IsDefault = true; actions.Children.Add(done);
+            var message = locked ? "이 계정의 잠금을 해제하시겠습니까?" : "계정을 잠그면 로그인 세션이 종료되고 진행 중인 작업이 취소될 수 있습니다. 계속하시겠습니까?";
+            if (NoticeDialog.Choose(this, message, "변경은 서버에 즉시 적용됩니다.", ["계속", "취소"], error: !locked) != 0) return;
+            await setLocked(!locked); DialogResult = true;
+        }), left: true);
+        LockButton.IsEnabled = !account.Self && account.Status is "ACTIVE" or "INACTIVE";
+        if (!LockButton.IsEnabled) LockButton.ToolTip = account.Self ? "본인 계정은 여기에서 잠글 수 없습니다." : "현재 계정 상태에서는 잠금 변경을 할 수 없습니다.";
+        Dismiss("닫기");
+        SaveButton = FooterAction("저장", () => RunAsync(async () =>
+        {
+            var email = EmailBox.Text.Trim();
+            if (email.Length > 0 && !InstitutionClient.IsReceiptEmail(email)) throw new ArgumentException("올바른 이메일을 입력해 주세요.");
+            long? limit = null;
+            if (!string.IsNullOrWhiteSpace(LimitBox.Text))
+            {
+                if (!long.TryParse(LimitBox.Text, NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out var amount) || amount < 0)
+                    throw new ArgumentException("한 달 크레딧 한도는 0 이상의 정수로 입력해 주세요.");
+                limit = amount;
+            }
+            var alias = AliasBox.Text.Trim();
+            await save(alias.Length == 0 ? null : alias, email.Length == 0 ? null : email, limit); DialogResult = true;
+        }), true);
+        SaveButton.IsEnabled = canEdit;
+        if (!canEdit) { SaveButton.ToolTip = "이 서버에서 전체 계정 정보를 받을 수 없어 저장할 수 없습니다."; ToolTipService.SetShowOnDisabled(SaveButton, true); }
     }
 }

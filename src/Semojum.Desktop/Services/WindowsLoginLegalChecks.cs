@@ -61,14 +61,26 @@ internal static class WindowsLoginLegalChecks
                             check(dialog.Owner == owner && CommonWindowServices.UsesBackdrop(dialog), "Legal modal belongs to the visible login owner and uses the shared Figma backdrop");
                             var doc = dialog.Reader.Document;
                             var text = new TextRange(doc.ContentStart, doc.ContentEnd).Text;
-                            check(dialog.Kind == kind && text.Contains(kind == LegalDocumentKind.Terms ? "누리닷 서비스 이용약관" : "누리닷 개인정보 처리방침")
-                                && text.Contains("2026년 11월 09일") && text.Contains("서울시 강남구 역삼로 180 2층") && text.Contains("고객센터 운영시간"),
+                            var subtitle = Descendants(dialog).OfType<TextBlock>().Single(t => AutomationProperties.GetAutomationId(t) == "LegalDocumentSubtitle");
+                            var surface = Descendants(dialog).OfType<Border>().Single(t => AutomationProperties.GetAutomationId(t) == "LegalReadingSurface");
+                            var bounds = new Rect(surface.TranslatePoint(new Point(), dialog), surface.RenderSize);
+                            check(dialog.ActualWidth == 640 && dialog.ActualHeight == 522 && bounds == new Rect(25, 89, 590, 360),
+                                $"Legal document window and scroll surface match Figma: {bounds}");
+                            check(dialog.Kind == kind && dialog.Title == (kind == LegalDocumentKind.Terms ? "누리닷 서비스 이용약관" : "누리닷 개인정보 처리방침")
+                                && subtitle.Text.Contains("2026년 11월 09일") && text.Contains("서울시 강남구 역삼로 180 2층") && text.Contains("고객센터 운영시간"),
                                 "The complete latest Notion document is available offline, including its final operator information");
-                            check(text.Contains(kind == LegalDocumentKind.Terms ? "[대표 결정: 앱 안 점역 무료 유지 여부]" : "[세법상 보존 기간 확인 중]"),
-                                "Pending decisions remain unchanged as explicitly requested");
+                            check(text.Contains(kind == LegalDocumentKind.Terms ? "부가가치세 별도" : "기록 5년"),
+                                "Published terms and privacy include the approved billing and retention text");
                             if (kind == LegalDocumentKind.Privacy) check(doc.Blocks.OfType<Table>().Count() >= 4, "Privacy policy tables remain real selectable tables");
                             dialog.Reader.Selection.Select(doc.ContentStart, doc.ContentEnd);
                             check(dialog.Reader.Selection.Text.Contains("부칙"), "The legal document supports text selection through its last section");
+                            var copy = new DataObject(DataFormats.UnicodeText, dialog.Reader.Selection.Text);
+                            copy.SetData(DataFormats.Rtf, ""); copy.SetData(DataFormats.XamlPackage, new MemoryStream());
+                            dialog.Reader.RaiseEvent(new DataObjectCopyingEventArgs(copy, false));
+                            check(copy.GetData(DataFormats.UnicodeText) is string fullText && fullText.StartsWith(dialog.Title)
+                                && fullText.Contains("2026년 11월 09일") && fullText.Contains("부칙")
+                                && copy.GetData(DataFormats.Rtf) is string rtf && rtf.StartsWith("{\\rtf") && copy.GetData(DataFormats.XamlPackage) is MemoryStream { Length: > 0 },
+                                "Whole-document copy preserves the title, date and final clauses in plain and rich formats");
                             dialog.Reader.Selection.Select(doc.ContentStart, doc.ContentStart);
                             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                             if (!embedded) Capture(dialog, Path.Combine(directory, "login-legal-" + kind + ".png"));
@@ -77,7 +89,9 @@ internal static class WindowsLoginLegalChecks
                             check(scroll.ScrollableHeight > 0 && scroll.VerticalOffset > 0, "Long legal text can scroll to its end");
                             dialog.Height = 360; dialog.UpdateLayout();
                             check(dialog.Reader.ActualHeight > 80 && dialog.Reader.ActualHeight < 300, "Legal modal keeps a usable scrolling body in a small window");
-                            if (kind == LegalDocumentKind.Privacy)
+                            if (kind == LegalDocumentKind.Terms && embedded)
+                                Descendants(dialog).OfType<Button>().Single(b => Equals(b.Content, "확인")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                            else if (kind == LegalDocumentKind.Privacy)
                                 dialog.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(dialog)!, Environment.TickCount, Key.Escape) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
                             else Descendants(dialog).OfType<Button>().Single(b => AutomationProperties.GetAutomationId(b) == "LegalDocumentClose").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                             check(!dialog.IsVisible, "The legal modal closes with its close button or Escape");

@@ -35,7 +35,9 @@ internal static class WindowsTabPanelChecks
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(visual));
             using (var image = File.Create(Path.Combine(directory, "original-upload-panel.png"))) encoder.Save(image);
             var icons = Descendants(window.OriginalUpload).OfType<SharpVectors.Converters.SvgViewbox>().Where(i => i.IsVisible).ToArray();
-            check(icons.Length == 3 && icons.All(i => i.Drawings is { Bounds.IsEmpty: false }), "Original upload panel renders all three Figma icons");
+            check(icons.Length == 1 && icons[0].Width == 24 && icons[0].Drawings is { Bounds.IsEmpty: false }
+                && Descendants(window.OriginalPageBar).OfType<SharpVectors.Converters.SvgViewbox>().Count(i => i.IsVisible && i.Drawings is { Bounds.IsEmpty: false }) == 2,
+                "The upload body shows its 24px file icon and the header renders both page arrows");
             var dropPath = Path.Combine(directory, "dropped-text.txt");
             await File.WriteAllTextAsync(dropPath, "드롭 원문");
             var dropSelected = false;
@@ -60,34 +62,37 @@ internal static class WindowsTabPanelChecks
             finally { timer.Stop(); }
             check(dropSelected, "Dropping a supported file opens settings for that file");
             await window.ExecuteAsync("new");
-            check(window.OriginalToggle.IsChecked && window.SourceToggle.IsChecked && window.BrailleToggle.IsChecked,
-                "QA1110: a new blank document starts with original, text and braille panels");
-            check(window.OriginalUpload.IsVisible, "A new blank document offers the original upload area");
-            check(window.LineStrip.Visibility == Visibility.Visible && window.LinePreviewToggle.IsChecked,
-                "The new three-panel document retains the line-translation strip");
+            check(!window.OriginalToggle.IsChecked && window.SourceToggle.IsChecked && window.BrailleToggle.IsChecked,
+                "A new blank document starts with text and braille panels");
+            check(!window.OriginalUpload.IsVisible, "A new blank document keeps the original upload area hidden");
+            check(window.LineStrip.Visibility != Visibility.Visible && !window.LinePreviewToggle.IsChecked,
+                "The new two-panel document starts with the optional line-translation strip hidden");
             var typed = window.Session;
             typed.ActiveBlock!.Source = "새 문서에서 저장하지 않은 원문";
             await Dispatcher.Yield(DispatcherPriority.DataBind);
             var typedTab = (System.Windows.Controls.TabItem)window.DocumentTabs.SelectedItem;
             var typedLabel = ((System.Windows.Controls.StackPanel)typedTab.Header).Children.OfType<System.Windows.Controls.TextBlock>().Single();
-            check(typed.IsDirty && typed.WindowTitle.StartsWith("*" + typed.Title, StringComparison.Ordinal) && window.Title == typed.WindowTitle && typedLabel.Text == typed.Title &&
+            check(typed.IsDirty && typed.WindowTitle.StartsWith("*" + typed.Title, StringComparison.Ordinal) && window.Title == typed.WindowTitle && typedLabel.Text == "*" + typed.Title &&
                   (typedTab.ToolTip as string)?.Contains("저장되지 않음", StringComparison.Ordinal) == true &&
                   System.Windows.Automation.AutomationProperties.GetName(typedTab).Contains("저장되지 않음", StringComparison.Ordinal),
-                "The Figma title marks unsaved work while the tab retains its filename and exposes its unsaved state");
+                "The title and document tab both mark unsaved work and expose it to assistive technology");
             var txt = Path.Combine(directory, "panel-import.txt");
             await File.WriteAllTextAsync(txt, "TXT 본문");
             await window.OpenAsync(txt);
-            check(!window.OriginalToggle.IsChecked && window.SourceToggle.IsChecked && window.BrailleToggle.IsChecked,
-                "A TXT file opens with text and braille panels");
+            var importedTab = (System.Windows.Controls.TabItem)window.DocumentTabs.SelectedItem;
+            check(!window.OriginalToggle.IsChecked && window.SourceToggle.IsChecked && window.BrailleToggle.IsChecked &&
+                  window.Title == "*panel-import.txt - 누리닷" &&
+                  System.Windows.Automation.AutomationProperties.GetName(importedTab) == "panel-import.txt · 저장되지 않음",
+                "A TXT import opens with text and braille panels and retains the source filename until saved");
             check(!window.OriginalUpload.IsVisible, "A TXT document does not display the original upload area");
             var txtIndex = window.DocumentTabs.SelectedIndex;
             window.DocumentTabs.SelectedIndex = txtIndex - 1;
-            check(ReferenceEquals(window.Session, typed) && typed.IsDirty && typed.ActiveBlock!.Source == "새 문서에서 저장하지 않은 원문" && window.OriginalToggle.IsChecked,
-                "Switching back to an unsaved new document restores its three panels and edits");
+            check(ReferenceEquals(window.Session, typed) && typed.IsDirty && typed.ActiveBlock!.Source == "새 문서에서 저장하지 않은 원문" && !window.OriginalToggle.IsChecked,
+                "Switching back to an unsaved new document restores its two panels and edits");
             window.DocumentTabs.SelectedIndex = txtIndex;
             check(!window.OriginalToggle.IsChecked, "Switching back to a TXT document restores its two panels");
-            check(typed.IsDirty && typedLabel.Text == typed.Title && (typedTab.ToolTip as string)?.Contains("저장되지 않음", StringComparison.Ordinal) == true,
-                "An inactive unsaved tab keeps the Figma filename and exposes its unsaved state on hover");
+            check(typed.IsDirty && typedLabel.Text == "*" + typed.Title && (typedTab.ToolTip as string)?.Contains("저장되지 않음", StringComparison.Ordinal) == true,
+                "An inactive unsaved tab retains its marker and the filename tooltip");
             void LinePreviewMenu(bool value)
             { window.LinePreviewToggle.IsChecked = value; window.LinePreviewToggle.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.MenuItem.ClickEvent)); }
             LinePreviewMenu(true);

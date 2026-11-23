@@ -3,7 +3,10 @@ using System.Text.Json;
 namespace Semojum.Core;
 
 public sealed record EditorPreferences(int Version = 1, string[]? RecentFiles = null, string? WorkFolder = null,
-    string SixDotKeys = "F D S J K L", bool SpaceEnabled = true, bool EnterEnabled = true, bool AutoCheckUpdates = true);
+    string SixDotKeys = "F D S J K L", bool SpaceEnabled = true, bool EnterEnabled = true, bool AutoCheckUpdates = true)
+{
+    public bool UseCustomSixDotKeys { get; init; }
+}
 public sealed record WorkspaceEntry(string Path, string Name, bool IsDirectory, DateTime ModifiedAt, long Size)
 {
     public string ModifiedLabel => ModifiedAt.ToString("yyyy-MM-dd HH:mm");
@@ -30,7 +33,7 @@ public sealed class LocalWorkspace(string preferencesPath)
             if (value is null || value.Version != 1) throw new InvalidDataException("지원하지 않는 설정 파일입니다.");
             ArgumentException.ThrowIfNullOrWhiteSpace(value.SixDotKeys);
             new SixDotInput().Configure(value.SixDotKeys);
-            return value with { RecentFiles = NormalizeRecent(value.RecentFiles ?? []), SixDotKeys = SixDotInput.MigrateLegacyPreset(value.SixDotKeys) };
+            return value with { RecentFiles = NormalizeRecent(value.RecentFiles ?? []), SixDotKeys = value.UseCustomSixDotKeys ? value.SixDotKeys : SixDotInput.MigrateLegacyPreset(value.SixDotKeys) };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
         {

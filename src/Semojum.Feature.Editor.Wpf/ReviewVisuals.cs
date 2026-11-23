@@ -14,8 +14,8 @@ internal static class ReviewVisuals
     {
         ReviewKind.SuggestCorrection => "고침 제안",
         ReviewKind.SuggestDeletion => "지울 제안",
-        ReviewKind.HumanConfirmed => "사람이 확인함",
-        ReviewKind.OpenWarning => "안 풀린 경고",
+        ReviewKind.HumanConfirmed => "확인 완료",
+        ReviewKind.OpenWarning => "미검수",
         _ => "검토 표시"
     };
     internal static Brush Background(ReviewKind kind) => kind switch

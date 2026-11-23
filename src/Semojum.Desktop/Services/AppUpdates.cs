@@ -43,7 +43,7 @@ public static class AppUpdates
             }
             finally { response?.Dispose(); }
             progress.Report("업데이트 파일을 확인하는 중…");
-            await PortableUpdate.StageAsync(temporary, Root, info.Latest, ct);
+            await PortableUpdate.StageAsync(temporary, Root, info.Latest, info.ChecksumSha256, ct);
             progress.Report($"버전 {info.Latest} 준비 완료 · 문서를 저장하고 앱을 다시 실행하면 적용됩니다.");
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }

@@ -6,6 +6,9 @@
            Language="1042" Codepage="949" UpgradeCode="A4A063C3-E2CE-48F6-8427-BACBE87C921F">
     <SummaryInformation Codepage="949" Description="누리닷 설치" />
     <MajorUpgrade DowngradeErrorMessage="더 새로운 누리닷이 이미 설치되어 있습니다." />
+    <!-- All payloads are app-private. Install the bundled runtime as a unit even when
+         the outgoing product carried a higher file version that its uninstall removes. -->
+    <Property Id="REINSTALLMODE" Value="amus" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <StandardDirectory Id="LocalAppDataFolder">

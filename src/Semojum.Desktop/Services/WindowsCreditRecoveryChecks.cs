@@ -33,9 +33,10 @@ internal static class WindowsCreditRecoveryChecks
         var otherNotFound = await OpenAsync("blocked-other-404", directory);
         check(otherNotFound.Credit && otherNotFound.Error && otherNotFound.First,
             "Credit exhaustion does not hide another not-found error on a blocked page");
+        await OpenAsync("network-retry", directory, check);
         var noCreditFlag = await OpenAsync("missing-without-credit", directory);
-        check(!noCreditFlag.Credit && noCreditFlag.Error,
-            "A blocked result missing without credit exhaustion remains a real error");
+        check(!noCreditFlag.Credit && !noCreditFlag.Error && noCreditFlag.First && noCreditFlag.Later && noCreditFlag.BlockedPlaceholder,
+            "A failed page without an AI result is isolated and later completed pages are received");
         var resumed = await OpenAsync("resume", directory);
         check(!resumed.Error && resumed.EditedAfterResume && resumed.First,
             "Resuming a credit-stopped page preserves its existing local edits when its new result is not available");
@@ -89,7 +90,7 @@ internal static class WindowsCreditRecoveryChecks
                             openedInquiry = true;
                             inquiryTitle = Descendants(inquiry).OfType<TextBox>().Single(t =>
                                 System.Windows.Automation.AutomationProperties.GetName(t) == "제목").Text;
-                            inquiryCategory = Descendants(inquiry).OfType<ComboBox>().Single(c =>
+                            inquiryCategory = Descendants(inquiry).OfType<ListBox>().Single(c =>
                                 System.Windows.Automation.AutomationProperties.GetName(c) == "분류").SelectedItem as string;
                             inquiry.Close();
                         }
@@ -129,7 +130,7 @@ internal static class WindowsCreditRecoveryChecks
                     Descendants(dialog).OfType<TextBox>().Single().Text = "review-recovery";
                     Descendants(dialog).OfType<Button>().Single(b => Equals(b.Content, "확인")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 }
-                else if (dialog is NoticeDialog notice && notice.MessageText == "재개 결과와 로컬 교정 확인" && choice >= 0)
+                else if (dialog is NoticeDialog notice && notice.MessageText == "고친 내용이 있는 쪽에 서버 결과가 도착했습니다." && choice >= 0)
                 { var selected = choice; choice = -1; notice.ActionButtons[selected].RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
                 else if (dialog is AccountDialog account)
                 { check(false, "Recovery fixture unexpectedly requested interactive login"); account.Close(); }
@@ -340,8 +341,13 @@ internal static class WindowsCreditRecoveryChecks
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
             timer.Tick += (_, _) =>
             {
-                var notice = Application.Current.Windows.OfType<NoticeDialog>().FirstOrDefault(d => d.Owner == window && d.IsVisible && d.MessageText == "재개 결과와 로컬 교정 확인");
-                if (notice is not null) notice.ActionButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var notice = Application.Current.Windows.OfType<NoticeDialog>().FirstOrDefault(d => d.Owner == window && d.IsVisible && d.MessageText == "고친 내용이 있는 쪽에 서버 결과가 도착했습니다.");
+                if (notice is null) return;
+                var expectedPages = string.Join(" · ", window.Session.PendingServerPages.Keys.Order()) + "쪽";
+                check(notice.DetailText.StartsWith(expectedPages) &&
+                    System.Windows.Automation.AutomationProperties.GetHelpText(notice.ActionButtons[1]).Contains("백업 파일"),
+                    "The conflict notice names all affected pages and explains what is retained in the backup");
+                notice.ActionButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             };
             timer.Start();
             try
@@ -598,10 +604,68 @@ internal static class WindowsCreditRecoveryChecks
         { Content = new StringContent(json, Encoding.UTF8, "application/json") });
     }
 
+    private static async Task CheckFailedPageAsync(MainWindow window, Fixture fixture, string directory, Action<bool, string> check)
+    {
+        var owner = window.Session;
+        var before = owner.Blocks.Single(b => b.Page == 1);
+        var after = owner.Blocks.Single(b => b.Page == 3);
+        before.Source = "completed content with a local correction";
+        var failed = owner.Blocks.Single(b => b.Page == 2);
+        check(owner.IsConversionFailed(2) && owner.PageFailureReasons.GetValueOrDefault(2) == "NETWORK_ERROR", "Page detail identifies a network failure independently of job status");
+        var sourceBefore = window.PageEditor.DisplayedPage;
+        window.OriginalToggle.IsChecked = true;
+        var gotoOriginal = typeof(MainWindow).GetMethod("BrowseOriginalPage", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        gotoOriginal.Invoke(window, [2]);
+        typeof(MainWindow).GetMethod("SetActiveEditor", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, [null]);
+        window.UpdateLayout();
+        check(window.OriginalFailure.IsVisible && !window.OriginalContent.IsVisible && window.FailureReasonText.Text == "네트워크 오류로 이 쪽을 변환하지 못했습니다."
+            && window.OriginalRetryButton.IsEnabled && window.FailedPageStatusText.Text == "2쪽 변환 실패" && window.CaretStatus.Text == "2 / 3쪽",
+            "Failed PDF displays its network message, retry action and confirmed footer while hiding the original content");
+        check(window.PageEditor.DisplayedPage == sourceBefore && before.Source.Contains("local correction"), "Browsing the failed original preserves the current source page and local edit");
+        window.PageEditor.BrowsePage(2);
+        check(window.PageEditor.Editor.IsReadOnly && window.PageEditor.Editor.Text == "", "Source text for the failed page is blank and read-only");
+        var snapshot = SmjFile.Snapshot(owner);
+        var backup = Path.Combine(directory, "network-retry-roundtrip.smj");
+        await SmjFile.SaveAsync(backup, snapshot);
+        var restored = await SmjFile.LoadAsync(backup);
+        check(restored.IsConversionFailed(2) && restored.PageFailureReasons.GetValueOrDefault(2) == "NETWORK_ERROR", "A saved and reopened SMJ retains the verified page failure reason");
+        var row = new GridCell?[] { new(before, 0, '⠁'), new(failed, 0, '⠃'), new(after, 0, '⠉') };
+        var face = new BrailleGridFace(1, [row], ["⠁⠃⠉"]);
+        var masked = BrailleGrid.HideFailedPages([face], new HashSet<int> { 2 })[0];
+        check(masked.Text![0] == "⠁⠀⠉" && masked.Rows[0][1] is null && masked.Rows[0][0] == row[0] && masked.Rows[0][2] == row[2]
+            && face.Text![0] == "⠁⠃⠉" && face.Rows[0][1] is not null, "Failed braille cells and their hit targets disappear without changing neighbours or stored composition");
+        var grid = window.Braille.GridView;
+        var readyBy = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < readyBy && (!grid.CoordinatesCurrent || !grid.Blocks.Contains(after)))
+            await Task.Delay(35);
+        var rows = grid.Items.Cast<BrailleGridFace>().SelectMany(f => f.Rows).ToArray();
+        var earlier = Array.FindLastIndex(rows, r => r.Any(c => c?.Block == before && !c.IsInsertion));
+        var later = Array.FindIndex(rows, r => r.Any(c => c?.Block == after && !c.IsInsertion));
+        check(grid.CoordinatesCurrent && earlier >= 0 && later > earlier + 1
+            && rows.Skip(earlier + 1).Take(later - earlier - 1).Any(r => r.All(c => c is null))
+            && rows.All(r => r.All(c => c?.Block != failed)), "The live braille grid reserves a blank row between the completed pages and excludes failed edit targets");
+        await WindowsSmoke.RenderElementAsync(window, Path.Combine(directory, "failed-page.png"));
+        owner.RememberFailureReason(2, null);
+        check(window.FailureReasonText.Text == "이 쪽을 변환하지 못했습니다.", "Unknown failures do not claim the network caused the failure");
+        owner.RememberFailureReason(2, "CANCELED");
+        check(!window.OriginalFailure.IsVisible, "A canceled page has no conversion-failure overlay");
+        owner.RememberFailureReason(2, "CREDIT_EXHAUSTED");
+        check(!window.OriginalFailure.IsVisible, "A credit stop has no conversion-failure overlay");
+        owner.RememberFailureReason(2, "NETWORK_ERROR");
+        window.OriginalRetryButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var timeout = DateTime.UtcNow.AddSeconds(8);
+        while (DateTime.UtcNow < timeout && (owner.HasPendingRestart || !owner.Blocks.Any(b => b.Page == 2 && b.Source == "recovered page")))
+            await Task.Delay(25);
+        check(fixture.RetryRequests == 1 && !owner.IsConversionFailed(2) && !owner.PageFailureReasons.ContainsKey(2) && !window.OriginalFailure.IsVisible
+            && !owner.HasPendingRestart && owner.Blocks.Any(b => b.Page == 2 && b.Source == "recovered page")
+            && owner.Blocks.Contains(before) && before.Source.Contains("local correction") && owner.Blocks.Contains(after),
+            "Retry posts once, restores the successful page, clears its reason and preserves both neighbouring blocks");
+    }
+
     private sealed record Observation(bool Credit, bool Error, bool First, bool Later, bool BlockedPlaceholder,
         bool BlockedResult, bool EditedAfterResume, string DialogDetail, bool ConflictSaved, bool ServerSaveBlocked, bool RecoveryWorked, bool FailedBackupPreserved, bool PartialPendingRecovery);
 
-    private static async Task<Observation> OpenAsync(string mode, string directory)
+    private static async Task<Observation> OpenAsync(string mode, string directory, Action<bool, string>? check = null)
     {
         var fixture = new Fixture(mode);
         using var http = new HttpClient(fixture);
@@ -621,7 +685,7 @@ internal static class WindowsCreditRecoveryChecks
                 }
                 else if (dialog is NoticeDialog notice)
                 {
-                    if (recoveryChoice >= 0 && notice.MessageText == "재개 결과와 로컬 교정 확인")
+                    if (recoveryChoice >= 0 && notice.MessageText == "고친 내용이 있는 쪽에 서버 결과가 도착했습니다.")
                     {
                         var selected = recoveryChoice; recoveryChoice = -1;
                         notice.ActionButtons[selected].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -639,6 +703,8 @@ internal static class WindowsCreditRecoveryChecks
             var timeout = DateTime.UtcNow.AddSeconds(8);
             while (DateTime.UtcNow < timeout && dialogs == 0 && window.Session.ErrorNotice.Length == 0)
                 await Task.Delay(25);
+            if (mode == "network-retry")
+                await CheckFailedPageAsync(window, fixture, directory, check!);
             var resumedEdit = false;
             var conflictSaved = false; var serverSaveBlocked = false; var recoveryWorked = false; var failedBackupPreserved = false; var partialPendingRecovery = false;
             if (mode is "resume" or "resume-success" && dialogs > 0)
@@ -752,18 +818,28 @@ internal static class WindowsCreditRecoveryChecks
     {
         private int page2Requests;
         private bool resumed;
+        public int RetryRequests { get; private set; }
         public int Page2Requests => page2Requests;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/login")) return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"accessToken\":\"fixture\",\"refreshToken\":\"fixture\",\"role\":\"ROLE_USER\"}}");
             if (path.EndsWith("/options")) return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{}}");
-            if (path.EndsWith("/status")) return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"totalPages\":3,\"completedPages\":3,\"overallStatus\":\"" + (mode == "resume-success" && resumed ? "COMPLETED" : "FAILED") + "\",\"creditExhausted\":" + (mode == "missing-without-credit" || mode == "resume-success" && resumed ? "false" : "true") + ",\"pages\":{\"1\":\"COMPLETED\",\"2\":\"" + (mode == "resume-success" && resumed ? "COMPLETED" : "BLOCKED") + "\",\"3\":\"COMPLETED\"}}}");
+            if (path.EndsWith("/status")) return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"totalPages\":3,\"completedPages\":3,\"overallStatus\":\"" + ((mode is "resume-success" or "network-retry") && resumed ? "COMPLETED" : "FAILED") + "\",\"creditExhausted\":" + (mode is "missing-without-credit" or "network-retry" || (mode is "resume-success" or "network-retry") && resumed ? "false" : "true") + ",\"pages\":{\"1\":\"COMPLETED\",\"2\":\"" + ((mode is "resume-success" or "network-retry") && resumed ? "COMPLETED" : "BLOCKED") + "\",\"3\":\"COMPLETED\"}}}");
+            if (path.EndsWith("/retry") && mode == "network-retry" && request.Method == HttpMethod.Post)
+            {
+                RetryRequests++;
+                resumed = true;
+                return Reply(HttpStatusCode.OK, """{"isSuccess":true,"result":{"jobId":"credit-test","status":"IN_PROGRESS","totalPages":3,"retriedPages":[2]}}""");
+            }
             if (path.EndsWith("/resume")) { resumed = true; return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"jobId\":\"credit-test\",\"status\":\"IN_PROGRESS\",\"totalPages\":3,\"resumedPages\":[2]}}"); }
             if (path.EndsWith("/events")) return Reply(HttpStatusCode.NotFound, "{}");
             if (path.EndsWith("/pages/2"))
             {
                 page2Requests++;
+                if (mode == "network-retry")
+                    return resumed ? Page("COMPLETED", "recovered page", "pdf")
+                        : Reply(HttpStatusCode.OK, """{"isSuccess":true,"result":{"status":"FAILED","pageStatus":"BLOCKED","blockedReason":"NETWORK_ERROR","original":{"type":"pdf"},"result":null}}""");
                 if (mode == "blocked-500") return Reply(HttpStatusCode.InternalServerError, "{\"isSuccess\":false,\"code\":\"COMMON5000\",\"message\":\"server error\"}");
                 if (mode == "blocked-other-404") return Reply(HttpStatusCode.NotFound, "{\"isSuccess\":false,\"code\":\"COMMON4003\",\"message\":\"unknown job\"}");
                 if (mode is "available" || mode is "resume" or "resume-success" && page2Requests == 1)
@@ -775,13 +851,13 @@ internal static class WindowsCreditRecoveryChecks
             {
                 if (path.EndsWith("/pages/1") && mode == "success-404") return Reply(HttpStatusCode.NotFound, "{\"isSuccess\":false,\"code\":\"JOB4001\",\"message\":\"success page unavailable\"}");
                 var text = path.EndsWith("/pages/1") ? "completed content" : "later content";
-                return Page("COMPLETED", text);
+                return Page("COMPLETED", text, mode == "network-retry" ? "pdf" : "text");
             }
             throw new InvalidOperationException("Unexpected fixture path: " + path);
         }
 
-        private static Task<HttpResponseMessage> Page(string status, string text) =>
-            Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"status\":\"" + status + "\",\"original\":{\"type\":\"text\"},\"result\":{\"text_list\":[{\"id\":\"" + text[0] + "\",\"type\":\"text\",\"contents\":[\"" + text + "\"]}],\"braille_text_list\":[],\"bounding_box_list\":[]}}}");
+        private static Task<HttpResponseMessage> Page(string status, string text, string originalType = "text") =>
+            Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"status\":\"" + status + "\",\"original\":{\"type\":\"" + originalType + "\"},\"result\":{\"text_list\":[{\"id\":\"" + text[0] + "\",\"type\":\"text\",\"contents\":[\"" + text + "\"]}],\"braille_text_list\":[],\"bounding_box_list\":[]}}}");
 
         private static Task<HttpResponseMessage> Reply(HttpStatusCode status, string json) =>
             Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") });

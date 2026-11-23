@@ -16,15 +16,15 @@ internal sealed class PdfPasswordDialog : NoticeDialog
 
     internal PdfPasswordDialog(bool wrongPassword = false) : base(wrongPassword ? "문서 암호가 맞지 않습니다." : "암호가 걸린 PDF 입니다.",
         wrongPassword ? "문서 암호를 다시 입력해 주세요. 암호는 저장하지 않습니다." : "문서 암호를 입력하면 변환을 이어서 합니다. 암호는 저장하지 않습니다.",
-        ["확인", "취소"], error: wrongPassword, width: 555, height: 226)
+        ["확인", "취소"], error: wrongPassword, width: 480, height: 250)
     {
-        MessageBody.Children.Add(new TextBlock { Text = "문서 암호", FontSize = 12, Foreground = FigmaDialogElements.Brush("#5F5F5F"), Margin = new(0, -2, 0, 0) });
+        MessageBody.Children.Add(new TextBlock { Text = "문서 암호", FontSize = 12, Foreground = FigmaDialogElements.Brush("#5F5F5F"), Margin = new(0, 4, 0, 0) });
         var field = new Grid(); field.Children.Add(PasswordInput);
         var underline = new Border { Height = 1, Background = FigmaDialogElements.Brush("#D1D1D1"), VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
         field.Children.Add(underline);
         PasswordInput.GotKeyboardFocus += (_, _) => { underline.Height = 2; underline.Background = FigmaDialogElements.Brush("#005FB8"); };
         PasswordInput.LostKeyboardFocus += (_, _) => { underline.Height = 1; underline.Background = FigmaDialogElements.Brush("#D1D1D1"); };
-        MessageBody.Children.Add(new Border { Height = 32, Margin = new(0, 2, 0, 0), Background = Brushes.White, BorderBrush = FigmaDialogElements.Brush("#EAEAEA"),
+        MessageBody.Children.Add(new Border { Height = 32, Margin = new(0, 12, 0, 0), Background = Brushes.White, BorderBrush = FigmaDialogElements.Brush("#EAEAEA"),
             BorderThickness = new(1), CornerRadius = new(4), Child = field });
         AutomationProperties.SetName(PasswordInput, "문서 암호");
         // 확인 sends the password, so it waits for one; Enter and Escape keep the base dialog's default and cancel actions.

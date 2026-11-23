@@ -7,66 +7,90 @@ using Semojum.Core;
 using SharpVectors.Converters;
 
 namespace Semojum.Desktop.Dialogs;
-public sealed class MemoThreadDialog : CompactDialog
+public sealed class MemoThreadDialog : MemoPopover
 {
-    internal ListBox MemoItems { get; } = new() { BorderThickness = new(0), Background = Brushes.White, Padding = new(0), HorizontalContentAlignment = HorizontalAlignment.Stretch };
+    internal ListBox MemoItems { get; } = new() { BorderThickness = new(0), Background = Brushes.Transparent, Padding = new(0), HorizontalContentAlignment = HorizontalAlignment.Stretch };
     internal CheckBox ShowResolved { get; } = new() { Content = "해결한 메모 포함" };
     internal Button ResolveButton { get; }
     internal Button ReplyButton { get; }
-    internal TextBox ReplyInput { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 32, MaxHeight = 160, MaxLength = 2000, Padding = new(11, 7, 11, 7), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    internal ContextMenu CommandMenu { get; } = new();
+    internal TextBox ReplyInput { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontSize = 14, MinHeight = 32, MaxHeight = 160,
+        MaxLength = 2000, Padding = new(11, 5, 11, 5), VerticalContentAlignment = VerticalAlignment.Center, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     public NavigationLocation? Destination { get; private set; }
+    public string? DestinationMemoId { get; private set; }
     internal void ApplyReplyAppearance(bool highContrast) => MemoTextInputAppearance.Apply(ReplyInput, highContrast);
     public MemoThreadDialog(EditorBlock block, string panel, int line, string lineText, Action<Action> edit,
-        DocumentSession? model = null, bool showResolved = false, string? author = null) : base("메모", 360, 232, popover: true)
+        DocumentSession? model = null, bool showResolved = false, string? author = null, string? selectedMemoId = null) : base(360, 178)
     {
-        var body = new DockPanel { Margin = new(7, 7, 7, 11) }; Body(body);
+        MinHeight = 58;
+        var body = new DockPanel { Margin = new(0, 8, 0, 8) };
+        Body(body);
+        var list = MemoItems;
         var input = ReplyInput;
         MemoTextInputAppearance.Attach(this, input);
-        var replyHost = new Grid { Margin = new(4, 14, 4, 0), MinHeight = 32 };
-        input.SizeChanged += (_, _) => Height = Math.Min(MaxHeight, 232 + Math.Max(0, input.ActualHeight - 32));
-        replyHost.ColumnDefinitions.Add(new()); replyHost.ColumnDefinitions.Add(new() { Width = new(40) }); replyHost.Children.Add(input);
-        var placeholder = new TextBlock { Text = "회신...", Foreground = new SolidColorBrush(Color.FromRgb(138, 138, 138)), Margin = new(12, 7, 0, 0), IsHitTestVisible = false };
-        replyHost.Children.Add(placeholder); input.TextChanged += (_, _) => placeholder.Visibility = input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var replyHost = new DockPanel { Margin = new(12, 8, 12, 0) };
         DockPanel.SetDock(replyHost, Dock.Bottom); body.Children.Add(replyHost);
-        System.Windows.Automation.AutomationProperties.SetName(input, "메모 회신");
+        AutomationProperties.SetName(input, "메모 회신");
         input.ToolTip = "Enter: 회신 추가 · Shift+Enter: 줄 바꿈";
-        var list = MemoItems; ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled); body.Children.Add(list);
+        var placeholder = new TextBlock { Text = "회신...", FontSize = 14, Foreground = EditorModalDesign.Color("#8A8A8A"),
+            Margin = new(13, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+        input.TextChanged += (_, _) => placeholder.Visibility = input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var inputHost = new Grid(); inputHost.Children.Add(input); inputHost.Children.Add(placeholder);
+        StripListPadding(list);
+        ScrollViewer.SetCanContentScroll(list, false);
+        ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+        void FitRows() => list.MaxHeight = Math.Max(60, Math.Min(MaxHeight, SystemParameters.WorkArea.Height) - input.ActualHeight - 48);
+        Loaded += (_, _) => FitRows(); input.SizeChanged += (_, _) => FitRows();
+        body.Children.Add(list);
+
+        (LineMemo Memo, int Index)? selectedReply = null;
         var conversation = new FrameworkElementFactory(typeof(MemoConversationView));
         conversation.SetValue(MemoConversationView.DeleteActionProperty, (Action<LineMemo, int?>)Delete);
         conversation.SetValue(MemoConversationView.ResolveActionProperty, (Action<LineMemo>)Resolve);
+        conversation.SetValue(MemoConversationView.SelectActionProperty, (Action<LineMemo, int?>)((memo, reply) =>
+        {
+            list.SelectedItem = memo;
+            selectedReply = reply is { } index ? (memo, index) : null;
+        }));
         if (model is not null) conversation.SetBinding(MemoConversationView.CanEditProperty, new Binding(nameof(DocumentSession.IsReadOnly)) { Source = model, Converter = InverseReadOnly.Instance });
         list.ItemTemplate = new DataTemplate { VisualTree = conversation };
         var container = new Style(typeof(ListBoxItem));
         container.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
         container.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
-        var host = new FrameworkElementFactory(typeof(ContentPresenter)); host.SetValue(FrameworkElement.MarginProperty, new Thickness(0));
-        container.Setters.Add(new Setter(Control.TemplateProperty, new ControlTemplate(typeof(ListBoxItem)) { VisualTree = host }));
+        container.Setters.Add(new Setter(Control.TemplateProperty, new ControlTemplate(typeof(ListBoxItem)) { VisualTree = new FrameworkElementFactory(typeof(ContentPresenter)) }));
         list.ItemContainerStyle = container;
+        bool Writable() => model is null || !model.IsReadOnly && model.Blocks.Contains(block);
+        int CurrentIndex(LineMemo memo)
+        {
+            if (!Writable()) return -1;
+            var index = block.Memos.IndexOf(memo);
+            if (index >= 0 && ReferenceEquals(block.Memos[index], memo)) return index;
+            Status.Text = "메모가 변경되었습니다. 목록을 다시 확인해 주세요."; Refresh(); return -1;
+        }
         void Refresh()
         {
-            var selected = (list.SelectedItem as LineMemo)?.LocalId;
+            var selected = (list.SelectedItem as LineMemo)?.LocalId ?? selectedMemoId;
             list.ItemsSource = block.Memos.Where(m => m.Panel == panel && m.LineIndex == line && (ShowResolved.IsChecked == true || !m.Resolved)).OrderBy(m => m.CreatedAt).ToArray();
             list.SelectedItem = list.Items.Cast<LineMemo>().FirstOrDefault(m => m.LocalId == selected) ?? list.Items.Cast<LineMemo>().FirstOrDefault();
-            list.ToolTip = $"{lineText}\n해결 {block.Memos.Count(m => m.Panel == panel && m.LineIndex == line && m.Resolved)}개 · 우클릭: 메모 관리";
+            list.ToolTip = lineText;
         }
-        void Delete(LineMemo shown, int? replyIndex)
+        void Delete(LineMemo shown, int? reply)
         {
-            if (model is null || model.IsReadOnly || !model.Blocks.Contains(block)) return;
-            var index = block.Memos.IndexOf(shown);
-            if (index < 0 || !ReferenceEquals(block.Memos[index], shown)) { Status.Text = "메모가 변경되었습니다. 목록을 다시 확인해 주세요."; Refresh(); return; }
-            if (replyIndex is { } reply)
+            var index = CurrentIndex(shown);
+            if (model is null || index < 0) return;
+            if (reply is { } i)
             {
-                if (shown.Replies is null || reply < 0 || reply >= shown.Replies.Length) return;
-                edit(() => block.Memos[index] = shown with { Replies = shown.Replies.Where((_, i) => i != reply).ToArray() });
+                if (shown.Replies is null || i < 0 || i >= shown.Replies.Length) return;
+                edit(() => block.Memos[index] = shown with { Replies = shown.Replies.Where((_, n) => n != i).ToArray() });
             }
-            else edit(() => block.Memos.Remove(shown));
+            else edit(() => block.Memos.RemoveAt(index));
             Refresh();
         }
         void Resolve(LineMemo shown)
         {
-            if (model is null || model.IsReadOnly || !model.Blocks.Contains(block)) return;
-            var index = block.Memos.IndexOf(shown);
-            if (index < 0 || !ReferenceEquals(block.Memos[index], shown)) { Status.Text = "메모가 변경되었습니다. 목록을 다시 확인해 주세요."; Refresh(); return; }
+            var index = CurrentIndex(shown);
+            if (model is null || index < 0) return;
             edit(() => block.Memos[index] = shown with { Resolved = !shown.Resolved, ResolvedAt = shown.Resolved ? null : DateTimeOffset.Now });
             if (!shown.Resolved) Close(); else Refresh();
         }
@@ -81,67 +105,105 @@ public sealed class MemoThreadDialog : CompactDialog
             if (next < 0 || next >= anchors.Count) { Status.Text = delta > 0 ? "마지막 메모입니다." : "첫 메모입니다."; return; }
             var a = anchors[next]; var targetPanel = a.Panel == "TEXT" ? SearchPanel.Text : SearchPanel.Braille;
             var offsets = DocumentNavigation.LineOffsets(DocumentSearch.Content(a.Block, targetPanel));
-            if (a.LineIndex >= offsets.Length) { Status.Text = "원래 줄이 삭제된 메모입니다. 메모 목록에서 확인해 주세요."; return; }
-            Destination = new(a.Block, targetPanel, offsets[a.LineIndex]);
-            if (System.Windows.Interop.ComponentDispatcher.IsThreadModal) DialogResult = true; else Close(); // The hover bubble is non-modal.
+            if (a.LineIndex < 0 || a.LineIndex >= offsets.Length) { Status.Text = "원래 줄이 삭제된 메모입니다. 메모 목록에서 확인해 주세요."; return; }
+            Destination = new(a.Block, targetPanel, offsets[a.LineIndex]); Close();
         }
-        // The Figma popover has per-row actions instead of a separate top toolbar.
-        // Keep the command in the hidden action host for existing callers and expose it in the context menu.
-        ResolveButton = Action("해결·다시 열기", () =>
+        void Overview()
         {
-            if (list.SelectedItem is not LineMemo m) return;
-            Resolve(m);
-        });
+            if (model is null) return;
+            var overview = new MemoListDialog(model, (list.SelectedItem as LineMemo)?.LocalId, ShowResolved.IsChecked == true) { Owner = this };
+            if (overview.ShowDialog() != true) return;
+            ShowResolved.IsChecked = overview.IncludeResolved;
+            Destination = overview.Destination; DestinationMemoId = overview.DestinationMemoId; Close();
+        }
+        void NewMemo()
+        {
+            if (!Writable()) return;
+            var dialog = new MemoInputDialog(author) { Owner = this };
+            if (dialog.ShowDialog() != true || !Writable()) return;
+            var memo = new LineMemo(Guid.NewGuid().ToString("N"), null, panel, line, lineText[..Math.Min(80, lineText.Length)], dialog.Value, DateTimeOffset.Now, Author: author);
+            edit(() => block.Memos.Add(memo)); Refresh(); list.SelectedItem = memo;
+        }
+        void EditSelected()
+        {
+            if (!Writable() || list.SelectedItem is not LineMemo memo) return;
+            int? reply = selectedReply is { } target && ReferenceEquals(target.Memo, memo) ? target.Index : null;
+            var message = reply is { } r ? memo.Replies![r] : null;
+            var dialog = new MemoInputDialog(message is null ? memo.Author : message.Author) { Owner = this };
+            dialog.Input.Text = message?.Body ?? memo.Body;
+            if (dialog.ShowDialog() != true) return;
+            var index = CurrentIndex(memo);
+            if (index < 0) return;
+            if (reply is { } i)
+            {
+                var replies = memo.Replies!.ToArray(); replies[i] = replies[i] with { Body = dialog.Value };
+                edit(() => block.Memos[index] = memo with { Replies = replies });
+            }
+            else edit(() => block.Memos[index] = memo with { Body = dialog.Value });
+            Refresh();
+        }
+        ResolveButton = Action("해결·다시 열기", () => { if (list.SelectedItem is LineMemo memo) Resolve(memo); });
         if (model is null) ResolveButton.IsEnabled = false;
         else ResolveButton.SetBinding(IsEnabledProperty, new Binding(nameof(DocumentSession.IsReadOnly)) { Source = model, Converter = InverseReadOnly.Instance });
         ShowResolved.IsChecked = showResolved;
         ShowResolved.Checked += (_, _) => Refresh(); ShowResolved.Unchecked += (_, _) => Refresh();
         ReplyButton = Action("회신 추가", () =>
         {
+            if (!Writable()) return;
             if (string.IsNullOrWhiteSpace(input.Text)) throw new ArgumentException("회신을 입력해 주세요.");
             if (list.SelectedItem is not LineMemo memo) throw new ArgumentException("회신할 메모를 선택하거나 새 메모를 추가해 주세요.");
-            edit(() => block.Memos[block.Memos.IndexOf(memo)] = memo with { Replies = [.. memo.Replies ?? [], new(author, input.Text.Trim(), DateTimeOffset.Now)] });
-            input.Clear(); Refresh();
+            var index = CurrentIndex(memo);
+            if (index < 0) return;
+            edit(() => block.Memos[index] = memo with { Replies = [.. memo.Replies ?? [], new(author, input.Text.Trim(), DateTimeOffset.Now)] });
+            input.Clear(); Status.Text = ""; Refresh();
         });
         Actions.Children.Remove(ReplyButton); ReplyButton.IsDefault = false;
         ReplyButton.Width = ReplyButton.Height = 32; ReplyButton.MinWidth = ReplyButton.MinHeight = 0;
         ReplyButton.VerticalAlignment = VerticalAlignment.Bottom;
         ReplyButton.Margin = new(8, 0, 0, 0); ReplyButton.Padding = new(0); ReplyButton.ToolTip = "회신 추가";
-        ReplyButton.Background = ReplyButton.BorderBrush = new SolidColorBrush(Color.FromRgb(0, 95, 184));
-        ReplyButton.Content = MemoConversationView.DesignIcon("memo-send.svg");
-        AutomationProperties.SetName(ReplyButton, "회신 추가"); Grid.SetColumn(ReplyButton, 1); replyHost.Children.Add(ReplyButton);
+        ReplyButton.Template = EditorModalDesign.ButtonTemplate(typeof(Button));
+        ReplyButton.Background = ReplyButton.BorderBrush = EditorModalDesign.Color("#005FB8");
+        ReplyButton.Content = EditorModalDesign.Icon("memo-send", assemblyName: "Semojum.Feature.Editor.Wpf");
+        AutomationProperties.SetName(ReplyButton, "회신 추가");
+        DockPanel.SetDock(ReplyButton, Dock.Right); replyHost.Children.Add(ReplyButton); replyHost.Children.Add(inputHost);
+        if (model is not null) replyHost.SetBinding(IsEnabledProperty, new Binding(nameof(DocumentSession.IsReadOnly)) { Source = model, Converter = InverseReadOnly.Instance });
         input.PreviewKeyDown += (_, e) =>
         {
             if (e.Key == System.Windows.Input.Key.Enter && !System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift))
             { ReplyButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); e.Handled = true; }
         };
-        var menu = new ContextMenu(); body.ContextMenu = menu;
-        menu.Items.Add(new MenuItem { Header = ShowResolved, StaysOpenOnClick = true });
-        MenuItem MenuAction(string label, Action callback)
+        var menu = CommandMenu;
+        menu.Resources.MergedDictionaries.Add(new() { Source = new Uri("/Semojum.Feature.Editor.Wpf;component/Styles/MemoViews.xaml", UriKind.Relative) });
+        menu.Style = (Style)menu.FindResource("MemoMenu");
+        body.ContextMenu = menu; list.ContextMenu = menu;
+        MenuItem Add(string label, string icon, Action run, string assembly = "Semojum.Feature.Editor.Wpf")
         {
-            var item = new MenuItem { Header = label }; item.Click += (_, _) => { try { callback(); } catch (Exception ex) { Status.Text = ex.Message; } }; menu.Items.Add(item); return item;
+            var item = new MenuItem { Header = label, Icon = EditorModalDesign.Icon(icon, assemblyName: assembly), Style = (Style)menu.FindResource("MemoMenuItem") };
+            item.Click += (_, _) => { try { run(); } catch (Exception ex) { Status.Text = ex.Message; } };
+            menu.Items.Add(item); return item;
         }
-        var resolveMenu = MenuAction("해결·다시 열기", () => ResolveButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)));
-        if (model is null) resolveMenu.IsEnabled = false;
-        else resolveMenu.SetBinding(IsEnabledProperty, new Binding(nameof(DocumentSession.IsReadOnly)) { Source = model, Converter = InverseReadOnly.Instance });
-        MenuAction("이전 메모", () => Move(-1));
-        MenuAction("다음 메모", () => Move(1));
-        MenuAction("회신 추가", () => ReplyButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)));
-        MenuAction("새 메모", () =>
+        void Divider() => menu.Items.Add(new Separator { Style = (Style)menu.FindResource("MemoMenuSeparator") });
+        var resolve = Add("해결", "memo-menu-resolve", () => { if (list.SelectedItem is LineMemo memo) Resolve(memo); });
+        Add("이전 메모", "ribbon-chevl", () => Move(-1), "Semojum.Mockup");
+        Add("다음 메모", "ribbon-chevr", () => Move(1), "Semojum.Mockup");
+        Add("메모 목록", "memo-menu-memos", Overview).IsEnabled = model is not null;
+        Divider();
+        var replyItem = Add("회신 추가", "memo-menu-reply", () =>
         {
-            var dialog = new MemoInputDialog(author) { Owner = this };
-            if (dialog.ShowDialog() != true) return;
-            var memo = new LineMemo(Guid.NewGuid().ToString("N"), null, panel, line, lineText[..Math.Min(80, lineText.Length)], dialog.Value, DateTimeOffset.Now, Author: author);
-            edit(() => block.Memos.Add(memo)); Refresh(); list.SelectedItem = memo;
+            if (string.IsNullOrWhiteSpace(input.Text)) input.Focus(); else ReplyButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
         });
-        MenuAction("선택 수정", () =>
+        var newItem = Add("새 메모", "memo-menu-memoadd", NewMemo);
+        var editItem = Add("선택 수정", "memo-menu-edit", EditSelected);
+        Divider(); Add("닫기", "line-preview-close", Close);
+        menu.Opened += (_, _) =>
         {
-            if (list.SelectedItem is not LineMemo m) return;
-            var dialog = new MemoInputDialog(m.Author) { Owner = this }; dialog.Input.Text = m.Body;
-            if (dialog.ShowDialog() != true) return;
-            edit(() => block.Memos[block.Memos.IndexOf(m)] = m with { Body = dialog.Value }); Refresh();
-        });
-        MenuAction("닫기", Close); Refresh();
+            var selected = list.SelectedItem as LineMemo;
+            resolve.Header = selected?.Resolved == true ? "해결 되돌리기" : "해결";
+            resolve.IsEnabled = model is not null && Writable() && selected is not null;
+            newItem.IsEnabled = Writable();
+            editItem.IsEnabled = replyItem.IsEnabled = Writable() && selected is not null;
+        };
+        Refresh();
     }
 }
 
@@ -174,6 +236,7 @@ public sealed class MemoHoverBubble(Func<EditorBlock, string, int, MemoThreadDia
         bubble.MouseEnter += (_, _) => { if (Current == bubble) { overBubble = true; closeTimer?.Stop(); } };
         bubble.MouseLeave += (_, _) => { if (Current == bubble) { overBubble = false; ScheduleClose(); } };
         bubble.Deactivated += (_, _) => { if (Current == bubble) ScheduleClose(); };
+        bubble.CommandMenu.Closed += (_, _) => { if (Current == bubble) ScheduleClose(); };
         bubble.Closed += (_, _) => { if (Current == bubble) { Current = null; anchor = null; overMarker = overBubble = false; closeTimer?.Stop(); } };
         Current = bubble; anchor = (block, panel, line); overMarker = true; overBubble = false;
         bubble.Show(); return true;
@@ -191,7 +254,7 @@ public sealed class MemoHoverBubble(Func<EditorBlock, string, int, MemoThreadDia
             {
                 closeTimer.Stop();
                 // Keep a bubble the user is typing in, or one that owns an open memo input.
-                if (Current is { } bubble && !overMarker && !overBubble && !bubble.IsActive && !bubble.OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) bubble.Close();
+                if (Current is { } bubble && !overMarker && !overBubble && !bubble.IsActive && !bubble.CommandMenu.IsOpen && !bubble.OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) bubble.Close();
             };
         }
         closeTimer.Stop(); closeTimer.Start();
@@ -209,88 +272,53 @@ public sealed class MemoConversationView : ContentControl
 {
     public static readonly DependencyProperty DeleteActionProperty = DependencyProperty.Register(nameof(DeleteAction), typeof(Action<LineMemo, int?>), typeof(MemoConversationView));
     public Action<LineMemo, int?>? DeleteAction { get => (Action<LineMemo, int?>?)GetValue(DeleteActionProperty); set => SetValue(DeleteActionProperty, value); }
+    public static readonly DependencyProperty SelectActionProperty = DependencyProperty.Register(nameof(SelectAction), typeof(Action<LineMemo, int?>), typeof(MemoConversationView));
+    public Action<LineMemo, int?>? SelectAction { get => (Action<LineMemo, int?>?)GetValue(SelectActionProperty); set => SetValue(SelectActionProperty, value); }
     public static readonly DependencyProperty ResolveActionProperty = DependencyProperty.Register(nameof(ResolveAction), typeof(Action<LineMemo>), typeof(MemoConversationView));
     public Action<LineMemo>? ResolveAction { get => (Action<LineMemo>?)GetValue(ResolveActionProperty); set => SetValue(ResolveActionProperty, value); }
     public static readonly DependencyProperty CanEditProperty = DependencyProperty.Register(nameof(CanEdit), typeof(bool), typeof(MemoConversationView), new PropertyMetadata(false, (d, _) => ((MemoConversationView)d).Refresh()));
     public bool CanEdit { get => (bool)GetValue(CanEditProperty); set => SetValue(CanEditProperty, value); }
     public MemoConversationView() => DataContextChanged += (_, _) => Refresh();
-    internal static SvgViewbox DesignIcon(string name) => new() { Source = new Uri($"pack://application:,,,/Semojum.Feature.Editor.Wpf;component/Assets/Figma/{name}"), Width = 16, Height = 16, Stretch = Stretch.None };
     private void Refresh()
     {
-        if (DataContext is not LineMemo memo) return;
+        if (DataContext is not LineMemo memo) { Content = null; return; }
         var messages = new StackPanel();
-        var actionStyle = new Style(typeof(Button), TryFindResource(typeof(Button)) as Style);
-        actionStyle.Setters.Add(new Setter(OpacityProperty, 0.0));
-        foreach (var property in new[] { nameof(IsMouseOver), nameof(IsKeyboardFocusWithin) })
+        void Add(string? author, string text, DateTimeOffset date, int? reply)
         {
-            var visible = new DataTrigger
+            var row = new StackPanel { Margin = new(12, 8, 12, 8), Background = Brushes.Transparent };
+            row.PreviewMouseDown += (_, _) => SelectAction?.Invoke(memo, reply);
+            row.GotKeyboardFocus += (_, _) => SelectAction?.Invoke(memo, reply);
+            var heading = new DockPanel { Height = 24 };
+            var actions = new StackPanel { Orientation = Orientation.Horizontal };
+            void Command(string label, string icon, Action run)
             {
-                Binding = new Binding(property) { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(DockPanel), 1) },
-                Value = true
-            };
-            visible.Setters.Add(new Setter(OpacityProperty, 1.0));
-            actionStyle.Triggers.Add(visible);
-        }
-        var rowStyle = new Style(typeof(DockPanel));
-        rowStyle.Setters.Add(new Setter(Panel.BackgroundProperty, Brushes.Transparent));
-        foreach (var property in new[] { IsMouseOverProperty, IsKeyboardFocusWithinProperty })
-        {
-            var highlight = new Trigger { Property = property, Value = true };
-            highlight.Setters.Add(new Setter(Panel.BackgroundProperty, new SolidColorBrush(Color.FromRgb(249, 249, 249))));
-            rowStyle.Triggers.Add(highlight);
-        }
-        void Add(string? author, string text, DateTimeOffset date, int? replyIndex)
-        {
-            var row = new DockPanel { MinHeight = 66, Margin = new(0, 0, 0, 6), Style = rowStyle };
-            var delete = new Button { Content = DesignIcon("memo-row-trash.svg"), Width = 24, Height = 24, MinWidth = 0, MinHeight = 0, Padding = new(0),
-                Style = actionStyle, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 6, 0), Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(209, 209, 209)), IsEnabled = CanEdit, ToolTip = replyIndex is null ? "메모 삭제" : "답글 삭제" };
-            AutomationProperties.SetName(delete, replyIndex is null ? "메모 삭제" : "답글 삭제");
-            delete.Click += (_, _) => DeleteAction?.Invoke(memo, replyIndex); DockPanel.SetDock(delete, Dock.Right); row.Children.Add(delete);
-            if (replyIndex is null)
-            {
-                var resolve = new Button { Content = DesignIcon("memo-row-resolve.svg"), Width = 24, Height = 24, MinWidth = 0, MinHeight = 0, Padding = new(0),
-                    Style = actionStyle, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 2, 0), Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(209, 209, 209)), IsEnabled = CanEdit, ToolTip = memo.Resolved ? "해결 되돌리기" : "메모 해결" };
-                AutomationProperties.SetName(resolve, memo.Resolved ? "해결 되돌리기" : "메모 해결");
-                resolve.Click += (_, _) => ResolveAction?.Invoke(memo); DockPanel.SetDock(resolve, Dock.Right); row.Children.Add(resolve);
+                var button = new Button { Content = EditorModalDesign.Icon(icon, assemblyName: "Semojum.Feature.Editor.Wpf"), ToolTip = label,
+                    Width = 24, Height = 24, MinHeight = 0, MinWidth = 0, Padding = new(0), Margin = new(actions.Children.Count == 0 ? 0 : 4, 0, 0, 0),
+                    IsEnabled = CanEdit, Background = Brushes.Transparent, BorderThickness = new(0), Template = EditorModalDesign.ButtonTemplate(typeof(Button)) };
+                AutomationProperties.SetName(button, label);
+                button.Click += (_, _) => run();
+                actions.Children.Add(button);
             }
-            var lines = new StackPanel { Margin = new(4, 4, 0, 4) }; row.Children.Add(lines);
-            var heading = new StackPanel { Orientation = Orientation.Horizontal, Height = 20 };
-            heading.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(author) ? "작성자 미상" : author, FontSize = 14, FontWeight = FontWeights.Bold });
+            if (reply is null) Command(memo.Resolved ? "해결 되돌리기" : "메모 해결", "memo-row-resolve", () => ResolveAction?.Invoke(memo));
+            Command(reply is null ? "메모 삭제" : "답글 삭제", "table-trash", () => DeleteAction?.Invoke(memo, reply));
+            DockPanel.SetDock(actions, Dock.Right); heading.Children.Add(actions);
             var age = DateTimeOffset.Now - date;
             var when = age < TimeSpan.FromMinutes(1) ? "방금" : age < TimeSpan.FromHours(1) ? $"{(int)age.TotalMinutes}분 전"
                 : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours}시간 전" : age < TimeSpan.FromDays(7) ? $"{(int)age.TotalDays}일 전" : date.ToLocalTime().ToString("MM-dd");
-            heading.Children.Add(new TextBlock { Text = when, Foreground = new SolidColorBrush(Color.FromRgb(95, 95, 95)), Margin = new(8, 0, 0, 0), ToolTip = date.ToLocalTime().ToString("yyyy-MM-dd HH:mm") });
-            lines.Children.Add(heading); lines.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, LineHeight = 16 }); messages.Children.Add(row);
+            var identity = new DockPanel { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+            var name = new TextBlock { Text = string.IsNullOrWhiteSpace(author) ? "작성자 미상" : author, FontSize = 14,
+                MaxWidth = 165, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = author };
+            identity.Children.Add(name);
+            identity.Children.Add(new TextBlock { Text = when, FontSize = 12, Foreground = EditorModalDesign.Color("#8A8A8A"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new(8, 0, 0, 0), ToolTip = date.ToLocalTime().ToString("yyyy-MM-dd HH:mm") });
+            heading.Children.Add(identity); row.Children.Add(heading);
+            row.Children.Add(new TextBlock { Text = text, FontSize = 12, TextWrapping = TextWrapping.Wrap, LineHeight = 16,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight, Margin = new(0, 4, 0, 0) });
+            messages.Children.Add(row);
         }
         Add(memo.Author, memo.Body, memo.CreatedAt, null);
         var replies = memo.Replies ?? [];
         for (var i = 0; i < replies.Length; i++) Add(replies[i].Author, replies[i].Body, replies[i].CreatedAt, i);
         Content = messages;
-    }
-}
-public sealed class MemoListDialog : CompactDialog
-{
-    private sealed record Item(EditorBlock Block, LineMemo Memo) { public string Label => $"{Block.Page}쪽 · {Memo.Panel} {Memo.LineIndex + 1}줄 · {(Memo.Resolved ? "해결" : "미해결")} · {Memo.Body}"; }
-    public NavigationLocation? Destination { get; private set; }
-    public bool IncludeResolved { get; private set; }
-    internal ListBox MemoItems { get; } = new() { Margin = new(0, 8, 0, 0), DisplayMemberPath = "Label" };
-    internal CheckBox ShowResolved { get; } = new() { Content = "해결한 메모 포함" };
-    public MemoListDialog(DocumentSession model) : base("메모 목록", 680, 440)
-    {
-        var body = new DockPanel { Margin = new(16) }; Body(body); DockPanel.SetDock(ShowResolved, Dock.Top); body.Children.Add(ShowResolved);
-        var list = MemoItems; body.Children.Add(list);
-        void Refresh() => list.ItemsSource = model.Blocks.OrderBy(b => b.Page).SelectMany(b => b.Memos
-            .Where(m => ShowResolved.IsChecked == true || !m.Resolved).OrderBy(m => m.LineIndex).ThenBy(m => m.CreatedAt).Select(m => new Item(b, m))).ToArray();
-        ShowResolved.Checked += (_, _) => Refresh(); ShowResolved.Unchecked += (_, _) => Refresh();
-        void Open()
-        {
-            if (list.SelectedItem is not Item item) return;
-            var panel = item.Memo.Panel == "TEXT" ? SearchPanel.Text : SearchPanel.Braille;
-            var offsets = DocumentNavigation.LineOffsets(DocumentSearch.Content(item.Block, panel));
-            if (item.Memo.LineIndex >= offsets.Length) throw new ArgumentException("편집으로 메모의 원래 줄이 사라졌습니다. 블록에서 메모 위치를 확인해 주세요.");
-            IncludeResolved = ShowResolved.IsChecked == true;
-            Destination = new(item.Block, panel, offsets[item.Memo.LineIndex]); DialogResult = true;
-        }
-        Action("이동", Open, true); Action("닫기", Close); Refresh();
     }
 }

@@ -22,7 +22,7 @@ internal static class WindowsQa1110TableChecks
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); dialog.UpdateLayout();
             var grid = Descendants(dialog).OfType<DataGrid>().Single();
             var table = ((DataView)grid.ItemsSource).Table!;
-            Button? Find(string name) => Descendants(dialog).OfType<Button>().FirstOrDefault(b => Equals(b.Content, name));
+            Button? Find(string name) => Descendants(dialog).OfType<Button>().FirstOrDefault(b => (Equals(b.Content, name) || System.Windows.Automation.AutomationProperties.GetName(b) == name));
             async Task Click(string name)
             {
                 var button = Find(name);
@@ -30,6 +30,15 @@ internal static class WindowsQa1110TableChecks
                 button?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); dialog.UpdateLayout();
             }
+            var head = Descendants(dialog).OfType<System.Windows.Controls.Primitives.ToggleButton>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "머리행");
+            head.IsChecked = true; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); dialog.UpdateLayout();
+            var first = (DataGridRow)grid.ItemContainerGenerator.ContainerFromIndex(0);
+            check(dialog.HasHeaderRow && System.Windows.Automation.AutomationProperties.GetItemStatus(first) == "머리행" && first.BorderThickness.Bottom == 2,
+                "APP_UI D3 marks only the first table row as a header and exposes it to screen readers");
+            if (Environment.GetEnvironmentVariable("TABLE_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(dialog, capture);
+            head.IsChecked = false;
+            check(!dialog.HasHeaderRow && dialog.Width == 760 && dialog.Height == 526 && grid.ColumnHeaderHeight == 32,
+                "The 760×526 table editor can switch its header row off without editing cell content");
             await Click("열 추가");
             check(table.Columns.Count == 3 && grid.Columns.Count == 3, $"QA1110: added column appears immediately (model={table.Columns.Count}, view={grid.Columns.Count})");
             // Reordered columns must delete the selected data field, not its visual index.
@@ -94,7 +103,7 @@ internal static class WindowsQa1110TableChecks
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             var grid = Descendants(dialog).OfType<DataGrid>().Single();
             var view = (DataView)grid.ItemsSource;
-            void Click(string name) => Descendants(dialog).OfType<Button>().Single(b => Equals(b.Content, name))
+            void Click(string name) => Descendants(dialog).OfType<Button>().Single(b => (Equals(b.Content, name) || System.Windows.Automation.AutomationProperties.GetName(b) == name))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Click("열 추가"); Click("행 추가");
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);

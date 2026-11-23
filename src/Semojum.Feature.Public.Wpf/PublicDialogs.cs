@@ -144,54 +144,75 @@ public sealed class PublicInquiryDialog : CompactDialog
     private sealed record Attachment(string Name, string Path) { public override string ToString() => Name; }
     private readonly ObservableCollection<Attachment> attachments = [];
 
-    public PublicInquiryDialog(SemojumApiClient api, string? initialTitle = null, PublicInquiryCategory category = PublicInquiryCategory.AccountIssue) : base("문의하기", 540, 528, popover: true)
+    public bool Standalone { get; }
+    public PublicInquiryDialog(SemojumApiClient api, string? initialTitle = null,
+        PublicInquiryCategory category = PublicInquiryCategory.AccountIssue, bool standalone = false)
+        : base("문의하기 - 누리닷", standalone ? 1440 : 820, standalone ? 1000 : 510, editor: true)
     {
-        var layout = PublicDialogDesign.Frame(this, "문의하기", "public-inquiry-close.svg", "PublicInquiryClose", out var actions, "Semojum.Feature.Public.Wpf"); Body(layout);
-        var panel = new StackPanel { Margin = new(16, 12, 16, 0) };
-        var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        Grid.SetRow(scroll, 1); layout.Children.Add(scroll);
-        panel.Children.Add(new TextBlock { Text = "로그인 없이도 보낼 수 있습니다. 적어 주신 메일 주소로 회신해드립니다.", Foreground = Brush("#5F5F5F"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new(0, 0, 0, 8) });
-        var type = Choices(Categories.Select(c => c.Label).ToArray(), Categories[(int)category].Label); var email = new TextBox { MaxLength = 100 };
+        Standalone = standalone;
+        var form = new PublicInquiryForm();
+        var type = form.CategoryList;
+        type.ItemsSource = Categories.Select(c => c.Label).ToArray();
+        type.SelectedIndex = (int)category;
         var initialType = type.SelectedItem;
-        var organization = new TextBox { MaxLength = 100 }; var title = new TextBox { MaxLength = 200, Text = initialTitle ?? "" };
-        var message = new TextBox { MaxLength = 2000, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 92, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        void AddLabel(string label) => panel.Children.Add(new TextBlock { Text = label, Foreground = Brush("#5F5F5F"), FontSize = 12 });
-        void AddField(string label, TextBox field, string hint)
+        var email = form.EmailInput;
+        var organization = form.OrganizationInput;
+        var title = form.TitleInput;
+        title.Text = initialTitle ?? "";
+        var message = form.MessageInput;
+        var attachment = form.AttachmentButton;
+        var attached = form.AttachedFiles;
+        var consent = form.Consent;
+        var actions = form.FormActions;
+
+        var formContainer = new Border { Padding = new(32, 24, 32, 24), Child = form, VerticalAlignment = VerticalAlignment.Top };
+        if (standalone)
         {
-            AddLabel(label); var element = PublicDialogDesign.TextField(field, label, hint);
-            element.Height = 32; panel.Children.Add(element);
+            Loaded += (_, _) => WindowState = WindowState.Maximized;
+            var backText = new StackPanel { Orientation = Orientation.Horizontal };
+            backText.Children.Add(DesignIcon("inquiry-back.svg", 16, 16, "Semojum.Feature.Public.Wpf"));
+            backText.Children.Add(new TextBlock { Text = "돌아가기", Margin = new(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            var back = new Button { Content = backText, HorizontalAlignment = HorizontalAlignment.Left, Height = 32, Padding = new(8, 0, 8, 0),
+                Background = Brushes.Transparent, BorderThickness = new(0) };
+            AutomationProperties.SetName(back, "돌아가기");
+            back.Click += (_, _) => Close();
+            var header = new Border { Height = 48, Padding = new(16, 0, 16, 0), Background = Brushes.White,
+                BorderBrush = Brush("#EAEAEA"), BorderThickness = new(0, 0, 0, 1), Child = back };
+            DockPanel.SetDock(header, Dock.Top); Root.Children.Add(header);
+            // The standalone page includes the frame boundary around its title bar and body.
+            var framedContent = (UIElement)Content;
+            Content = null;
+            Content = new Border { Background = Brush("#F3F3F3"), BorderBrush = Brush("#D1D1D1"),
+                BorderThickness = new(1), CornerRadius = new(8), Child = framedContent };
+            form.Heading.Visibility = Visibility.Visible;
+            form.Heading.FontSize = 28;
+            form.Heading.Height = form.Heading.LineHeight = 36;
+            form.Heading.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            var categoryStyle = new Style(typeof(ListBoxItem), type.ItemContainerStyle);
+            categoryStyle.Setters.Add(new Setter(FrameworkElement.HeightProperty, 20d));
+            type.ItemContainerStyle = categoryStyle;
+            attachment.BorderBrush = Brush("#D1D1D1");
+            formContainer.MaxWidth = 720; formContainer.Margin = new(12, 32, 12, 24);
+            formContainer.Background = Brushes.White; formContainer.CornerRadius = new(8);
+            formContainer.BorderBrush = Brush("#EAEAEA"); formContainer.BorderThickness = new(1);
         }
-        AddLabel("분류"); type.Height = type.MinHeight = 32; type.Padding = new(11, 0, 25, 0); AutomationProperties.SetName(type, "분류");
-        var typeField = new Grid { Height = 32 }; typeField.Children.Add(type);
-        typeField.Children.Add(new Border { Width = 24, Margin = new(0, 1, 1, 1), Background = Brush("#FBFBFB"), HorizontalAlignment = HorizontalAlignment.Right, IsHitTestVisible = false });
-        var chevron = DesignIcon("public-inquiry-chevron.svg", 16, 16, "Semojum.Feature.Public.Wpf"); chevron.HorizontalAlignment = HorizontalAlignment.Right; chevron.Margin = new(0, 0, 5, 0); chevron.IsHitTestVisible = false; typeField.Children.Add(chevron); panel.Children.Add(typeField);
-        AddField("답 받을 주소", email, "name@example.com");
-        AddField("기관명", organization, "(선택) 기관명");
-        AddField("제목", title, "문의 제목을 입력해 주세요");
-        AddLabel("내용"); AutomationProperties.SetName(message, "내용"); message.Background = Brushes.White; message.BorderBrush = Brush("#EAEAEA"); message.Padding = new(11, 7, 11, 7); panel.Children.Add(message);
-        var attachmentRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new(0, 12, 0, 0) };
-        var attachmentContent = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        attachmentContent.Children.Add(DesignIcon("public-inquiry-upload.svg", 16, 16, "Semojum.Feature.Public.Wpf")); attachmentContent.Children.Add(new TextBlock { Text = "파일", Margin = new(8, 0, 0, 0) });
-        var attachment = new Button { Content = attachmentContent, Width = 104, Height = 32, MinWidth = 0, MinHeight = 0, Padding = new(0),
-            Background = Brushes.White, BorderBrush = Brush("#D1D1D1"), Template = SurfaceTemplate(0) };
-        AutomationProperties.SetAutomationId(attachment, "PublicInquiryAttachment"); AutomationProperties.SetName(attachment, "파일 첨부");
+        var scroll = new ScrollViewer { Content = formContainer, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = Brush("#F3F3F3"), Focusable = false };
+        AutomationProperties.SetAutomationId(scroll, "InquiryFormScroll"); Body(scroll);
         attachment.Click += (_, _) =>
         {
             var picker = new OpenFileDialog { Multiselect = true, Filter = "이미지·문서·zip|" + string.Join(';', Extensions.Select(e => "*" + e)) };
             if (picker.ShowDialog(this) != true) return;
             Status.Text = ""; try { Attach(picker.FileNames); } catch (Exception ex) when (ex is ArgumentException or IOException) { Status.Text = ex.Message; }
         };
-        attachmentRow.Children.Add(attachment); attachmentRow.Children.Add(new TextBlock { Text = "최대 3개 · 10MB 제한", Foreground = Brush("#5F5F5F"), Margin = new(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center }); panel.Children.Add(attachmentRow);
-        var attached = new ListBox { ItemsSource = attachments, MaxHeight = 66, Margin = new(0, 6, 0, 0), Visibility = Visibility.Collapsed };
-        AutomationProperties.SetAutomationId(attached, "PublicInquiryAttachments"); AutomationProperties.SetName(attached, "첨부한 파일");
+        attached.ItemsSource = attachments;
         Semojum.Desktop.Controls.AttachmentPresentation.Configure<Attachment>(attached, file => attachments.Remove(file), "PublicInquiryRemoveAttachment");
         attachments.CollectionChanged += (_, _) => attached.Visibility = attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         var attachedMenu = new ContextMenu(); var detach = new MenuItem { Header = "선택 첨부 제거" }; attachedMenu.Items.Add(detach); attached.ContextMenu = attachedMenu;
         detach.Click += (_, _) => { if (attached.SelectedItem is Attachment a) attachments.Remove(a); };
         attached.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Delete && attached.SelectedItem is Attachment a) { attachments.Remove(a); e.Handled = true; } };
-        panel.Children.Add(attached);
-        var consent = new CheckBox { Content = "개인정보 수집·이용에 동의합니다 (답변 목적 · 1년 보관)", Style = PublicDialogDesign.ConsentStyle("Semojum.Feature.Public.Wpf"), Margin = new(0, 4, 0, 0) };
-        AutomationProperties.SetAutomationId(consent, "PublicInquiryConsent"); AutomationProperties.SetName(consent, "개인정보 수집·이용에 동의합니다 (답변 목적 · 1년 보관)"); panel.Children.Add(consent);
+
         var submitted = false; var discardConfirmed = false;
         Closing += (_, e) =>
         {
@@ -233,8 +254,13 @@ public sealed class PublicInquiryDialog : CompactDialog
             submitted = true;
             NoticeDialog.Choose(this, "문의를 접수했습니다.", "적어 주신 메일 주소로 회신해드립니다.", ["확인"], width: 440); DialogResult = true;
         }
-        var cancel = Button("취소", () => { Close(); return Task.CompletedTask; }); cancel.IsCancel = false; PublicDialogDesign.StyleAction(cancel); actions.Children.Add(cancel);
-        var send = Button("보내기", () => RunAsync(SubmitAsync), true); PublicDialogDesign.StyleAction(send, true); actions.Children.Add(send);
+        if (!standalone)
+        {
+            var cancel = Button("취소", () => { Close(); return Task.CompletedTask; });
+            cancel.IsCancel = false; PublicDialogDesign.StyleAction(cancel);
+            cancel.Margin = new(0, 0, 8, 0); actions.Children.Add(cancel);
+        }
+        var send = Button("보내기", () => RunAsync(SubmitAsync), true); PublicDialogDesign.StyleAction(send, true); send.Margin = new Thickness(0); actions.Children.Add(send);
         PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { e.Handled = true; Close(); } };
     }
     /// <summary>Adds chosen files after the same checks as sending; a rejected choice adds none of its files.</summary>

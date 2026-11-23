@@ -33,7 +33,8 @@ public sealed record BlockMetadata(string Type = "text", int HeadingLevel = 0, b
     double[]? BoundingBox = null, int? SelectedIndex = null, string? TableDisplayText = null,
     AlternativeDraft[]? Alternatives = null, RuleEvidence[]? Rules = null, string? OriginalSource = null,
     string? VisualSubtype = null, bool IsBlocked = false, double? OcrConfidence = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReviewFlag = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReviewFlag = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool TableHeaderRow = false);
 /// <param name="Option">The draft's fixed option number (BE 2026-11-01: 1 생략 · 2 기본 설명 · 6 별책 참조 · 7 줄글 …). Null on older pages and files.</param>
 public sealed record AlternativeDraft(string Label, string Text, string? TaggedText, string? LegacyBraille, string? Reason,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Option = null);

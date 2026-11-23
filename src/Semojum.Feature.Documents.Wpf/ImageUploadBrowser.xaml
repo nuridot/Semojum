@@ -1,0 +1,115 @@
+<UserControl x:Class="Semojum.Desktop.Dialogs.ImageUploadBrowser"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svg="http://sharpvectors.codeplex.com/svgc/"
+    Foreground="#1A1A1A" Height="420">
+    <UserControl.Resources>
+        <ControlTemplate x:Key="FileList" TargetType="ListBox">
+            <ScrollViewer Focusable="False" CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter/></ScrollViewer>
+        </ControlTemplate>
+        <Style x:Key="FileContainer" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="AutomationProperties.Name" Value="{Binding Name}"/>
+            <Setter Property="AutomationProperties.HelpText" Value="{Binding Help}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Row" Height="44" Background="Transparent" Padding="12,0">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#F5F5F5"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="#EFF6FC"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="FolderContainer" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,2"/>
+            <Setter Property="AutomationProperties.Name" Value="{Binding Name}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template"><Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Folder" Height="28" Background="Transparent" CornerRadius="4"><ContentPresenter/></Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Folder" Property="Background" Value="#EFEFEF"/></Trigger>
+                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="Folder" Property="Background" Value="#EFF6FC"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value></Setter>
+        </Style>
+    </UserControl.Resources>
+    <Border x:Name="Frame" BorderBrush="#EAEAEA" Background="White" BorderThickness="1" CornerRadius="8">
+        <Grid x:Name="Columns" SizeChanged="ClipColumns">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="180*"/><ColumnDefinition Width="300*"/><ColumnDefinition Width="368*"/>
+            </Grid.ColumnDefinitions>
+            <Border BorderBrush="#EAEAEA" BorderThickness="0,0,1,0" Background="#F9F9F9" Padding="8,12,8,8">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="즐겨찾기" FontSize="12" Foreground="#8A8A8A" Height="16" Margin="0,0,0,2"/>
+                    <ListBox x:Name="Folders" Template="{StaticResource FileList}" AutomationProperties.Name="이미지 폴더" ItemContainerStyle="{StaticResource FolderContainer}"
+                             SelectionChanged="FolderChanged" BorderThickness="0" Padding="0" Background="Transparent"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate><DataTemplate>
+                            <DockPanel Margin="{Binding Indent}" ToolTip="{Binding Path}">
+                                <svg:SvgViewbox Width="16" Height="16" Margin="0,0,8,0" Stretch="None">
+                                    <svg:SvgViewbox.Style><Style TargetType="svg:SvgViewbox">
+                                        <Setter Property="Source" Value="pack://application:,,,/Semojum.Feature.Documents.Wpf;component/Assets/Figma/image-folder.svg"/>
+                                        <Style.Triggers><DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                            <Setter Property="Source" Value="pack://application:,,,/Semojum.Feature.Documents.Wpf;component/Assets/Figma/image-folder-selected.svg"/>
+                                        </DataTrigger></Style.Triggers>
+                                    </Style></svg:SvgViewbox.Style>
+                                </svg:SvgViewbox>
+                                <TextBlock Text="{Binding Name}" FontSize="12" Margin="0,-2,0,0" TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                        <Setter Property="Foreground" Value="#1A1A1A"/>
+                                        <Style.Triggers><DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                            <Setter Property="Foreground" Value="#003E92"/>
+                                        </DataTrigger></Style.Triggers>
+                                    </Style></TextBlock.Style>
+                                </TextBlock>
+                            </DockPanel>
+                        </DataTemplate></ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+            <Border Grid.Column="1" BorderBrush="#EAEAEA" BorderThickness="0,0,1,0" Padding="0,8">
+                <ListBox x:Name="Files" Template="{StaticResource FileList}" AutomationProperties.Name="이미지 순서" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.VirtualizationMode="Recycling" ItemContainerStyle="{StaticResource FileContainer}"
+                         SelectionChanged="FileChanged" BorderThickness="0" Padding="0" Background="White" AllowDrop="True">
+                    <ListBox.ItemTemplate><DataTemplate>
+                        <Grid ToolTip="{Binding Path}">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="36"/><ColumnDefinition/><ColumnDefinition Width="16"/></Grid.ColumnDefinitions>
+                            <CheckBox Focusable="False" Margin="0" Padding="0" Width="20" Height="20" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                      IsChecked="{Binding Included,Mode=OneWay}" Click="ToggleClicked" AutomationProperties.Name="{Binding ToggleName}">
+                                <CheckBox.Template><ControlTemplate TargetType="CheckBox">
+                                    <Border x:Name="Circle" Background="White" BorderBrush="#D1D1D1" BorderThickness="1" CornerRadius="10">
+                                        <TextBlock Text="{Binding Number}" FontSize="12" Foreground="White" HorizontalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True">
+                                        <Setter TargetName="Circle" Property="Background" Value="#005FB8"/>
+                                        <Setter TargetName="Circle" Property="BorderBrush" Value="#005FB8"/>
+                                    </Trigger></ControlTemplate.Triggers>
+                                </ControlTemplate></CheckBox.Template>
+                            </CheckBox>
+                            <Border Grid.Column="1" Background="#EEEEEE" BorderBrush="#EAEAEA" BorderThickness="1" Width="24" Height="32" HorizontalAlignment="Left">
+                                <Image Stretch="Uniform" Loaded="ThumbnailLoaded" DataContextChanged="ThumbnailChanged"/>
+                            </Border>
+                            <TextBlock Grid.Column="2" Text="{Binding Name}" Margin="0,-2,0,0" Foreground="#1A1A1A" FontSize="14" TextTrimming="CharacterEllipsis"/>
+                            <svg:SvgViewbox Grid.Column="3" Width="16" Height="16" Stretch="None" Source="pack://application:,,,/Semojum.Feature.Documents.Wpf;component/Assets/Figma/image-grip.svg"/>
+                        </Grid>
+                    </DataTemplate></ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+            <Grid Grid.Column="2" Margin="20,16">
+                <Grid.RowDefinitions><RowDefinition Height="320"/><RowDefinition Height="Auto"/><RowDefinition/></Grid.RowDefinitions>
+                <Border x:Name="PreviewFrame" MaxWidth="240" Background="#EEEEEE" BorderBrush="#EAEAEA" BorderThickness="1">
+                    <Image x:Name="Preview" Stretch="Uniform" AutomationProperties.Name="선택한 이미지 미리보기"/>
+                </Border>
+                <TextBlock x:Name="Details" Grid.Row="1" TextAlignment="Center" TextWrapping="Wrap" FontSize="12" Foreground="#5F5F5F" Margin="0,12,0,0" AutomationProperties.LiveSetting="Polite"/>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

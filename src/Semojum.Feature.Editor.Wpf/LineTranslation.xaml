@@ -1,22 +1,47 @@
-<UserControl x:Class="Semojum.Desktop.Controls.LineTranslation" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:svg="http://sharpvectors.codeplex.com/svgc/" Height="64">
-  <Grid Background="#F9F9F9">
-    <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-    <Border Background="#F3F3F3" BorderBrush="#EAEAEA" BorderThickness="0,1,0,1" Padding="12,0,4,0">
-      <DockPanel>
-        <Button DockPanel.Dock="Right" Width="24" Height="22" MinWidth="0" MinHeight="0" Padding="0" Background="Transparent" BorderThickness="0" ToolTip="줄번역 숨기기" AutomationProperties.Name="줄번역 숨기기" Click="Close_Click">
-          <Button.Template><ControlTemplate TargetType="Button">
-            <Border x:Name="CloseSurface" Background="{TemplateBinding Background}" BorderThickness="0"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="CloseSurface" Property="Background" Value="#EFF6FC"/></Trigger>
-              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="CloseSurface" Property="BorderBrush" Value="#005FB8"/><Setter TargetName="CloseSurface" Property="BorderThickness" Value="1"/></Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate></Button.Template>
-          <svg:SvgViewbox Source="pack://application:,,,/Semojum.Feature.Editor.Wpf;component/Assets/Figma/line-preview-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/>
-        </Button>
-        <TextBlock x:Name="LineLabel" Text="줄번역" FontSize="14" FontWeight="Bold" Foreground="#5F5F5F"/>
+<UserControl x:Class="Semojum.Desktop.Controls.LineTranslation"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:svg="http://sharpvectors.codeplex.com/svgc/" Height="56">
+  <UserControl.Resources>
+    <Style x:Key="StripAction" TargetType="Button">
+      <Setter Property="Width" Value="24"/><Setter Property="Height" Value="24"/>
+      <Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="Surface" Background="Transparent" BorderThickness="1" BorderBrush="Transparent" CornerRadius="4">
+          <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#EFF6FC"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="#005FB8"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </UserControl.Resources>
+  <Border BorderThickness="0,1,0,0" BorderBrush="#EAEAEA" Background="White">
+    <Grid>
+      <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <DockPanel Background="#F9F9F9">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,4,0">
+          <Button x:Name="NextLine" Style="{StaticResource StripAction}" ToolTip="다음 점자 줄" AutomationProperties.Name="다음 점자 줄" Click="NextLine_Click">
+            <svg:SvgViewbox Width="16" Height="16" Stretch="None" IsHitTestVisible="False" Source="pack://application:,,,/Semojum.Feature.Editor.Wpf;component/Assets/Figma/line-next.svg"/>
+          </Button>
+          <Button x:Name="PreviousLine" Style="{StaticResource StripAction}" ToolTip="이전 점자 줄" AutomationProperties.Name="이전 점자 줄" Click="PreviousLine_Click">
+            <svg:SvgViewbox Width="16" Height="16" Stretch="None" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5" Source="pack://application:,,,/Semojum.Feature.Editor.Wpf;component/Assets/Figma/line-previous.svg">
+              <svg:SvgViewbox.RenderTransform><TransformGroup><ScaleTransform ScaleY="-1"/><TranslateTransform Y="-0.6"/></TransformGroup></svg:SvgViewbox.RenderTransform>
+            </svg:SvgViewbox>
+          </Button>
+          <Button Style="{StaticResource StripAction}" ToolTip="줄번역 숨기기" AutomationProperties.Name="줄번역 숨기기" Click="Close_Click">
+            <svg:SvgViewbox Width="16" Height="16" Stretch="None" IsHitTestVisible="False" Source="pack://application:,,,/Semojum.Feature.Editor.Wpf;component/Assets/Figma/line-preview-close.svg"/>
+          </Button>
+        </StackPanel>
+        <TextBlock x:Name="LineLabel" Text="줄 점역" VerticalAlignment="Center" Margin="12,0,0,0"
+                   FontSize="14" FontWeight="SemiBold" Foreground="#5F5F5F"/>
       </DockPanel>
-    </Border>
-    <Border Height="1" VerticalAlignment="Top" Background="#D1D1D1" IsHitTestVisible="False"/>
-    <TextBlock x:Name="Cells" Grid.Row="1" Margin="12,12,12,0" VerticalAlignment="Top" FontFamily="{StaticResource BrailleFont}" FontSize="22" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-  </Grid>
+      <ScrollViewer x:Name="Viewport" Grid.Row="1" Height="28" VerticalAlignment="Center" Margin="12,0"
+                    HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Hidden" Focusable="False"
+                    ScrollChanged="Viewport_ScrollChanged" PreviewMouseWheel="Viewport_MouseWheel">
+        <TextBlock x:Name="Cells" FontFamily="{StaticResource BraillePlainFont}" FontSize="22" Foreground="#1A1A1A"
+                   TextWrapping="Wrap" LineHeight="28" LineStackingStrategy="BlockLineHeight"/>
+      </ScrollViewer>
+    </Grid>
+  </Border>
 </UserControl>

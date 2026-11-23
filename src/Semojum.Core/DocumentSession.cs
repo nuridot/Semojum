@@ -162,6 +162,7 @@ public sealed partial class DocumentSession : ObservableObject
         {
             if (string.Equals(jobId, value, StringComparison.Ordinal)) return;
             jobId = value;
+            PageFailureReasons.Clear();
             // The old job's page count must never be shown for a different job.
             TotalOriginalPages = null;
             OnPropertyChanged(nameof(JobId));
@@ -183,6 +184,30 @@ public sealed partial class DocumentSession : ObservableObject
     public string JobStatus { get; set; } = "COMPLETED";
     public bool CancellationRequested { get; set; }
     public Dictionary<int, string> PageStatuses { get; } = [];
+    public Dictionary<int, string> PageFailureReasons { get; } = [];
+
+    public bool IsConversionFailed(int page)
+    {
+        if (PageStatuses.GetValueOrDefault(page) is not ("BLOCKED" or "FAILED")) return false;
+        if (PageFailureReasons.TryGetValue(page, out var reason)) return reason == "NETWORK_ERROR";
+        return JobStatus is not ("CANCELED" or "CANCELLED") && CreditNotice.Length == 0
+            && !Blocks.Any(b => b.Page == page && b.Metadata.IsBlocked && b.Heading == "크레딧 소진 · 변환 대기");
+    }
+
+    public void RememberFailureReason(int page, string? reason)
+    {
+        if (reason is not ("NETWORK_ERROR" or "CREDIT_EXHAUSTED" or "CANCELED")) reason = null;
+        if (PageFailureReasons.GetValueOrDefault(page) == reason) return;
+        if (reason is null) PageFailureReasons.Remove(page);
+        else PageFailureReasons[page] = reason;
+        NotifyPageStatesChanged();
+    }
+
+    internal void NotifyPageStatesChanged()
+    {
+        MarkChanged();
+        OnPropertyChanged(nameof(PageStatuses));
+    }
     public Dictionary<int, OriginalPage> OriginalPages { get; } = [];
     /// <summary>Accept a positive total only from the same job and only when it agrees with known page numbers.</summary>
     public bool TryApplyServerOriginalPageTotal(string? jobId, int total, IEnumerable<int> responsePages)
@@ -281,6 +306,7 @@ public sealed record QualityIssue(string Severity, string Type, string? ElementI
 /// </summary>
 public sealed record ConversionProgress(int Total, int Succeeded, int Failed, int Running, string Estimate)
 {
+    public bool IsProofreading { get; init; }
     public string CompactLabel => $"{Total}쪽 중 {Finished}쪽" + (Estimate.Length == 0 ? "" : " · " + Estimate);
     /// <summary>Figma 「잔여 1시간 12분」 from the server's estimate (BE 2026-11-02); no estimate shows nothing.</summary>
     public static string RemainingLabel(int? seconds)
@@ -297,11 +323,13 @@ public sealed record ConversionProgress(int Total, int Succeeded, int Failed, in
 
 public sealed record PageLayout(int Columns = 32, int Lines = 26, int StartPage = 1, string PageNumbers = "홀수 페이지", string Footer = "홀수 페이지",
     int CoverPages = 0, int SourcePageStart = 1, bool ShowSourcePageNumber = true, bool ShowBraillePageNumber = true,
-    bool ShowChangeLine = true, string FooterAlign = "center", string EditScope = "all", bool AdvancedAi = false, bool PadToEven = false, PageNumberRange[]? NumberRanges = null)
+    bool ShowChangeLine = true, string FooterAlign = "center", string EditScope = "all", bool AdvancedAi = false, bool PadToEven = false, PageNumberRange[]? NumberRanges = null,
+    string? ProofModel = null)
 {
     public void Validate()
     {
         PageNumberRange.Validate(NumberRanges);
+        if (ProofModel is not (null or "MINERU" or "HAIKU" or "SONNET" or "OPUS")) throw new ArgumentException("알 수 없는 교열 모델입니다.");
         if (Columns is < 8 or > 100 || Lines is < 4 or > 100 || StartPage < 1 || SourcePageStart < 1 || CoverPages < 0
             || FooterAlign is not ("center" or "right" or "left") || EditScope is not ("all" or "page"))
             throw new ArgumentException("줄당 칸 수 8–100, 페이지당 줄 수 4–100, 시작 페이지 1 이상으로 입력해 주세요.");

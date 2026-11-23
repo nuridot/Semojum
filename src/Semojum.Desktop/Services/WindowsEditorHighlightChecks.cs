@@ -31,16 +31,29 @@ internal static class WindowsEditorHighlightChecks
                 .First(x => ReferenceEquals(hit.Invoke(visual, [new Point(x, 2)]), cell));
             var firstX = CellStart(first); var secondX = CellStart(second); var cellWidth = secondX - firstX;
             check(firstX == 61 && cellWidth == 16, $"Braille cell hit targets match Figma geometry (first={firstX}, width={cellWidth})");
-            var markerX = firstX - 12;
+            grid.SetLinkedBlocks([block]);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var selectedBlock = Render(visual);
+            var freeAreaX = (int)visual.ActualWidth - 6;
+            check(Pixel(selectedBlock, freeAreaX, 2) == Color.FromRgb(204, 228, 247) && !grid.HasSelection,
+                "A selected original block fills the entire braille text row without taking an editable selection");
+            grid.SetLinkedRanges([new BlockSpan(block, 0, 1)]); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var dividerX = firstX - 12;
+            var markerX = dividerX + 1;
             var bitmap = new RenderTargetBitmap((int)Math.Ceiling(visual.ActualWidth), (int)Math.Ceiling(visual.ActualHeight), 96, 96, PixelFormats.Pbgra32);
             bitmap.Render(visual);
             var selected = Pixel(bitmap, firstX + 3, 2); var neighbor = Pixel(bitmap, secondX + 4, 2);
             check(selected == Color.FromRgb(204, 228, 247) && neighbor == Colors.White,
                 $"A source-linked braille cell uses Figma selection blue without coloring its neighbor (selected {selected}; neighbor {neighbor})");
+            block.AddReviewMark(ReviewKind.OpenWarning, ReviewPanel.Braille, 0, 1);
             grid.ActiveBlock = block; grid.CaretOffset = 1; grid.InvalidateFaces();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             bitmap = Render(visual);
-            check(Pixel(bitmap, markerX, 2) == Color.FromRgb(0, 95, 184), "The current braille row renders the Figma 2px blue marker");
+            var blue = Color.FromRgb(0, 95, 184);
+            check(Pixel(bitmap, 0, 2) == Color.FromRgb(196, 43, 28) && Pixel(bitmap, dividerX, 2) == Color.FromRgb(234, 234, 234) &&
+                Pixel(bitmap, markerX, 2) == blue && Pixel(bitmap, markerX + 1, 2) == blue && Pixel(bitmap, markerX + 2, 2) != blue,
+                "A reviewed braille row retains its warning stripe and its separate Figma 2px blue current-row marker");
+            block.ReviewMarks.Clear();
             grid.SetLinkedRanges([]); grid.Point(first, false); grid.Point(second, true);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             bitmap = Render(visual);
@@ -89,10 +102,13 @@ internal static class WindowsEditorHighlightChecks
         try
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); main.UpdateLayout();
-            main.ApplyAppearance(new EditorAppearance(SelectionColor: "#123456", SelectionTextColor: "#FFFFFF"), explicitAppearance: true);
+            main.ApplyAppearance(new EditorAppearance(SelectionColor: "#123456", SelectionTextColor: "#FFFFFF", BrailleColor: "#3D4769", BackgroundColor: "#FBF8EF"));
             check(main.Braille.GridView.SelectionHighlightBrush is SolidColorBrush { Color: var back } && back == Color.FromRgb(18, 52, 86)
                 && main.Braille.GridView.SelectionTextBrush is SolidColorBrush { Color: var fore } && fore == Colors.White,
                 "Saved selection background and text colors reach the real braille panel");
+            check(main.Braille.GridView.Foreground is SolidColorBrush { Color: var ink } && ink == Color.FromRgb(61,71,105)
+                && main.Braille.GridView.Background is SolidColorBrush { Color: var paper } && paper == Color.FromRgb(251,248,239),
+                "The visible braille grid uses the saved braille text and editor background colors");
             main.ToggleDetached();
             check(main.DetachedPane?.GridView.SelectionHighlightBrush is SolidColorBrush { Color: var detachedBack } && detachedBack == Color.FromRgb(18, 52, 86)
                 && main.DetachedPane.GridView.SelectionTextBrush is SolidColorBrush { Color: var detachedFore } && detachedFore == Colors.White,
@@ -103,20 +119,23 @@ internal static class WindowsEditorHighlightChecks
             editor.CaretOffset = editor.Document.GetLineByNumber(1).Offset;
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); main.UpdateLayout();
             int LineY() => (int)Math.Round(editor.TextArea.TextView.GetVisualPosition(editor.TextArea.Caret.Position, VisualYPosition.LineTop).Y - editor.TextArea.TextView.VerticalOffset + 2);
-            Color SourcePixel(int lineY)
+            Color SourcePixel(int lineY, int insetX = 1)
             {
-                var p = inset.TransformToAncestor(main).Transform(new Point(0, lineY));
+                var p = inset.TransformToAncestor(main).Transform(new Point(insetX, lineY));
                 return Pixel(Render(main), (int)Math.Round(p.X), (int)Math.Round(p.Y));
             }
             var firstY = LineY();
             if (Environment.GetEnvironmentVariable("HIGHLIGHT_SOURCE_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(main, capture);
-            check(SourcePixel(firstY) == Color.FromRgb(0, 95, 184), $"Current source row renders the Figma 2px blue marker (color {SourcePixel(firstY)})");
+            var markerColor = Color.FromRgb(0, 95, 184);
+            check(SourcePixel(firstY, 0) == Color.FromRgb(234, 234, 234) && SourcePixel(firstY) == markerColor &&
+                SourcePixel(firstY, 2) == markerColor && SourcePixel(firstY, 3) != markerColor,
+                "Current source row renders the Figma 2px blue marker beside the divider");
             editor.CaretOffset = editor.Document.GetLineByNumber(2).Offset;
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); main.UpdateLayout();
             var secondY = LineY();
             check(secondY != firstY && SourcePixel(secondY) == Color.FromRgb(0, 95, 184) && SourcePixel(firstY) != Color.FromRgb(0, 95, 184),
                 "Source current-row marker follows the caret without changing an earlier row");
-            main.ApplyAppearance(new EditorAppearance(HighContrast: true), explicitAppearance: true);
+            main.ApplyAppearance(new EditorAppearance(HighContrast: true));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); main.UpdateLayout();
             check(SourcePixel(LineY()) == Colors.White, "Source current-row marker remains visible in high contrast");
         }

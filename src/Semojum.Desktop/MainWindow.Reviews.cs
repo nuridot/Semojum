@@ -1,5 +1,5 @@
 using System.Windows;
-using System.Windows.Controls;
+using Semojum.Desktop.Dialogs;
 using Semojum.Core;
 
 namespace Semojum.Desktop;
@@ -80,7 +80,7 @@ public partial class MainWindow
         session.Status = "선택 범위와 겹친 검토 표시를 지웠습니다. 실행 취소로 복원할 수 있습니다.";
     }
 
-    private static string ReviewLabel(ReviewKind kind) => kind switch
+    internal static string ReviewLabel(ReviewKind kind) => kind switch
     {
         ReviewKind.SuggestCorrection => "고침 제안",
         ReviewKind.SuggestDeletion => "지울 제안",
@@ -97,55 +97,55 @@ public partial class MainWindow
         if (index >= 0) block.ReviewMarks[index] = ServerWarnings.Resolved(mark);
     }
 
-    private sealed record ReviewEntry(EditorBlock Block, ReviewMark Mark)
+    private async void ShowReviewList()
     {
-        public override string ToString() => $"{Block.Page}쪽 · {(Mark.Panel == ReviewPanel.Text ? "텍스트" : "점자")} · {ReviewLabel(Mark.Kind)}"
-            + (!Mark.IsStale ? "" : Mark.Kind == ReviewKind.OpenWarning ? " · 블록을 고쳐 풀림" : " · 다시 확인 필요") + $"\n{Mark.OriginalText}";
+        try { await ShowReviewListAsync(); }
+        catch (Exception ex) { session.Status = ex.Message; }
     }
 
-    private void ShowReviewList() => CreateReviewListWindow().ShowDialog();
-
-    internal Window CreateReviewListWindow()
+    private async Task ShowReviewListAsync()
     {
-        var originalSelection = CurrentReviewSelection(); var selectedPanel = CurrentReviewPanel();
-        var capturedSession = session; var capturedVersion = session.ChangeVersion;
-        var window = new Window { Owner = this, Title = "검토 표시", Width = 560, Height = 430, MinWidth = 360, MinHeight = 260,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
-        var root = new DockPanel { Margin = new Thickness(16) }; window.Content = root;
-        var info = new TextBlock { Text = "편집으로 위치가 달라진 표시는 다시 확인해야 합니다. 검토 표시는 로컬 SMJ에 저장됩니다.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) };
-        DockPanel.SetDock(info, Dock.Top); root.Children.Add(info);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
-        DockPanel.SetDock(buttons, Dock.Bottom); root.Children.Add(buttons);
-        var list = new ListBox(); System.Windows.Automation.AutomationProperties.SetName(list, "검토 표시 목록"); root.Children.Add(list);
-        void Refresh() => list.ItemsSource = session.Blocks.SelectMany(b => b.ReviewMarks.Select(m => new ReviewEntry(b, m))).ToArray();
-        Button Button(string title, Action action)
+        var model = session;
+        var dialog = CreateReviewListWindow();
+        if (dialog.ShowDialog() != true || !ReferenceEquals(model, session) || dialog.Destination is not { } item) return;
+        var mark = item.Block.ReviewMarks.FirstOrDefault(m => m.Id == item.Mark.Id);
+        if (mark is null) { session.Status = "검토 표시가 변경되어 이동할 수 없습니다."; return; }
+        var panel = mark.Panel == ReviewPanel.Text ? SearchPanel.Text : SearchPanel.Braille;
+        await NavigateToAsync(new(item.Block, panel, mark.Start), mark);
+    }
+
+    internal ReviewListDialog CreateReviewListWindow()
+    {
+        var originalSelection = CurrentReviewSelection();
+        var selectedPanel = CurrentReviewPanel();
+        var capturedSession = session;
+        var capturedVersion = session.ChangeVersion;
+        return new ReviewListDialog(session, Reassign, Remove) { Owner = this };
+
+        string Reassign(ReviewListDialog.Item entry)
         {
-            var button = new Button { Content = title, MinWidth = 86, Height = 32, Margin = new Thickness(6, 0, 0, 0) };
-            button.Click += (_, _) => action(); buttons.Children.Add(button); return button;
-        }
-        Button("다시 지정", () =>
-        {
-            if (list.SelectedItem is not ReviewEntry { Mark.IsStale: true } entry) { info.Text = session.Status = "다시 확인이 필요한 표시를 선택해 주세요."; return; }
-            if (entry.Mark.Kind == ReviewKind.OpenWarning) { info.Text = session.Status = "풀린 서버 경고는 다시 지정할 수 없습니다."; return; }
             if (!ReferenceEquals(capturedSession, session) || capturedSession.ChangeVersion != capturedVersion)
-            { info.Text = "문서가 변경되어 기존 선택을 사용할 수 없습니다. 창을 닫고 범위를 다시 선택해 주세요."; return; }
+                return "문서가 변경되어 기존 선택을 사용할 수 없습니다. 창을 닫고 범위를 다시 선택해 주세요.";
+            if (!entry.Mark.IsStale || entry.Mark.Kind == ReviewKind.OpenWarning)
+                return "다시 확인이 필요한 수동 표시를 선택해 주세요.";
             if (!ValidateReviewSelection(originalSelection, selectedPanel) || selectedPanel != entry.Mark.Panel
                 || originalSelection.Length != 1 || originalSelection[0].Block != entry.Block)
-            { info.Text = session.Status = "같은 블록과 패널에서 새 범위를 선택한 뒤 다시 지정해 주세요."; return; }
+                return session.Status = "같은 블록과 패널에서 새 범위를 선택한 뒤 다시 지정해 주세요.";
             var span = originalSelection[0];
             ChangeReviews(entry.Block, [entry.Block], () =>
-            { entry.Block.ReviewMarks.Remove(entry.Mark); entry.Block.AddReviewMark(entry.Mark.Kind, selectedPanel, span.Start, span.Length); });
-            info.Text = session.Status = "선택 범위에 검토 표시를 다시 지정했습니다."; Refresh();
-        });
-        Button("선택 삭제", () =>
+            {
+                entry.Block.ReviewMarks.Remove(entry.Mark);
+                entry.Block.AddReviewMark(entry.Mark.Kind, selectedPanel, span.Start, span.Length);
+            });
+            return session.Status = "선택 범위에 검토 표시를 다시 지정했습니다.";
+        }
+        string Remove(ReviewListDialog.Item entry)
         {
-            if (session.IsReadOnly) { info.Text = "읽기 전용 문서에는 검토 표시를 변경할 수 없습니다."; return; }
-            if (list.SelectedItem is not ReviewEntry entry) { info.Text = "삭제할 검토 표시를 선택해 주세요."; return; }
+            if (!ReferenceEquals(capturedSession, session)) return "문서가 변경되어 표시를 지울 수 없습니다.";
+            if (session.IsReadOnly) return "읽기 전용 문서에는 검토 표시를 변경할 수 없습니다.";
             ChangeReviews(entry.Block, [entry.Block], () => RemoveReview(entry.Block, entry.Mark));
-            info.Text = session.Status = "검토 표시를 지웠습니다. 실행 취소로 복원할 수 있습니다."; Refresh();
-        });
-        Button("닫기", window.Close);
-        Refresh(); return window;
+            return session.Status = "검토 표시를 지웠습니다. 실행 취소로 복원할 수 있습니다.";
+        }
     }
 
     private void RefreshReviewDisplays()

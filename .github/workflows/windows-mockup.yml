@@ -49,7 +49,7 @@ jobs:
           $output = Join-Path $PWD 'artifacts/smoke'
           $started = Get-Date
           $process = Start-Process 'artifacts/Semojum-win-x64/Semojum.Mockup.exe' -ArgumentList @('--smoke-test', $output) -PassThru
-          if (-not $process.WaitForExit(240000)) {
+          if (-not $process.WaitForExit(600000)) {
             $process.Kill()
             $process.WaitForExit()
             Get-Content "$output/qa-progress.txt" -ErrorAction SilentlyContinue

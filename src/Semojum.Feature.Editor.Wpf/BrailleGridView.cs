@@ -199,10 +199,7 @@ public sealed partial class BrailleGridView : ListBox
         // A face can be taller than the viewport. Keep virtualization, but scroll within faces.
         SetValue(VirtualizingPanel.ScrollUnitProperty, ScrollUnit.Pixel);
         SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
-        var scrollBarStyle = new Style(typeof(System.Windows.Controls.Primitives.ScrollBar));
-        var vertical = new Trigger { Property = System.Windows.Controls.Primitives.ScrollBar.OrientationProperty, Value = Orientation.Vertical };
-        vertical.Setters.Add(new Setter(WidthProperty, 8d)); scrollBarStyle.Triggers.Add(vertical);
-        Resources[typeof(System.Windows.Controls.Primitives.ScrollBar)] = scrollBarStyle;
+        Template = (ControlTemplate)FindResource("BrailleDocumentViewport");
         var factory = new FrameworkElementFactory(typeof(Face));
         factory.SetBinding(Face.DataProperty, new System.Windows.Data.Binding());
         ItemTemplate = new DataTemplate { VisualTree = factory };
@@ -245,24 +242,30 @@ public sealed partial class BrailleGridView : ListBox
         internal void RevealRow(int row) => BringIntoView(new Rect(0, row * CellHeight, 1, CellHeight));
         private double CellWidth => (Owner?.FontSize ?? 22) * 16 / 22;
         private double CellHeight => (Owner?.FontSize ?? 22) * 28 / 22;
-        protected override Size MeasureOverride(Size availableSize) => new(Math.Max(120, TextLeft + (Data?.Rows[0].Length ?? 32) * CellWidth + 1), (Data?.Rows.Length ?? 26) * CellHeight + 1);
+        protected override Size MeasureOverride(Size availableSize) => new(Math.Max(120, TextLeft + (Data?.Rows[0].Length ?? 32) * CellWidth), (Data?.Rows.Length ?? 26) * CellHeight + 1);
         protected override void OnRender(DrawingContext dc)
         {
             if (Data is not { } face) return;
             var owner = Owner; if (owner is not null) owner.drawSelection = owner.Selection; var cw = CellWidth; var ch = CellHeight; var cols = face.Rows[0].Length; var textLeft = TextLeft;
-            dc.DrawRectangle(owner?.HighContrast == true ? Brushes.Black : Brushes.White, null, new Rect(RenderSize));
-            var braille = new Typeface((FontFamily)Application.Current.FindResource("BrailleFont"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            dc.DrawRectangle(owner?.HighContrast == true ? Brushes.Black : owner?.Background ?? Brushes.White, null, new Rect(RenderSize));
+            var braille = new Typeface((FontFamily)Application.Current.FindResource(owner?.ShowFormattingMarks == true ? "BrailleFont" : "BraillePlainFont"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
             void Text(string value, Point point, double size, Brush brush, bool symbol = false) => dc.DrawText(new FormattedText(value, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, symbol ? new Typeface((FontFamily)System.Windows.Application.Current.FindResource("InterfaceFont"), System.Windows.FontStyles.Normal, System.Windows.FontWeights.Normal, System.Windows.FontStretches.Normal) : braille, size, brush, VisualTreeHelper.GetDpi(this).PixelsPerDip), point);
             var gutterEdge = GutterEdge;
+            var rowStart = gutterEdge + 1;
             dc.DrawRectangle(owner?.HighContrast == true ? Brushes.Black : owner?.LineNumberBackground ?? Brushes.WhiteSmoke, null, new Rect(0, 0, gutterEdge + 1, RenderSize.Height));
             dc.DrawLine(new Pen(owner?.HighContrast == true ? Brushes.White : new SolidColorBrush(Color.FromRgb(234, 234, 234)), 1), new(gutterEdge + .5, 0), new(gutterEdge + .5, RenderSize.Height));
+            // Composition retains editable insertion coordinates even below the last printed line.
+            var lastNumber = Array.FindLastIndex(face.Rows, row => row.Any(c => c is { IsInsertion: false } or { Prefix.Length: 0 }));
+            if (face.Text is { } composed)
+                lastNumber = Math.Max(lastNumber, Array.FindLastIndex(composed, line => line.Any(c => c is not ('⠀' or ' '))));
             for (var y = 0; y < face.Rows.Length; y++)
             {
+                bool caretRow = owner is not null && face.Rows[y].Any(c => c is not null && owner.IsCaret(c));
                 var kinds = owner?.ManualReviewKinds(face, y) ?? [];
                 var kind = kinds.Length > 0 ? kinds[^1] : (ReviewKind?)null;
                 var contrast = owner?.HighContrast == true;
                 var numberBrush = contrast ? Brushes.White : owner?.LineNumberForeground ?? Brushes.Gray;
-                if (owner?.ShowLineNumbers != false)
+                if (owner?.ShowLineNumbers != false && (y <= lastNumber || caretRow))
                 {
                     if (kind is { } marked)
                     {
@@ -275,10 +278,16 @@ public sealed partial class BrailleGridView : ListBox
                         VisualTreeHelper.GetDpi(this).PixelsPerDip);
                     dc.DrawText(number, new Point((NumberWidth - number.Width) / 2, y * ch + (ch - number.Height) / 2));
                 }
-                if (owner is not null && face.Rows[y].Any(c => c is not null && owner.IsCaret(c)))
+                if (owner is not null && caretRow)
                 {
-                    dc.DrawRectangle(owner.HighContrast ? Brushes.DarkBlue : owner.CurrentLineBrush, null, new Rect(gutterEdge, y * ch, Math.Max(0, RenderSize.Width - gutterEdge), ch));
-                    dc.DrawRectangle(owner.HighContrast ? Brushes.White : new SolidColorBrush(Color.FromRgb(0, 95, 184)), null, new Rect(gutterEdge, y * ch, 2, ch));
+                    dc.DrawRectangle(owner.HighContrast ? Brushes.DarkBlue : owner.CurrentLineBrush, null, new Rect(rowStart, y * ch, Math.Max(0, RenderSize.Width - rowStart), ch));
+                }
+                if (owner is { CoordinatesCurrent: true, highlightWholeBlocks: true })
+                {
+                    var content = face.Rows[y].Where(c => c is { IsInsertion: false } && c.Offset < c.Block.Braille.Length).OfType<GridCell>();
+                    if (content.Any() && content.All(owner.IsLinkedCell))
+                        dc.DrawRectangle(owner.HighContrast ? Brushes.DarkBlue : owner.SelectionHighlightBrush, null,
+                            new Rect(rowStart, y * ch, Math.Max(0, RenderSize.Width - rowStart), ch));
                 }
                 if (owner is not null && owner.MarkersFor(face).TryGetValue(y, out var marker))
                 {
@@ -297,7 +306,10 @@ public sealed partial class BrailleGridView : ListBox
                         dc.PushTransform(new TranslateTransform(xIcon, top)); dc.DrawDrawing(ReviewVisuals.Icon(rowKind)); dc.Pop();
                         xIcon += 16;
                     }
-                    if (kinds.Length > 0) dc.DrawRectangle(owner.HighContrast ? Brushes.White : ReviewVisuals.Ink(kinds[^1]), null, new Rect(gutterEdge, y * ch, 2, ch));
+                    if (caretRow)
+                        dc.DrawRectangle(owner.HighContrast ? Brushes.White : new SolidColorBrush(Color.FromRgb(0, 95, 184)), null, new Rect(rowStart, y * ch, 2, ch));
+                    else if (!owner.ShowLineNumbers && kind is { } hiddenNumberReview)
+                        dc.DrawRectangle(owner.HighContrast ? Brushes.White : ReviewVisuals.Ink(hiddenNumberReview), null, new Rect(gutterEdge, y * ch, 2, ch));
                 }
                 for (var x = 0; x < cols; x++)
                 {
@@ -310,10 +322,11 @@ public sealed partial class BrailleGridView : ListBox
                         if (highlighted) dc.DrawRectangle(owner!.HighContrast ? Brushes.DarkBlue : owner.SelectionHighlightBrush, null, box);
                         var textBrush = highlighted ? owner!.HighContrast ? Brushes.White : owner.SelectionTextBrush
                             : cell.Block.HasManualBraille ? (owner?.HighContrast == true ? Brushes.Orange : Brushes.Firebrick)
-                            : owner?.HighContrast == true ? Brushes.White : Brushes.Black;
+                            : owner?.HighContrast == true ? Brushes.White : owner?.Foreground ?? Brushes.Black;
                         var enter = owner?.ShowFormattingMarks == true && IsEnterCell(cell);
-                        Text(enter ? "↵" : cell.Value.ToString(), new(box.X, box.Y), owner?.FontSize ?? 22,
-                            enter ? owner!.HighContrast ? Brushes.Cyan : owner.FormattingMarkBrush : textBrush, enter);
+                        if (!cell.IsInsertion || enter)
+                            Text(enter ? "↵" : cell.Value.ToString(), new(box.X, box.Y), owner?.FontSize ?? 22,
+                                enter ? owner!.HighContrast ? Brushes.Cyan : owner.FormattingMarkBrush : textBrush, enter);
                         if (mark is { Kind: ReviewKind.OpenWarning })
                             ReviewVisuals.Wave(dc, owner?.HighContrast == true ? Brushes.White : ReviewVisuals.Ink(mark.Kind), box.Left, box.Right, box.Bottom - 1);
                         else if (mark is not null && mark.Kind != ReviewKind.HumanConfirmed)

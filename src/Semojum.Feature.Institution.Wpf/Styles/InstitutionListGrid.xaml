@@ -2,8 +2,23 @@
   <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Semojum.UI.Common;component/Styles/GridBehavior.xaml"/></ResourceDictionary.MergedDictionaries>
   <!-- This screen owns its header, cell, selection, and grid appearance. -->
   <Style x:Key="InstitutionListHeader" TargetType="DataGridColumnHeader">
-    <Setter Property="Background" Value="#F4F6F9"/><Setter Property="Foreground" Value="#5F5F5F"/><Setter Property="FontWeight" Value="Normal"/><Setter Property="Padding" Value="8,0"/>
+    <Setter Property="Background" Value="#F9F9F9"/><Setter Property="Foreground" Value="#5F5F5F"/><Setter Property="FontWeight" Value="Normal"/><Setter Property="Padding" Value="8,0"/>
     <Setter Property="BorderBrush" Value="#EAEAEA"/><Setter Property="BorderThickness" Value="0,0,0,1"/>
+  </Style>
+  <Style x:Key="InstitutionAccountHeader" TargetType="DataGridColumnHeader" BasedOn="{StaticResource InstitutionListHeader}">
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridColumnHeader">
+      <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" BorderThickness="{TemplateBinding BorderThickness}" BorderBrush="{TemplateBinding BorderBrush}">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <ContentPresenter VerticalAlignment="Center"/>
+          <Path x:Name="Direction" Data="M 0,4 L 4,0 L 8,4" Stroke="#5F5F5F" StrokeThickness="1" Margin="4,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="SortDirection" Value="Descending"><Setter TargetName="Direction" Property="Data" Value="M 0,0 L 4,4 L 8,0"/></Trigger>
+        <Trigger Property="Content" Value=""><Setter TargetName="Direction" Property="Visibility" Value="Collapsed"/></Trigger>
+        <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="#005FB8"/><Setter Property="BorderThickness" Value="1"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style x:Key="InstitutionListCell" TargetType="DataGridCell" BasedOn="{StaticResource GridCellBehavior}">
     <Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="8,0"/><Setter Property="Foreground" Value="#1A1A1A"/>
@@ -11,7 +26,7 @@
   </Style>
   <Style x:Key="InstitutionListGrid" TargetType="DataGrid" BasedOn="{StaticResource GridBehavior}">
     <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="White"/><Setter Property="HeadersVisibility" Value="Column"/>
-    <Setter Property="GridLinesVisibility" Value="Horizontal"/><Setter Property="HorizontalGridLinesBrush" Value="#EAEAEA"/><Setter Property="ColumnHeaderHeight" Value="24"/>
+    <Setter Property="GridLinesVisibility" Value="Horizontal"/><Setter Property="HorizontalGridLinesBrush" Value="#EAEAEA"/><Setter Property="ColumnHeaderHeight" Value="32"/>
     <Setter Property="ColumnHeaderStyle" Value="{StaticResource InstitutionListHeader}"/><Setter Property="CellStyle" Value="{StaticResource InstitutionListCell}"/>
   </Style>
 </ResourceDictionary>

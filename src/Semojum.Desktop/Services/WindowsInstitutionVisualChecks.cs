@@ -22,11 +22,11 @@ internal static class WindowsInstitutionVisualChecks
         var order = new InstitutionOrder(Guid.NewGuid(), "2026-06-02", "크레딧 추가 · 3,000", 780000, 3000, null, "PENDING", null, "kblib00", "ROLE_ORG_ADMIN", "2026-06-02T02:20:00Z", "견적서_20260602.pdf");
         var views = new (Window Window, string Name, double Width, double Height, string Asset)[]
         {
-            (new InstitutionRequestDialog(true, (_, _) => Task.CompletedTask), "institution-account-request.png", 520, 344, "institution-account-request-close.svg"),
-            (new InstitutionRequestDialog(false, (_, _) => Task.CompletedTask), "institution-credit-request.png", 520, 288, "institution-credit-request-close.svg"),
-            (new InstitutionAccountDetailDialog(account, jobs, _ => Task.CompletedTask), "institution-account-detail.png", 560, 564, "institution-account-detail-close.svg"),
-            (new InstitutionNoticeDialog(notice, true), "institution-notice-detail.png", 560, 276, "institution-notice-detail-close.svg"),
-            (new InstitutionOrderDialog(order, null, () => Task.CompletedTask), "institution-order-detail.png", 560, 448, "institution-order-detail-close.svg")
+            (new InstitutionRequestDialog(true, (_, _) => Task.CompletedTask), "institution-account-request.png", 640, 318, "institution-account-request-close.svg"),
+            (new InstitutionRequestDialog(false, (_, _) => Task.CompletedTask), "institution-credit-request.png", 600, 250, "institution-credit-request-close.svg"),
+            (new InstitutionAccountDetailDialog(account, jobs, _ => Task.CompletedTask, (_, _, _) => Task.CompletedTask), "institution-account-detail.png", 560, 462, "institution-account-detail-close.svg"),
+            (new InstitutionNoticeDialog(notice, true), "institution-notice-detail.png", 560, 206, "institution-notice-detail-close.svg"),
+            (new InstitutionOrderDialog(order, null, () => Task.CompletedTask), "institution-order-detail.png", 560, 382, "institution-order-detail-close.svg")
         };
         foreach (var (window, name, width, height, asset) in views)
         {
@@ -37,69 +37,44 @@ internal static class WindowsInstitutionVisualChecks
                 var icon = Descendants(window).OfType<SvgViewbox>().SingleOrDefault(i => i.Source?.ToString().EndsWith("/" + asset, StringComparison.Ordinal) == true);
                 check(Math.Abs(window.Width - width) < .1 && Math.Abs(window.Height - height) < .1 && icon is { Width: 16, Height: 16, Drawings.Bounds.IsEmpty: false },
                     $"{name} has its Figma window dimensions and original close icon");
-                var body = Descendants(window).OfType<ScrollViewer>().FirstOrDefault(s => s.Content is StackPanel panel && panel.Children.OfType<TextBlock>().Any(t => t.Text is "계정" or "결제와 증빙"));
-                if (window is InstitutionAccountDetailDialog)
+                Point At(FrameworkElement element) => element.TransformToAncestor(window).Transform(new Point());
+                bool AtPoint(FrameworkElement element, double x, double y) => Math.Abs(At(element).X - x) <= 1.5 && Math.Abs(At(element).Y - y) <= 1.5;
+                var texts = Descendants(window).OfType<TextBlock>().Where(t => t.IsVisible).ToArray();
+                if (window is InstitutionAccountDetailDialog detail)
                 {
-                    var origin = body?.TransformToAncestor(window).Transform(new Point()) ?? new Point(0, 0);
-                    check(body is { IsVisible: true, ActualHeight: > 300 } && origin.Y >= 54 && origin.Y + body.ActualHeight <= height - 63,
-                        "The account-detail scrollable body renders between the title and footer without clipping");
-                    check(Descendants(window).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "수학 담당"), "The account detail actually renders its server-provided alias");
-                    bool Shows(string text, bool bold = false) => Descendants(window).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == text && t.FontSize == 14 && (t.FontWeight == FontWeights.Bold) == bold);
-                    check(Shows("math@kblib.or.kr") && Shows("2026-02-24") && Shows("1,140", bold: true)
-                        && !Descendants(window).OfType<TextBlock>().Any(t => t.Text is "제공되지 않음" or "3,120"),
-                        "Account detail shows the server email, the Korean creation day and this month's credits in bold 14px instead of the cumulative total");
-                    var accountDetail = (InstitutionAccountDetailDialog)window;
-                    check(accountDetail.Jobs.HeadersVisibility == DataGridHeadersVisibility.None && accountDetail.Jobs.GridLinesVisibility == DataGridGridLinesVisibility.None && accountDetail.Jobs.RowHeight == 32 && accountDetail.Jobs.Items.Count == 2,
-                        "Account detail uses the Figma headerless, gridless 32px job rows while retaining actual job data");
-                    var originalOffset = body?.VerticalOffset ?? 0;
-                    accountDetail.Jobs.BringIntoView(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
-                    var data = accountDetail.Jobs;
-                    var item = data.Items[0];
-                    var nameValue = data.Columns[0].GetCellContent(item) as TextBlock;
-                    var pageValue = data.Columns[1].GetCellContent(item) as TextBlock;
-                    var creditValue = data.Columns[2].GetCellContent(item) as TextBlock;
-                    var firstX = nameValue?.TransformToAncestor(data).Transform(new Point()).X ?? double.NaN;
-                    var secondX = pageValue?.TransformToAncestor(data).Transform(new Point()).X ?? double.NaN;
-                    var thirdX = creditValue?.TransformToAncestor(data).Transform(new Point()).X ?? double.NaN;
-                    check(nameValue?.Text == "문서.pdf" && pageValue?.Text == "14쪽" && creditValue?.Text == "11 크레딧"
-                        && Math.Abs(firstX - 16) <= 2 && Math.Abs(secondX - (data.Columns[0].ActualWidth + 8)) <= 2
-                        && Math.Abs(thirdX - (data.Columns[0].ActualWidth + 78)) <= 2,
-                        "Account jobs render real values with the Figma first-column inset, flexible name, and 70px page column");
-                    var missingCredits = data.Columns[2].GetCellContent(data.Items[1]) as TextBlock;
-                    check(missingCredits?.Text == "— 크레딧", $"A missing job credit value retains the Figma placeholder instead of inventing a charge (rendered: {missingCredits?.Text ?? "<unrealized>"})");
-                    var originalWidth = window.Width; window.Width = 420; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
-                    check(data.Columns[0].ActualWidth >= 80 && Math.Abs(data.Columns[1].ActualWidth - 70) < .5 && Math.Abs(data.Columns[2].ActualWidth - 118) < .5
-                        && data.Columns.Sum(c => c.ActualWidth) <= data.ActualWidth + .5,
-                        "At the minimum dialog width account jobs retain readable page and credit columns without overflowing");
-                    window.Width = originalWidth; body?.ScrollToVerticalOffset(originalOffset); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
+                    check(AtPoint(detail.AliasBox, 203, 69) && AtPoint(detail.EmailBox, 203, 113) && AtPoint(detail.LimitBox, 203, 157)
+                        && detail.AliasBox.Text == account.Alias && detail.EmailBox.Text == account.Email && detail.LimitBox.Text == "2,000",
+                        "F1 account details show editable server values in all three design rows");
+                    check(texts.Any(t => t.Text == "활성") && texts.Any(t => t.Text == "2026-02-24") && texts.Any(t => t.Text == "1,140")
+                        && AtPoint(detail.LockButton, 25, 413) && AtPoint(detail.SaveButton, 447, 413), "F1 account state and monthly usage render beside the designed lock and save actions");
+                    check(!detail.Jobs.IsVisible && texts.Any(t => t.Text == "문서.pdf"), "F1 initially shows the latest job on one row");
+                    detail.RecentJobs.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
+                    check(detail.Jobs.IsVisible && detail.Jobs.Items.Count == 2 && detail.Jobs.Columns[0].GetCellContent(detail.Jobs.Items[0]) is TextBlock { Text: "문서.pdf" }
+                        && detail.Jobs.Columns[1].GetCellContent(detail.Jobs.Items[0]) is TextBlock { Text: "14쪽" }
+                        && detail.Jobs.Columns[2].GetCellContent(detail.Jobs.Items[1]) is TextBlock { Text: "— 크레딧" }, "Expanding the recent job retains both files, their page counts and unknown credit values");
+                    detail.RecentJobs.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
                 }
-                else if (window is InstitutionOrderDialog)
+                else if (window is InstitutionOrderDialog orderDetail)
                 {
-                    var origin = body?.TransformToAncestor(window).Transform(new Point()) ?? new Point(0, 0);
-                    check(body is { IsVisible: true, ActualHeight: > 250 } && origin.Y >= 54 && origin.Y + body.ActualHeight <= height - 63,
-                        "The order-detail body occupies its own row between title and footer");
-                    var orderDetail = (InstitutionOrderDialog)window; var texts = Descendants(window).OfType<TextBlock>().Where(t => t.IsVisible).ToArray();
-                    check(texts.Any(t => t.Text == "주문 (크레딧 추가)" && t.FontSize == 16) && texts.Any(t => t.Text == "₩780,000  (부가세 포함)" && t.FontSize == 14 && t.FontWeight == FontWeights.Bold)
-                        && texts.Any(t => t.Text == "kblib00 · 관리자") && texts.Any(t => t.Text == "2026-06-02 11:20") && texts.Any(t => t.Text == "미납")
-                        && orderDetail.QuoteButton is { IsVisible: true, Content: "견적서 내려받기", Width: 138 } && !Descendants(window).OfType<Button>().Any(b => Equals(b.Content, "증빙 열기")),
-                        "Order detail is titled 「주문 (크레딧 추가)」 with the bold VAT-inclusive amount, the requester and Korean request time, the 미납 chip and 견적서 내려받기");
+                    check(texts.Any(t => t.Text == "주문 상세 · 06-02") && texts.Any(t => t.Text == "780,000원 (부가세 포함)") && texts.Any(t => t.Text == "미납")
+                        && texts.Any(t => t.Text == "2026-06-02" && (string?)t.ToolTip == "kblib00 · 관리자 · 2026-06-02 11:20")
+                        && orderDetail.QuoteButton.IsVisible && AtPoint(orderDetail.QuoteButton, 25, 333),
+                        "F1 order detail shows the actual date, VAT-inclusive amount, recipient and original request metadata, with the quote on the left");
                 }
-                else if (window is InstitutionNoticeDialog)
+                else if (window is InstitutionNoticeDialog noticeDetail)
                 {
-                    var noticeBody = Descendants(window).OfType<TextBlock>().Single(t => t.Text == notice.Body);
-                    var origin = noticeBody.TransformToAncestor(window).Transform(new Point());
-                    check(noticeBody.IsVisible && origin.Y >= 55 && origin.Y + noticeBody.ActualHeight <= height - 64,
-                        "The notice detail body renders between its title and action row");
+                    var paragraph = texts.Single(t => t.Text == notice.Body);
+                    check(AtPoint(paragraph, 25, 93) && texts.Any(t => t.Text == "2026-08-13") && AtPoint(Descendants(window).OfType<Button>().Single(b => Equals(b.Content, "확인")), 447, 157)
+                        && noticeDetail.ContextMenu.Items.OfType<MenuItem>().Any(i => i.IsEnabled && Equals(i.Header, "크레딧 추가 요청")), "F1 notice shows its date and unboxed message; confirmation and the credit request shortcut remain available");
                 }
                 else if (window is InstitutionRequestDialog requestBody)
                 {
-                    var origin = requestBody.First.TransformToAncestor(window).Transform(new Point());
-                    check(requestBody.First.IsVisible && origin.Y >= 55 && origin.Y + requestBody.First.ActualHeight <= height - 64,
-                        $"{name} keeps its editable fields between title and action row");
+                    check(AtPoint(requestBody.First, 203, 69) && AtPoint(requestBody.Submit, width - 113, height - 49) && Equals(requestBody.Submit.Content, "요청"),
+                        $"{name} positions the first control and submit button at the APP_UI coordinates");
                     if (name == "institution-credit-request.png")
-                        check(requestBody.EstimateAmount is { IsVisible: true, Text: "—", FontSize: 14 } && requestBody.EstimateAmount.FontWeight == FontWeights.Bold && !requestBody.EstimateNote.IsVisible
-                            && !Descendants(window).OfType<TextBlock>().Any(t => t.Text == "금액 정보가 제공되지 않았습니다."),
-                            "Without a server estimate the credit request's 예상 금액 shows 「—」 and never a calculated amount");
+                        check(requestBody.EstimateAmount is { IsVisible: true, Text: "—", FontSize: 14 } && !requestBody.EstimateNote.IsVisible,
+                            "A missing server quote stays empty until a real amount arrives");
                 }
                 if (Environment.GetEnvironmentVariable("INSTITUTION_VISUAL_DIR") is { Length: > 0 } directory)
                 { Directory.CreateDirectory(directory); await WindowsSmoke.RenderElementAsync(window, Path.Combine(directory, name)); }
@@ -110,25 +85,39 @@ internal static class WindowsInstitutionVisualChecks
                         var up = Descendants(window).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "크레딧 1 증가");
                         var down = Descendants(window).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "크레딧 1 감소");
                         var upIcon = up.Content as SvgViewbox; var downIcon = down.Content as SvgViewbox;
-                        check(upIcon is { Width: 9.60063, Height: 5.19934, Drawings.Bounds.IsEmpty: false } && downIcon is { Width: 16, Height: 16, Drawings.Bounds.IsEmpty: false },
+                        check(upIcon is { Width: 12, Height: 12, Drawings.Bounds.IsEmpty: false } && downIcon is { Width: 12, Height: 12, Drawings.Bounds.IsEmpty: false },
                             "Credit input renders the original Figma up and down spin icons at their supplied viewport sizes");
                         up.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); up.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); down.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         check(request.First.Text == "1", "Credit spin controls increment and decrement the real request quantity without going below one"); request.First.Clear();
                     }
-                    request.Option.IsDropDownOpen = true; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); await Task.Delay(100); window.UpdateLayout();
-                    var popup = request.Option.Template.FindName("PART_Popup", request.Option) as Popup;
-                    var surface = popup?.Child as Border;
-                    var items = Enumerable.Range(0, request.Option.Items.Count).Select(i => request.Option.ItemContainerGenerator.ContainerFromIndex(i)).OfType<ComboBoxItem>().ToArray();
-                    check(request.Option.IsDropDownOpen && popup?.IsOpen == true && Math.Abs(request.Option.ActualWidth - 240) < .5
-                        && surface is { CornerRadius.TopLeft: 6 } && items.Length == 3 && items.All(i => Math.Abs(i.ActualHeight - 32) < .5),
-                        $"{name} opens the Figma 240px menu with all three 32px choices");
-                    if (surface is not null && Environment.GetEnvironmentVariable("INSTITUTION_VISUAL_DIR") is { Length: > 0 } popupDirectory)
-                        await WindowsSmoke.RenderElementAsync(surface, Path.Combine(popupDirectory, Path.GetFileNameWithoutExtension(name) + "-menu.png"));
-                    request.Option.SelectedIndex = 1; request.Option.IsDropDownOpen = false;
-                    check(request.Option.SelectedIndex == 1 && !request.Option.IsDropDownOpen, $"{name} preserves a selected menu choice after closing");
+                    var choices = request.ChoicesShown;
+                    bool accountRequest = name == "institution-account-request.png";
+                    check(choices.Count == 3 && choices[0].IsChecked == true && choices.All(r => r.IsVisible && r.ActualHeight == 20)
+                        && AtPoint(choices[0], 203, accountRequest ? 157 : 145)
+                        && (accountRequest ? AtPoint(choices[1], 203, 185) : Math.Abs(At(choices[1]).Y - 145) < 1.5),
+                        $"{name} renders its three mutually exclusive options in the Figma orientation");
+                    choices[1].IsChecked = true;
+                    check(choices[0].IsChecked == false && choices[1].IsChecked == true, $"{name} lets the user select the second option");
                 }
             }
             finally { window.Close(); }
+        }
+        foreach (var since in new string?[] { "2026-10-21T15:12:00Z", null })
+        {
+            var member = account with { LoginId = "kblib03", Alias = null, Status = "INACTIVE", MonthUsedCredits = 0, LockedAt = since };
+            var locked = new InstitutionAccountDetailDialog(member, jobs with { Items = [] }, _ => Task.CompletedTask, (_, _, _) => Task.CompletedTask);
+            locked.Show();
+            try
+            {
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); locked.UpdateLayout();
+                var expected = since is null ? "잠김" : "잠김 · 10-22 부터";
+                check(Equals(locked.LockButton.Content, "잠금 해제") && locked.LockButton.IsEnabled && !locked.RecentJobs.IsEnabled
+                    && Descendants(locked).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == expected),
+                    since is null ? "A historical lock with no timestamp shows only its actual state" : "F1 locked account displays the start in Korea time and offers unlock");
+                if (since is not null && Environment.GetEnvironmentVariable("INSTITUTION_VISUAL_DIR") is { Length: > 0 } folder)
+                    await WindowsSmoke.RenderElementAsync(locked, Path.Combine(folder, "institution-account-locked.png"));
+            }
+            finally { locked.Close(); }
         }
         // An older order (no requester, no quote) keeps the order date and hides the quote button.
         var older = new InstitutionOrderDialog(new(Guid.NewGuid(), "2026-02-24", "연간 계약 · 10,000 크레딧", 2400000, 10000, "2026-02-25", "ISSUED", "계산서.pdf"), "account@kblib.or.kr", () => Task.CompletedTask);
@@ -137,8 +126,8 @@ internal static class WindowsInstitutionVisualChecks
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); older.UpdateLayout();
             var texts = Descendants(older).OfType<TextBlock>().Where(t => t.IsVisible).Select(t => t.Text).ToArray();
-            check(older.QuoteButton.Visibility == Visibility.Collapsed && texts.Contains("주문 (연간 계약)") && texts.Contains("정보 없음") && texts.Contains("2026-02-24")
-                && texts.Contains("완납") && texts.Contains("발행 완료  ·  account@kblib.or.kr"),
+            check(older.QuoteButton.Visibility == Visibility.Collapsed && texts.Contains("주문 상세 · 02-24") && texts.Contains("2026-02-24")
+                && texts.Contains("완납") && texts.Contains("발행 완료") && texts.Contains("account@kblib.or.kr"),
                 "An order without a quote hides 견적서 내려받기, and an order without requester fields keeps its order date");
         }
         finally { older.Close(); }

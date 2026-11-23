@@ -25,7 +25,8 @@ public sealed record SmjManifest(string Format, int Version, string? JobId, stri
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<int, PendingServerPage>? PendingServerPages = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PendingRestart? PendingRestart = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? TotalOriginalPages = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AppDocumentIdentity? AppIdentity = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AppDocumentIdentity? AppIdentity = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<int, string>? PageFailureReasons = null);
 public sealed record SmjSnapshot(SmjManifest Manifest, IReadOnlyDictionary<string, byte[]> Assets);
 
 /// <summary>Versioned, self-contained ZIP. All reading happens in memory; archive paths are never extracted.</summary>
@@ -61,7 +62,8 @@ public static class SmjFile
             session.Layout, session.Options, session.FooterText, session.ActiveBlock?.Id, blocks, originals,
             new(session.PageStatuses), new(session.OriginalPages), session.FooterRanges.ToArray(),
             new(session.ServerPages), new(session.QualityReports), session.IsTextJob, pending, session.PendingRestart,
-            session.IsTextJob == true ? null : session.TotalOriginalPages, session.AppIdentity);
+            session.IsTextJob == true ? null : session.TotalOriginalPages, session.AppIdentity,
+            session.PageFailureReasons.Count == 0 ? null : new(session.PageFailureReasons));
         // Detach nested arrays from live editor/engine state before awaiting disk or network I/O.
         manifest = JsonSerializer.Deserialize<SmjManifest>(JsonSerializer.SerializeToUtf8Bytes(manifest, Json), Json)!;
         Validate(manifest);
@@ -165,6 +167,7 @@ public static class SmjFile
             TotalOriginalPages = manifest.IsTextJob == true ? null : manifest.TotalOriginalPages, AppIdentity = manifest.AppIdentity
         };
         foreach (var pair in manifest.PageStatuses ?? []) model.PageStatuses.Add(pair.Key, pair.Value);
+        foreach (var pair in manifest.PageFailureReasons ?? []) model.PageFailureReasons.Add(pair.Key, pair.Value);
         foreach (var pair in manifest.OriginalPages ?? []) model.OriginalPages.Add(pair.Key, pair.Value);
         // v1/v2 files carry no server page records: saves from them leave the server braille panel untouched (JobClient.PlanSave).
         foreach (var pair in manifest.ServerPages ?? []) model.ServerPages.Add(pair.Key, pair.Value ?? []);
@@ -201,6 +204,8 @@ public static class SmjFile
             throw new InvalidDataException("엔진 초안 정보가 작업 파일 버전과 일치하지 않습니다.");
         m.Layout.Validate();
         FooterRange.Validate(m.FooterRanges ?? []);
+        if (m.PageFailureReasons?.Any(p => p.Key < 1 || p.Value is not ("NETWORK_ERROR" or "CREDIT_EXHAUSTED" or "CANCELED")) == true)
+            throw new InvalidDataException("쪽 변환 실패 정보가 올바르지 않습니다.");
         if ((m.ServerPages ?? []).Any(p => p.Key < 1 || p.Value is null || p.Value.Any(b => b is null || string.IsNullOrEmpty(b.Id)))
             || (m.QualityReports ?? []).Any(p => p.Key < 1 || p.Value is null || p.Value.Any(q => q is null || q.Severity is not ("error" or "review") || q.Type is null || q.Message is null)))
             throw new InvalidDataException("서버 블록 기록 또는 품질 보고서가 올바르지 않습니다.");

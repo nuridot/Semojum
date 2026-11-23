@@ -39,7 +39,7 @@ internal static class WindowsOwnedModalChecks
                     check(!range.ShowInTaskbar && GetWindow(new WindowInteropHelper(range).Handle, 4) == new WindowInteropHelper(owner).Handle, "QA1110: modal has native main-window owner and no separate taskbar entry");
                     var ownerContent = (UIElement)owner.Content; var layer = AdornerLayer.GetAdornerLayer(ownerContent);
                     seen = layer?.GetAdorners(ownerContent)?.Any(a => AutomationProperties.GetAutomationId(a) == "FigmaModalBackdrop") == true;
-                    check(NativePlacementMatches(owner, range), "An owned modal is centered horizontally and placed 45% / 55% vertically on its owner");
+                    check(NativePlacementMatches(owner, range), "An owned modal is centered on both axes of its owner as in M9");
                     if (Environment.GetEnvironmentVariable("MODAL_COMPOSITE_CAPTURE") is { Length: > 0 } capture) CaptureComposite(owner, range, capture); Trace("composite-done");
                     var beforeX = range.Left; var beforeY = range.Top; owner.Left += 20; owner.Top += 10;
                     followed = Math.Abs(range.Left - beforeX - 20) < 3 && Math.Abs(range.Top - beforeY - 10) < 3;
@@ -99,9 +99,8 @@ internal static class WindowsOwnedModalChecks
     private static bool NativePlacementMatches(Window owner, Window dialog)
     {
         if (!GetWindowRect(new WindowInteropHelper(owner).Handle, out var parent) || !GetWindowRect(new WindowInteropHelper(dialog).Handle, out var child)) return false;
-        // Horizontal centre as before; vertical gaps above:below = 45:55 (one pixel of either gap moves the sum by 100).
         return Math.Abs(parent.Left + parent.Right - child.Left - child.Right) <= 4
-            && Math.Abs((child.Top - parent.Top) * 55 - (parent.Bottom - child.Bottom) * 45) <= 4 * 100;
+            && Math.Abs(parent.Top + parent.Bottom - child.Top - child.Bottom) <= 4;
     }
     private static void CaptureComposite(Window owner, Window child, string path)
     {

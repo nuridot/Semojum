@@ -186,7 +186,7 @@ public partial class MainWindow
     private void PopulateBlockSelection()
     {
         BlockSelectionList.ItemsSource = session.Blocks.Where(b => b.Page == session.ActiveBlock?.Page).ToArray();
-        SelectionCaption.Text = $"{(selectionPanel == SearchPanel.Text ? "텍스트" : "점자")} · {session.ActiveBlock?.Page}쪽 · Shift+클릭 / 드래그로 블록 선택";
+        SelectionCaption.Text = $"{(selectionPanel == SearchPanel.Text ? "묵자" : "점자")} · {session.ActiveBlock?.Page}쪽 · Shift+클릭 / 드래그로 블록 선택";
     }
     private void SelectPageBlocks(SearchPanel panel)
     {

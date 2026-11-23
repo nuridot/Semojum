@@ -13,31 +13,37 @@ public partial class MainWindow
         ClearOriginalRegion();
         lastGrid = null;
         if (editor is not null) lastEditor = editor;
-        var selected = new LinearGradientBrush(new GradientStopCollection
-        {
-            new(Color.FromRgb(0, 95, 184), 0), new(Color.FromRgb(0, 95, 184), 2d / 35),
-            new(Colors.White, 2d / 35), new(Colors.White, 1)
-        }, new Point(0, 0), new Point(0, 1));
-        var neutral = new SolidColorBrush(Color.FromRgb(249, 249, 249));
-        SourceHeader.Background = (editor == SourceEditor || editor == PageEditor.Editor) ? selected : neutral;
-        OriginalHeader.Background = editor is null ? selected : neutral;
-        Braille.Header.Background = editor is not null && editor != SourceEditor && editor != PageEditor.Editor ? selected : neutral;
-        var sourceActive = editor == SourceEditor || editor == PageEditor.Editor;
-        var originalActive = editor is null;
-        var brailleActive = !originalActive && !sourceActive;
-        ActivateZoom(originalActive ? ZoomPanel.Original : sourceActive ? ZoomPanel.Source : ZoomPanel.Braille);
-        SourcePanelTitle.FontWeight = sourceActive ? FontWeights.Bold : FontWeights.Normal;
-        OriginalPanelTitle.FontWeight = originalActive ? FontWeights.Bold : FontWeights.Normal;
-        Braille.PanelTitle.FontWeight = brailleActive ? FontWeights.Bold : FontWeights.Normal;
-        var ink = new SolidColorBrush(Color.FromRgb(26, 26, 26));
-        var muted = new SolidColorBrush(Color.FromRgb(95, 95, 95));
-        SourcePanelTitle.Foreground = sourceActive ? ink : muted;
-        OriginalPanelTitle.Foreground = originalActive ? ink : muted;
-        Braille.PanelTitle.Foreground = brailleActive ? ink : muted;
-        if (detachedPane is not null) detachedPane.Header.Background = Braille.Header.Background;
+        var panel = editor is null ? ZoomPanel.Original : editor == SourceEditor || editor == PageEditor.Editor ? ZoomPanel.Source : ZoomPanel.Braille;
+        ActivateZoom(panel);
         RefreshLinkedSource();
         RefreshEditorStatus();
     }
+
+    private void PaintPanelHeaders()
+    {
+        Paint(OriginalHeader, OriginalPanelTitle, OriginalNumberBadge, OriginalPanelNumber, zoomPanel == ZoomPanel.Original);
+        Paint(SourceHeader, SourcePanelTitle, SourceNumberBadge, SourcePanelNumber, zoomPanel == ZoomPanel.Source);
+        Paint(Braille.Header, Braille.PanelTitle, Braille.NumberBadge, Braille.PanelNumber, zoomPanel == ZoomPanel.Braille);
+        if (detachedPane is { } pane) Paint(pane.Header, pane.PanelTitle, pane.NumberBadge, pane.PanelNumber, zoomPanel == ZoomPanel.Braille);
+
+        static void Paint(Border header, TextBlock title, Border badge, TextBlock number, bool active)
+        {
+            header.Background = active ? Brushes.White : NeutralHeader;
+            header.BorderBrush = active ? HeaderAccent : HeaderLine;
+            header.BorderThickness = active ? new Thickness(0, 2, 0, 0) : new Thickness(0, 0, 0, 1);
+            title.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+            title.Foreground = active ? HeaderInk : HeaderMuted;
+            badge.Background = active ? HeaderAccent : NeutralBadge;
+            number.Foreground = active ? Brushes.White : HeaderMuted;
+        }
+    }
+
+    private static readonly Brush HeaderLine = new SolidColorBrush(Color.FromRgb(234, 234, 234));
+    private static readonly Brush NeutralHeader = new SolidColorBrush(Color.FromRgb(249, 249, 249));
+    private static readonly Brush HeaderInk = new SolidColorBrush(Color.FromRgb(26, 26, 26));
+    private static readonly Brush HeaderMuted = new SolidColorBrush(Color.FromRgb(95, 95, 95));
+    private static readonly Brush HeaderAccent = new SolidColorBrush(Color.FromRgb(0, 95, 184));
+    private static readonly Brush NeutralBadge = new SolidColorBrush(Color.FromRgb(240, 240, 240));
 
     // Figma 263:7469 「입력 한글」 is the keyboard's 한/영 state; an element with its IME off takes English input.
     private void InitializeInputStatus()
@@ -62,36 +68,71 @@ public partial class MainWindow
 
     private void RefreshEditorStatus()
     {
+        foreach (var refresh in ribbonRefresh) refresh();
         RefreshInputStatus();
-        if (session?.ActiveBlock is not { } block || CaretStatus is null)
+        if (ConversionStatus is null || CaretStatus is null) return;
+        var failed = session?.IsTextJob != true && session?.IsConversionFailed(DisplayedOriginalPage) == true;
+        OriginalFailure.Visibility = failed ? Visibility.Visible : Visibility.Collapsed;
+        OriginalContent.Visibility = failed ? Visibility.Collapsed : Visibility.Visible;
+        var noPanels = EmptyPanelActions?.Visibility == Visibility.Visible;
+        var showFailedStatus = failed && !noPanels && zoomPanel == ZoomPanel.Original;
+        FailedPageStatus.Visibility = showFailedStatus ? Visibility.Visible : Visibility.Collapsed;
+        if (failed && session is { } owner)
         {
+            FailureReasonText.Text = owner.PageFailureReasons.GetValueOrDefault(DisplayedOriginalPage) == "NETWORK_ERROR"
+                ? "네트워크 오류로 이 쪽을 변환하지 못했습니다." : "이 쪽을 변환하지 못했습니다.";
+            FailedPageStatusText.Text = $"{DisplayedOriginalPage}쪽 변환 실패";
+            OriginalRetryButton.IsEnabled = owner.JobId is not null && !owner.IsReadOnly && owner.Progress is null
+                && !owner.HasPendingRestart && !owner.HasPendingServerPages;
+        }
+        var progress = session?.Progress;
+        ConversionStatus.Visibility = progress is null || showFailedStatus ? Visibility.Collapsed : Visibility.Visible;
+        BlockStatus.Visibility = progress is null && !showFailedStatus && !noPanels ? Visibility.Visible : Visibility.Collapsed;
+        var operation = progress?.IsProofreading == true ? "교열 중" : "변환 중";
+        ConversionStatusText.Text = progress is null ? "" : progress.Total > 0
+            ? $"{operation} {(progress.IsProofreading ? progress.Succeeded : progress.Finished)}/{progress.Total}쪽" : operation;
+        if (ConversionStatus.ContextMenu is { IsOpen: true } menu && (progress is null || !ReferenceEquals(menu.Tag, session)))
+            menu.IsOpen = false;
+        StatusPage.Text = noPanels ? "패널 없음" : zoomPanel switch { ZoomPanel.Original => "원본 패널", ZoomPanel.Braille => "점자 패널", _ => "묵자 패널" };
+        CaretStatus.Visibility = noPanels ? Visibility.Collapsed : Visibility.Visible;
+        if (session?.ActiveBlock is not { } block)
+        {
+            CaretStatus.Text = StatusOptions.Text = "";
+            StatusPage.ToolTip = null;
             if (OriginalPosition is not null) OriginalPosition.Text = "";
             if (SourcePosition is not null) SourcePosition.Text = "";
             return;
         }
-        var editor = lastEditor ?? SourceEditor;
+
         OptionsLabel.Text = $"옵션 2024 · {(session.Options.KoreanGrade1 ? "1급" : "2급")} · {session.Layout.Columns}×{session.Layout.Lines}";
-        StatusOptions.Text = $"옵션 2024 · {(session.Options.KoreanGrade1 ? "1급" : "2급")} · {session.Layout.Columns}×{session.Layout.Lines}";
+        StatusOptions.Text = $"한글 {(session.Options.KoreanGrade1 ? 1 : 2)}급 · 영어 {(session.Options.EnglishGrade1 ? 1 : 2)}급";
+        StatusOptions.ToolTip = OptionsLabel.Text;
+        if (noPanels)
+        {
+            CaretStatus.Text = "";
+            StatusPage.ToolTip = CaretStatus.ToolTip = null;
+            return;
+        }
         var page = zoomPanel == ZoomPanel.Original ? DisplayedOriginalPage
             : PageEditor.Visibility == Visibility.Visible ? PageEditor.DisplayedPage : block.Page;
-        var hasOriginal = session.IsTextJob != true && session.OriginalPages.ContainsKey(page);
+        var hasOriginal = session.IsTextJob != true && (session.OriginalPages.ContainsKey(page) || session.IsConversionFailed(page));
         var confirmedTotal = session.IsTextJob != true && session.TotalOriginalPages is { } known && page <= known ? known : (int?)null;
-        StatusPage.Text = confirmedTotal is { } pageTotal ? $"쪽 {page} / {pageTotal}" : $"쪽 {page}";
+
         StatusPage.ToolTip = session.IsTextJob == true ? $"텍스트 {page}쪽"
             : hasOriginal ? confirmedTotal is { } t ? $"원본 {page}쪽 (총 {t}쪽)" : $"원본 {page}쪽 (전체 쪽수 미확인)"
             : confirmedTotal is { } pendingTotal ? $"작업 {page}쪽 (총 {pendingTotal}쪽 · 원본 미수신)" : $"작업 {page}쪽 (원본 없음)";
-        CaretStatus.Text = $"줄 {editor.TextArea.Caret.Line} · 칸 {editor.TextArea.Caret.Column} / {session.Layout.Columns}";
-        if (lastGrid is not null && zoomPanel == ZoomPanel.Braille)
-        {
-            var position = lastGrid.CaretCoordinates;
-            StatusPage.Text = position is { } p ? $"면 {p.Face} / {lastGrid.Items.Count}" : $"총 {lastGrid.Items.Count}면";
-            StatusPage.ToolTip = lastGrid.DescribeCaret();
-            CaretStatus.Text = $"줄 {position?.Line.ToString() ?? "—"} · 칸 {position?.Cell.ToString() ?? "—"} / {session.Layout.Columns}";
-        }
-        OriginalPosition.Text = session.IsTextJob == true || !session.OriginalPages.ContainsKey(DisplayedOriginalPage) ? ""
+
+        OriginalPosition.Text = session.IsTextJob == true || !failed && !session.OriginalPages.ContainsKey(DisplayedOriginalPage) ? ""
             : session.TotalOriginalPages is { } total && DisplayedOriginalPage <= total ? $"{DisplayedOriginalPage} / {total}쪽" : $"{DisplayedOriginalPage}쪽";
         OriginalPosition.ToolTip = OriginalPosition.Text;
         UpdateSourcePosition(block);
+        CaretStatus.Text = zoomPanel switch
+        {
+            ZoomPanel.Original => OriginalPosition.Text,
+            ZoomPanel.Braille => (detachedPane ?? Braille).LayoutLabel.Text,
+            _ => SourcePosition.Text
+        };
+        CaretStatus.ToolTip = zoomPanel == ZoomPanel.Braille ? (detachedPane ?? Braille).GridView.DescribeCaret() : StatusPage.ToolTip;
         RefreshPanelPageBars();
     }
 
@@ -113,7 +154,7 @@ public partial class MainWindow
                 .Sum(b => b.Source.Count(c => c == '\n') + 1);
             column = SourceEditor.TextArea.Caret.Column;
         }
-        SourcePosition.Text = $"{(PageEditor.Visibility == Visibility.Visible ? PageEditor.DisplayedPage : block.Page)}쪽 {line}줄 {column}칸";
+        SourcePosition.Text = $"{(PageEditor.Visibility == Visibility.Visible ? PageEditor.DisplayedPage : block.Page)}쪽 · {line}줄 · {column}칸";
         SourcePosition.ToolTip = SourcePosition.Text;
     }
 
@@ -150,8 +191,6 @@ public partial class MainWindow
             case "hideBraille":
                 detachedWindow?.Close(); BrailleToggle.IsChecked = false; break;
         }
-        // Keep one editor reachable even when the last visible panel is closed.
-        if (!SourceToggle.IsChecked && !BrailleToggle.IsChecked) SourceToggle.IsChecked = true;
         UpdatePanelLayout();
     }
 
@@ -159,7 +198,6 @@ public partial class MainWindow
     {
         if (sender == SourceToggle && detachedPanels.TryGetValue(SourcePanel, out var source)) source.Close();
         if (sender == BrailleToggle) detachedWindow?.Close();
-        if (!SourceToggle.IsChecked && !BrailleToggle.IsChecked) SourceToggle.IsChecked = true;
         UpdatePanelLayout();
     }
 }

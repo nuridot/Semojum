@@ -24,12 +24,24 @@ internal static class WindowsNoticeDesignChecks
             model.JobId = "fixture-job"; model.Progress = new ConversionProgress(128, 46, 1, 1, "잔여 1시간 12분");
             model.CreditNotice = "크레딧이 소진되었습니다. (46/128쪽 완료)";
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
-            check(window.CreditBanner.IsVisible && window.CreditBanner.ActualHeight == 32,
-                "Credit notice keeps the 32-pixel Figma banner");
+            var banner = window.CreditBanner;
+            check(banner.IsVisible && banner.ActualHeight == 40 && Math.Abs(window.DocumentTabs.TranslatePoint(new Point(), window).Y
+                - banner.TranslatePoint(new Point(0, banner.ActualHeight), window).Y) < 1, "B4 places the 40 DIP credit notice above the document tabs");
             var bannerIcons = Descendants(window.CreditBanner).OfType<SvgViewbox>().ToArray();
-            check(bannerIcons.Length == 2 && bannerIcons.All(i => i.Drawings is { Bounds.IsEmpty: false }), "Credit banner renders the original warning and close SVGs");
-            check(Descendants(window.CreditBanner).OfType<Button>().Any(b => Equals(b.Content, "이어서 처리") && b.Width == 110), "Credit recovery action remains available at the Figma width");
+            check(bannerIcons.Length == 1 && bannerIcons[0].Drawings is { Bounds.IsEmpty: false }, "Credit banner renders the Figma warning SVG");
+            var resume = Descendants(banner).OfType<Button>().Single(b => Equals(b.Content, "이어서 처리"));
+            check(Math.Abs(resume.ActualWidth - 88) < 1 && Math.Abs(resume.ActualHeight - 32) < 1,
+                $"B4 offers the 88 by 32 DIP resume action (actual {resume.RenderSize})");
             if (Environment.GetEnvironmentVariable("NOTICE_CREDIT_CAPTURE") is { Length: > 0 } creditCapture) await WindowsSmoke.RenderElementAsync(window.CreditBanner, creditCapture);
+            ((MenuItem)banner.ContextMenu.Items[0]).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            check(model.CreditNotice == "", "The banner context menu dismisses the credit notice without resuming the job");
+            model.CreditNotice = "크레딧이 소진되었습니다. (46/128쪽 완료)";
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var escape = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice,
+                PresentationSource.FromVisual(resume)!, Environment.TickCount, System.Windows.Input.Key.Escape)
+                { RoutedEvent = UIElement.PreviewKeyDownEvent };
+            resume.RaiseEvent(escape);
+            check(escape.Handled && model.CreditNotice == "", "Escape on the resume button dismisses the credit notice");
             var tab = (TabItem)window.DocumentTabs.Items[0];
             var trigger = Descendants((DependencyObject)tab.Header).OfType<Button>().Single(b => AutomationProperties.GetAutomationId(b) == "TabConversionProgress");
             check(trigger.Content is Grid { Width: 16 } && trigger.Width == 16 && !Descendants(trigger).OfType<TextBlock>().Any() && AutomationProperties.GetName(trigger).Contains("47", StringComparison.Ordinal),
@@ -74,13 +86,15 @@ internal static class WindowsNoticeDesignChecks
             var notice = Application.Current.Windows.OfType<UpdateReadyDialog>().Single(d => d.Owner == window && d.IsVisible);
             notice.UpdateLayout();
             var updateIcon = Descendants(notice).OfType<SvgViewbox>().SingleOrDefault();
-            check(notice.ActualWidth == 580 && notice.ActualHeight == 80 && updateIcon is { Width: 28, Height: 28, Drawings.Bounds.IsEmpty: false }, "Verified update notice uses the Figma dimensions and original icon");
+            check(notice.ActualWidth == 560 && notice.ActualHeight == 66 && updateIcon is { Width: 24, Height: 24, Drawings.Bounds.IsEmpty: false }
+                && notice.DismissButton.TranslatePoint(new Point(), notice).X < notice.RestartButton.TranslatePoint(new Point(), notice).X, "Verified update notice uses the A4 dimensions, icon and button order");
             var noticeTopLeft = notice.PointToScreen(new Point()); var noticeBottomRight = notice.PointToScreen(new Point(notice.ActualWidth, notice.ActualHeight));
             var noticeEdge = 16 * (noticeBottomRight.X - noticeTopLeft.X) / notice.ActualWidth;
             var noticeWork = WindowBounds.TryGetWorkArea(window, out var editorWork) ? editorWork : Rect.Empty;
             check(Descendants(notice).OfType<TextBlock>().Any(t => t.Text == "새 버전이 업데이트되었습니다.") && Descendants(notice).OfType<TextBlock>().Any(t => t.Text == "다시 시작하면 자동으로 업데이트됩니다.")
                 && !noticeWork.IsEmpty && Math.Abs(noticeTopLeft.X - noticeWork.Left - noticeEdge) <= 2 && Math.Abs(noticeWork.Bottom - noticeBottomRight.Y - noticeEdge) <= 2,
                 $"Verified update notice shows the final Figma text at the lower left of the editor's screen (notice={noticeTopLeft.X:F0},{noticeBottomRight.Y:F0}, work={noticeWork})");
+            await WindowsSmoke.RenderAsync(notice, Path.Combine(directory, "update-ready.png"));
             if (Environment.GetEnvironmentVariable("NOTICE_UPDATE_CAPTURE") is { Length: > 0 } updateCapture) await WindowsSmoke.RenderElementAsync(notice, updateCapture);
             var activates = 0; window.UpdateActivateForChecks = (_, _) => { activates++; return Task.FromResult(false); };
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };

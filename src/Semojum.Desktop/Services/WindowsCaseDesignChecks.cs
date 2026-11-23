@@ -18,12 +18,11 @@ internal static class WindowsCaseDesignChecks
         try
         {
             invalid.UpdateLayout(); Capture(invalid, "unsupported.png");
-            // DOCX is not converted, so Case 1 lists the formats the app really opens (JPEG and SMJ too) and widens from 471 to the 520 message size.
-            check(Math.Abs(invalid.Width - 520) <= 1 && Math.Abs(invalid.Height - 196) <= 1, "Unsupported file notice uses the 520x196 message size that fits the real format list");
+            check(Math.Abs(invalid.Width - 480) <= 1 && Math.Abs(invalid.Height - 178) <= 1, "Unsupported file notice uses the final Case 1 dimensions");
             check(invalid.DetailText == "PDF · HWP · HWPX · TXT · JPG · JPEG · PNG · SMJ 만 열 수 있습니다." && invalid.MessageText == "이 형식은 열 수 없습니다.",
                 "Unsupported file notice keeps the Case 1 wording with the actually supported formats and no DOCX");
             var detail = Descendants(invalid).OfType<TextBlock>().Single(t => t.Text == invalid.DetailText);
-            check(detail.ActualHeight <= 21, "Supported formats fit on one line in the 520px notice");
+            check(detail.ActualHeight <= 21, "Supported formats fit on one line in the 480px notice");
             var icon = Descendants(invalid).OfType<SvgViewbox>().Single();
             check(icon.Source?.ToString().EndsWith("case-error.svg", StringComparison.Ordinal) == true && icon.Drawings is { Bounds.IsEmpty: false } && icon.Width == 16 && icon.Height == 16 && icon.ActualWidth > 0 && icon.ActualWidth <= 16 && icon.ActualHeight > 0 && icon.ActualHeight <= 16,
                 "Error notice renders the original Figma warning in its 16px slot");
@@ -32,6 +31,23 @@ internal static class WindowsCaseDesignChecks
                 "Error notice uses equal-width Figma action buttons and preserves the default action");
         }
         finally { invalid.Close(); }
+        var offline = FileNotices.ServerSettingsUnavailable();
+        var readOnly = FileNotices.ReadOnlyEdit();
+        foreach (var notice in new[] { offline, readOnly })
+        {
+            notice.Show();
+            try
+            {
+                notice.UpdateLayout();
+                check(notice.ActionButtons.Count == 1 && notice.ActionButtons[0].IsDefault && Equals(notice.ActionButtons[0].Content, "확인"),
+                    $"{notice.MessageText} has a single default confirmation");
+                Capture(notice, notice == offline ? "settings-offline.png" : "read-only.png");
+                if (notice == readOnly)
+                    check(Descendants(notice).OfType<SvgViewbox>().Single().Source.ToString().EndsWith("case-info.svg", StringComparison.Ordinal),
+                        "Read-only edits display the Figma information icon");
+            }
+            finally { notice.Close(); }
+        }
         var credit = FileNotices.NoCredits(); credit.Show();
         try
         {
@@ -39,9 +55,9 @@ internal static class WindowsCaseDesignChecks
             check(credit.ActionButtons.Select(button => button.Content as string).SequenceEqual(["크레딧 구매", "문의하기", "닫기"]),
                 "Credit notice offers the final purchase, inquiry and close actions");
             // Figma Case 16 (263:11231, 2026-11-01) is the mid-conversion stop; the server checks no credits before upload.
-            check(credit.MessageText == "크레딧이 모두 소모되어 변환을 멈췄습니다." && credit.DetailText == "크레딧을 충전한 뒤 상단 알림 창의 「이어서 처리」를 눌러 재개할 수 있습니다."
-                  && Math.Abs(credit.Width - 613) <= 1 && Math.Abs(credit.Height - 226) <= 1,
-                "Credit notice follows the final Case 16 stop wording and points to the resume action in the top notice");
+            check(credit.MessageText == "크레딧이 모두 소모되어 변환을 멈췄습니다." && credit.DetailText == "충전한 뒤 문서를 열면 리본 아래 알림 띠의 「이어서 처리」로 다시 시작합니다."
+                  && Math.Abs(credit.Width - 560) <= 1 && Math.Abs(credit.Height - 178) <= 1,
+                "Credit notice follows the final Case 10 stop wording and points to the resume action in the top notice");
         }
         finally { credit.Close(); }
         var partial = FileNotices.PartialConversion(10, 8, [2, 4]); partial.Show();
@@ -53,17 +69,38 @@ internal static class WindowsCaseDesignChecks
         }
         finally { partial.Close(); }
         var login = FileNotices.LoginRejected(new(System.Net.HttpStatusCode.Unauthorized, "AUTH4001", "Bad credentials"));
-        check(login.MessageText == "아이디 또는 비밀번호가 맞지 않습니다." && login.ActionButtons[1].Content as string == "비밀번호 찾기", "Login notice follows the final Case 14 wording");
+        check(login.MessageText == "아이디 또는 비밀번호가 맞지 않습니다." && login.ActionButtons[1].Content as string == "비밀번호 찾기", "Login notice follows the final Case 27 wording");
         var locked = FileNotices.LoginRejected(new(System.Net.HttpStatusCode.Unauthorized, "AUTH4006", "계정이 잠겼습니다."));
-        check(locked.MessageText == "계정이 잠겼습니다.", "A locked-account notice keeps the server message");
+        check(locked.MessageText == "로그인이 잠겼습니다." && locked.DetailText.Contains("계정이 잠겼습니다."), "A locked-account notice displays the lock reason");
         var policyLogin = FileNotices.LoginRejected(new(System.Net.HttpStatusCode.Unauthorized, "AUTH4001", "Bad credentials", System.Text.Json.JsonSerializer.SerializeToElement(new { remainingAttempts = 1, maxAttempts = 3, lockMinutes = 30 })));
         var policyLocked = FileNotices.LoginRejected(new(System.Net.HttpStatusCode.TooManyRequests, "AUTH4006", "로그인을 5회 실패해 10분 동안 잠겼습니다.", System.Text.Json.JsonSerializer.SerializeToElement(new { unlockAt = "2026-11-01T22:10:00", maxAttempts = 3, lockMinutes = 30 })));
-        check(policyLogin.DetailText == "남은 횟수 1회입니다. 3회 실패하면 30분 동안 잠깁니다." && policyLocked.MessageText == "로그인을 3회 실패해 30분 동안 잠겼습니다."
-            && policyLocked.DetailText == "다시 시도할 수 있는 시각: 22:10", "Login failure and lock notices state the server's maxAttempts, lockMinutes and unlockAt instead of a fixed policy");
+        check(policyLogin.DetailText == "남은 횟수 1회입니다. 3회 실패하면 30분 동안 잠깁니다." && policyLocked.MessageText == "로그인이 잠겼습니다."
+            && policyLocked.DetailText.Contains("3회 실패해 30분 동안 잠겼습니다.") && policyLocked.DetailText.Contains("22:10"), "Login failure and lock notices state the server's maxAttempts, lockMinutes and unlockAt");
         var disconnected = FileNotices.Disconnected(47); var oversized = FileNotices.OversizedFile();
         check(disconnected.DetailText == "47쪽까지 변환한 내용은 보관했습니다." && oversized.MessageText == "파일이 100 MB 를 넘습니다.",
             "Disconnected and oversized notices follow the final Case 7 and Case 2 wording");
         foreach (var notice in new[] { login, locked, policyLogin, policyLocked, disconnected, oversized }) notice.Close();
+        foreach (Func<NoticeDialog> create in new Func<NoticeDialog>[] {
+            () => FileNotices.IncompatibleFiles("문서는 한 개씩, 이미지는 여러 개를 함께 고를 수 있습니다."),
+            () => FileNotices.RetryFailed("잠시 뒤 다시 시도하십시오."),
+            FileNotices.MissingDrafts,
+            () => FileNotices.ServerSaveFailed("fixture"),
+            () => FileNotices.PartialServerSave(6, 4, "2 · 5"),
+            () => FileNotices.LoginRejected(new(System.Net.HttpStatusCode.Unauthorized, "AUTH4006", "잠겼습니다."))
+        })
+        {
+            var notice = create();
+            notice.Loaded += (_, _) => notice.Dispatcher.BeginInvoke(new Action(() => notice.ActionButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent))));
+            check(notice.ShowDialog() == true && notice.Choice == 0, $"The primary action returns its own choice for {notice.MessageText}");
+            var cancelled = create();
+            cancelled.Loaded += (_, _) => cancelled.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var key = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(cancelled)!, 0, System.Windows.Input.Key.Escape);
+                key.RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent;
+                cancelled.RaiseEvent(key);
+            }));
+            check(cancelled.ShowDialog() != true && cancelled.Choice == -1, $"Escape performs no primary action for {cancelled.MessageText}");
+        }
         foreach (var index in new[] { 0, 1, 2 })
         {
             var dialog = FileNotices.NoCredits();

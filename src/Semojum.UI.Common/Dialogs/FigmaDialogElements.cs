@@ -1,5 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Automation;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Data;
 using static System.Windows.Controls.Control;
@@ -20,13 +23,21 @@ public static class FigmaDialogElements
         Width = width, Height = height, Stretch = Stretch.None
     };
     public static ControlTemplate SurfaceTemplate(double radius, bool stretchContent = false)
+        => SurfaceTemplate(radius, stretchContent, useControlInsets: false);
+
+    internal static ControlTemplate SurfaceTemplate(double radius, bool stretchContent, bool useControlInsets)
     {
         var root = new FrameworkElementFactory(typeof(Grid));
         var outer = new FrameworkElementFactory(typeof(Border), "FocusOuter"); outer.SetValue(Border.CornerRadiusProperty, new CornerRadius(radius + 3));
         outer.SetValue(Border.BorderThicknessProperty, new Thickness(2)); outer.SetValue(Border.BorderBrushProperty, Brush("#1A1A1A")); outer.SetValue(MarginProperty, new Thickness(-3)); outer.SetValue(VisibilityProperty, Visibility.Collapsed); outer.SetValue(IsHitTestVisibleProperty, false); root.AppendChild(outer);
         var inner = new FrameworkElementFactory(typeof(Border), "FocusInner"); inner.SetValue(Border.CornerRadiusProperty, new CornerRadius(radius + 1)); inner.SetValue(Border.BorderThicknessProperty, new Thickness(1)); inner.SetValue(Border.BorderBrushProperty, Brushes.White); inner.SetValue(MarginProperty, new Thickness(-1)); inner.SetValue(VisibilityProperty, Visibility.Collapsed); inner.SetValue(IsHitTestVisibleProperty, false); root.AppendChild(inner);
         var border = new FrameworkElementFactory(typeof(Border), "Surface"); border.SetValue(Border.CornerRadiusProperty, new CornerRadius(radius));
-        border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        if (useControlInsets)
+        {
+            border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(PaddingProperty));
+            border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(BorderThicknessProperty));
+        }
+        else border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
         border.SetBinding(Border.BackgroundProperty, FigmaButtonStateBrush.Binding());
         border.SetBinding(Border.BorderBrushProperty, FigmaButtonStateBrush.Binding(true));
         var content = new FrameworkElementFactory(typeof(ContentPresenter)); content.SetValue(HorizontalAlignmentProperty, stretchContent ? HorizontalAlignment.Stretch : HorizontalAlignment.Center);
@@ -39,6 +50,34 @@ public static class FigmaDialogElements
         focus.Setters.Add(new Setter(VisibilityProperty, Visibility.Visible, "FocusOuter")); focus.Setters.Add(new Setter(VisibilityProperty, Visibility.Visible, "FocusInner")); template.Triggers.Add(focus);
         return template;
     }
+    public static Grid NumberField(TextBox box, FrameworkElement entry, string label, Action<int> step)
+    {
+        var number = new Grid { Width = 96, Height = 32 };
+        number.Children.Add(entry);
+        box.Padding = new(10, 0, 25, 0);
+        var arrows = new StackPanel { Width = 20, VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 0, 5, 0) };
+        number.Children.Add(arrows);
+        foreach (var delta in new[] { 1, -1 })
+        {
+            var icon = delta > 0 ? EditorModalDesign.Icon("layout-step-up", 7.20047, 3.89951, "Semojum.UI.Common")
+                : EditorModalDesign.Icon("layout-step-down", 12, 12, "Semojum.UI.Common");
+            if (delta > 0) { icon.RenderTransformOrigin = new(.5, .5); icon.RenderTransform = new ScaleTransform(1, -1); }
+            var button = new RepeatButton { Content = icon, Width = 20, Height = 12, MinHeight = 0, MinWidth = 0,
+                Padding = new(0), Margin = new(0), Focusable = false, Background = Brushes.Transparent, BorderThickness = new(0),
+                Template = EditorModalDesign.ButtonTemplate(typeof(RepeatButton)) };
+            AutomationProperties.SetName(button, label + (delta > 0 ? " 늘리기" : " 줄이기"));
+            button.Click += (_, _) => step(delta);
+            arrows.Children.Add(button);
+        }
+        box.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key is not (Key.Up or Key.Down) || Keyboard.Modifiers != ModifierKeys.None) return;
+            step(e.Key == Key.Up ? 1 : -1); e.Handled = true;
+        };
+        return number;
+    }
+
     public static Style ScopeStyle()
     {
         var border = new FrameworkElementFactory(typeof(Border)); border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));

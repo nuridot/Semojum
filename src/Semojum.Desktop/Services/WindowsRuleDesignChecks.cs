@@ -15,7 +15,7 @@ namespace Semojum.Desktop.Services;
 
 internal static class WindowsRuleDesignChecks
 {
-    internal static async Task RunAsync(Action<bool, string> check)
+    internal static async Task RunAsync(Action<bool, string> check, string? directory = null)
     {
         var fixture = new Fixture(); using var http = new HttpClient(fixture);
         var api = new SemojumApiClient(http); await api.LoginAsync("fixture", "fixture");
@@ -36,31 +36,33 @@ internal static class WindowsRuleDesignChecks
         finally { editor.PrepareSmokeShutdown(); editor.Close(); }
         var evidence = new AppliedRuleRow("원본 자료 (원문)", "", "제1항", "근거", "제공된 원문", "규정", "id", true);
         var applied = new AppliedRulesDialog(api, [evidence], false, "원문", "⠁", "1줄 1칸");
-        check(applied.Width == 900 && applied.Height == 488, "Applied rules requests its final Figma dimensions");
+        check(applied.Width == 900 && applied.Height == 418, "Applied rules requests its final Figma dimensions");
         applied.Show();
         try
         {
             await Task.Delay(100); applied.UpdateLayout();
-            WindowsDialogBoundsChecks.CheckFitted(applied, 900, 488, "Applied rules dialog", check);
+            WindowsDialogBoundsChecks.CheckFitted(applied, 900, 418, "Applied rules dialog", check);
             check(applied.Rules.Columns.Select(c => c.Header?.ToString()).SequenceEqual(["걸린 자리", "점형", "규정", "조항 원문"]),
                 "Applied rules exposes the final Figma four-column headings");
             var source = Descendants(applied).OfType<TextBlock>().FirstOrDefault(t => AutomationProperties.GetAutomationId(t) == "RulesSourcePreview");
             var braille = Descendants(applied).OfType<TextBlock>().FirstOrDefault(t => AutomationProperties.GetAutomationId(t) == "RulesBraillePreview");
             check(source is not null && braille is not null && source.Text == "원문" && braille.Text == "⠁" && Math.Abs(source.TransformToAncestor(applied).Transform(new Point()).Y - braille.TransformToAncestor(applied).Transform(new Point()).Y) < 2,
                 "Selected original text and braille are preserved side by side");
-            check(braille is not null && WindowsBrailleFontChecks.DrawsBrailleFont(braille) && applied.Rules.Columns[1] is DataGridTextColumn { ElementStyle: { } cellStyle }
-                && cellStyle.Setters.OfType<Setter>().Any(s => s.Property == TextBlock.FontFamilyProperty && ReferenceEquals(s.Value, Controls.BundledFonts.Braille)),
-                "Applied rules draws the selected braille and the 점형 column in Nuridot Braille");
+            check(braille is not null && WindowsBrailleFontChecks.DrawsPlainBrailleFont(braille) && applied.Rules.Columns[1] is DataGridTextColumn { ElementStyle: { } cellStyle }
+                && cellStyle.Setters.OfType<Setter>().Any(s => s.Property == TextBlock.FontFamilyProperty && ReferenceEquals(s.Value, Controls.BundledFonts.BraillePlain)),
+                "Applied rules draws raised dots in the selected braille and the 점형 column using the bundled plain braille font");
             check(!Descendants(applied).OfType<TextBlock>().Any(t => t.IsVisible && t.Text.Contains("위치는 확인되지 않았습니다", StringComparison.Ordinal)),
                 "Applied rules shows no unverified-position warning, matching the final Figma");
-            check(Descendants(applied).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "원문" && AutomationProperties.GetAutomationId(t) != "RulesSourcePreview") && !Descendants(applied).OfType<TextBlock>().Any(t => t.IsVisible && t.Text.StartsWith("원문 · ", StringComparison.Ordinal)),
-                "The selection group heading reads 「원문」 without the position suffix");
+            check(Descendants(applied).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "묵자") &&
+                Descendants(applied).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "점자") &&
+                applied.Title.EndsWith("1줄 1칸"), "The two preview cards label the original and braille, retaining the selected position in the window title");
             CheckIcon(applied, "applied-rules-close.svg", check);
             if (Environment.GetEnvironmentVariable("RULES_APPLIED_CAPTURE") is { Length: > 0 } appliedCapture)
                 await WindowsSmoke.RenderElementAsync(applied, appliedCapture);
         }
         finally { applied.Close(); }
         await CheckAppliedRuleAccessAsync(api, http, fixture, check);
+        if (directory is not null) await CaptureAppliedRulesAsync(api, fixture, directory, check);
         if (Environment.GetEnvironmentVariable("RULES_MATCH_CAPTURE") is { Length: > 0 } matchingCapture)
         {
             var match = new AppliedRulesDialog(api,
@@ -80,14 +82,14 @@ internal static class WindowsRuleDesignChecks
         }
         finally { excerpt.Close(); }
         var dialog = new RuleDialog(api, [], "", "", "검색");
-        check(dialog.Width == 720 && dialog.Height == 748 && dialog.Title == "점자 규정 찾아보기", "Rule search requests the final Figma dimensions and title");
+        check(dialog.Width == 1100 && dialog.Height == 760 && dialog.Title == "점자 규정 찾아보기 - 누리닷", "Rule browser opens at the current APP_UI dimensions");
         dialog.Show();
         try
         {
             for (var i = 0; i < 30 && dialog.RuleResults.Children.Count == 0; i++) await Task.Delay(30);
             dialog.UpdateLayout();
-            WindowsDialogBoundsChecks.CheckFitted(dialog, 720, 748, "Rule search", check);
-            CheckIcon(dialog, "rule-browser-close.svg", check); CheckIcon(dialog, "rule-browser-book.svg", check);
+            WindowsDialogBoundsChecks.CheckFitted(dialog, 1100, 760, "Rule search", check);
+            CheckIcon(dialog, "editor-caption-close.svg", check); CheckIcon(dialog, "catalog-clear.svg", check);
             var query = Descendants(dialog).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "규정 검색어");
             var queryBounds = query.TransformToAncestor(dialog).TransformBounds(new Rect(0, 0, query.ActualWidth, query.ActualHeight));
             check(query.IsEnabled && query.Focusable && queryBounds.Left >= 0 && queryBounds.Right <= dialog.ActualWidth + 1 && queryBounds.Top >= 0 && queryBounds.Bottom <= dialog.ActualHeight + 1,
@@ -95,46 +97,77 @@ internal static class WindowsRuleDesignChecks
             var hint = Descendants(dialog).OfType<TextBlock>().Single(t => AutomationProperties.GetAutomationId(t) == "RuleSearchPlaceholder");
             check(query.Text == "검색" && hint.Visibility == Visibility.Collapsed && !hint.IsHitTestVisible, "The search hint does not obscure existing text or intercept input");
             query.Text = ""; dialog.UpdateLayout();
-            check(hint.Visibility == Visibility.Visible && hint.Text == "점역 규정 검색..." && AutomationProperties.GetName(query) == "규정 검색어", "The empty search field exposes the Figma hint and retains its accessible name");
+            check(hint.Visibility == Visibility.Visible && hint.Text == "조항 번호 · 낱말 · 점형" && AutomationProperties.GetName(query) == "규정 검색어", "The empty search field exposes the Figma hint and retains its accessible name");
             query.Text = "검색"; dialog.UpdateLayout();
             check(hint.Visibility == Visibility.Collapsed && query.Text == "검색", "Typing hides the search hint without changing the input");
             var rows = dialog.RuleResults.Children.OfType<Expander>().ToArray();
             check(rows.Length == 2, "Rule search preserves the server's two results");
             var clear = Descendants(dialog).OfType<Button>().SingleOrDefault(b => AutomationProperties.GetAutomationId(b) == "RuleSearchClear");
-            check(rows.All(r => !r.IsExpanded) && clear is { IsEnabled: true },
-                "QA1110: rule results initially collapsed and left icon exposes clear action");
-            clear!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            check(rows.All(r => !r.IsExpanded) && clear is { IsEnabled: true }, "Search initially shows collapsed result cards and a keyboard-accessible clear action");
+            rows[0].IsExpanded = true; dialog.UpdateLayout();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            if (Environment.GetEnvironmentVariable("RULES_SEARCH_CAPTURE") is { Length: > 0 } searchCapture)
+                await WindowsSmoke.RenderElementAsync(dialog, searchCapture);
+            CheckIcon(rows[0], "catalog-down.svg", check); CheckIcon(rows[1], "catalog-right.svg", check);
+            check(Descendants(rows[0]).OfType<TextBlock>().Any(t => t.Text == "첫 줄\n  ⠁ 원문\n마지막 줄"), "An older server's full rule text retains line breaks and indentation");
+            rows[1].IsExpanded = true; dialog.UpdateLayout();
+            check(!rows[0].IsExpanded && rows[1].IsExpanded, "Only one rule result is expanded at a time");
+            var filter = Descendants(dialog).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "한국 점자 규정");
+            filter.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Task.Delay(100);
-            check(query.Text == "" && dialog.RuleResults.Children.OfType<Expander>().All(r => !r.IsExpanded),
-                "QA1110: clear removes query and reloads collapsed rule results");
-            rows = dialog.RuleResults.Children.OfType<Expander>().ToArray();
-            if (rows.Length > 1)
-            {
-                rows[0].IsExpanded = true; dialog.UpdateLayout();
-                if (Environment.GetEnvironmentVariable("RULES_SEARCH_CAPTURE") is { Length: > 0 } searchCapture)
-                    await WindowsSmoke.RenderElementAsync(dialog, searchCapture);
-                CheckIcon(rows[0], "rule-browser-down.svg", check);
-                CheckIcon(rows[1], "rule-browser-right.svg", check);
-                check(Descendants(rows[0]).OfType<TextBlock>().Any(t => t.Text == "첫 줄\n  ⠁ 원문\n마지막 줄"), "Full rule text retains line breaks and indentation");
-                rows[1].IsExpanded = true; dialog.UpdateLayout();
-                check(!rows[0].IsExpanded && rows[1].IsExpanded, "Only one rule result is expanded at a time");
-            }
-            var filter = Descendants(dialog).OfType<Button>().FirstOrDefault(b => Equals(b.Content, "한국 점자 규정"));
-            filter?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            for (var i = 0; i < 30 && !fixture.Requests.Any(p => p.Contains("publisher=MCST", StringComparison.Ordinal)); i++) await Task.Delay(30);
-            await Task.Delay(100);
-            check(fixture.Requests.Any(p => p.Contains("publisher=MCST", StringComparison.Ordinal)), "The Figma filter chip sends the selected publisher to the existing API");
-            var next = Descendants(dialog).OfType<Button>().FirstOrDefault(b => Equals(b.Content, "다음"));
-            next?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            for (var i = 0; i < 30 && !fixture.Requests.Any(p => p.Contains("page=1", StringComparison.Ordinal)); i++) await Task.Delay(30);
+            check(fixture.Requests.Any(p => p.Contains("publisher=MCST", StringComparison.Ordinal)), "The current document filter is sent to the search API");
+            var next = Descendants(dialog).OfType<Button>().Single(b => Equals(b.Content, "다음"));
+            next.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Task.Delay(100);
             check(fixture.Requests.Any(p => p.Contains("page=1", StringComparison.Ordinal) && p.Contains("publisher=MCST", StringComparison.Ordinal)),
                 "Next page keeps the selected publisher and requests the next result page");
+            clear!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Task.Delay(100);
+            check(query.Text == "" && dialog.RuleResults.Children.Count == 0 && Descendants(dialog).OfType<TreeView>().Single().Items.Count > 0,
+                "Clear restores the document contents and the initially blank reader even with an older server");
             var evidenceMenu = Descendants(dialog).OfType<DockPanel>().Select(p => p.ContextMenu)
                 .OfType<ContextMenu>().SelectMany(m => m.Items.OfType<MenuItem>()).FirstOrDefault(i => Equals(i.Header, "적용 규정"));
             evidenceMenu?.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             check(Descendants(dialog).OfType<TextBlock>().Any(t => t.IsVisible && t.Text.Contains("이 블록에 전달된 적용 규정이 없습니다", StringComparison.Ordinal)),
                 "Applied rule evidence remains available from the context menu when no evidence exists");
+        }
+        finally { dialog.Close(); }
+    }
+
+    private static async Task CaptureAppliedRulesAsync(SemojumApiClient api, Fixture fixture, string directory, Action<bool,string> check)
+    {
+        const string section = "제13절 · 제49항", reference = "한국 점자 규정";
+        AppliedRuleRow[] rows = [
+            new("( )","⠦⠄ ⠠⠴",section,"문장 부호","문장 부호는 다음과 같이 적는다.",reference,"punctuation"),
+            new("~","⠈⠔",section,"문장 부호","문장 부호는 다음과 같이 적는다.",reference,"punctuation"),
+            new("~ (줄 끝)","⠈⠔","제13절 · 제55항","물결표","빗금, 줄표, 물결표는 줄의 끝이나 첫머리에 올 수 있다.",reference,"line-end") ];
+        var dialog = new AppliedRulesDialog(api,rows,true,"(가)~(라)의 기후 특성","⠦⠄⠫⠠⠴⠈⠔⠦⠄⠐⠣⠠⠴⠺");
+        dialog.Show();
+        try
+        {
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            dialog.UpdateLayout();
+            await WindowsSmoke.RenderAsync(dialog,System.IO.Path.Combine(directory,"applied-rules.png"));
+            var source = Descendants(dialog).OfType<TextBlock>().Single(t => AutomationProperties.GetAutomationId(t) == "RulesSourcePreview");
+            var table = (Border)dialog.Rules.Parent;
+            var bounds = table.TranslatePoint(new(),dialog);
+            check(bounds == new Point(25,147) && table.ActualWidth == 850 && table.ActualHeight == 166 && dialog.Rules.ColumnHeaderHeight == 32,
+                $"The three-row evidence table at {bounds} has the 850x166 Figma frame and a 32-pixel header");
+            check(source.Text == "(가)~(라)의 기후 특성" && Descendants(dialog).OfType<TextBlock>().Any(t => t.Text == "편집한 뒤에는 걸린 자리가 달라질 수 있습니다."),
+                "The selected original and the notice about shifted positions appear above and below the evidence");
+            var link = Descendants(dialog.Rules).OfType<Button>().Single(b => Equals(b.Content,reference + " › 제13절 · 제55항"));
+            check(link.IsEnabled && Equals(link.ToolTip,"물결표"), "The citation shows its source and section and keeps the rule title available");
+            await WindowsSmoke.WithModal<RuleDialog>(() =>
+            {
+                ((System.Windows.Input.RoutedCommand)link.Command).Execute(link.CommandParameter, link);
+                return Task.CompletedTask;
+            }, browser =>
+            {
+                check(dialog.Rules.SelectedIndex == 2 && browser.Owner == dialog, "A citation opens the correct row directly from the table");
+                browser.Close();
+                return Task.CompletedTask;
+            });
+            check(fixture.Requests.Any(path => path.Contains("q=line-end",StringComparison.Ordinal)), "The row link requests its own rule identifier");
         }
         finally { dialog.Close(); }
     }
@@ -228,7 +261,9 @@ internal static class WindowsRuleDesignChecks
     private static void CheckIcon(DependencyObject root, string name, Action<bool, string> check)
     {
         var icon = Descendants(root).OfType<SvgViewbox>().FirstOrDefault(i => i.Source?.ToString().EndsWith("/" + name, StringComparison.Ordinal) == true);
-        check(icon is { Width: 16, Height: 16, Drawings.Bounds.IsEmpty: false }, $"Figma rule icon {name} renders from its original 16px SVG");
+        var rendered = icon is { Width: 16, Height: 16, Drawings.Bounds.IsEmpty: false };
+        var icons = rendered ? "" : " (visible resources: " + string.Join(", ", Descendants(root).OfType<SvgViewbox>().Select(i => $"{i.Source} {i.ActualWidth}×{i.ActualHeight} {i.Drawings?.Bounds}")) + ")";
+        check(rendered, $"Figma rule icon {name} renders from its original 16px SVG{icons}");
     }
     private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
     {

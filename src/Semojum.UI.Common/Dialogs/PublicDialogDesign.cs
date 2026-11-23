@@ -46,22 +46,25 @@ public static class PublicDialogDesign
         return new Border { Background = Brush("#FBFBFB"), BorderBrush = Brush("#EAEAEA"), BorderThickness = new(1), CornerRadius = new(4), Child = holder };
     }
 
-    public static Style ConsentStyle(string assemblyName)
+    public static Style ConsentStyle(string assemblyName) => ConsentStyle(assemblyName, "public-inquiry-check.svg", 16);
+
+    public static Style ConsentStyle(string assemblyName, string iconFile, double iconSize)
     {
         var style = new Style(typeof(CheckBox), Application.Current.FindResource(typeof(CheckBox)) as Style);
         var template = new ControlTemplate(typeof(CheckBox));
         var panel = new FrameworkElementFactory(typeof(StackPanel)); panel.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
-        var square = new FrameworkElementFactory(typeof(Border), "Square"); square.SetValue(FrameworkElement.WidthProperty, 20d); square.SetValue(FrameworkElement.HeightProperty, 20d);
+        var square = new FrameworkElementFactory(typeof(Border), "Square"); square.SetValue(FrameworkElement.WidthProperty, 16d); square.SetValue(FrameworkElement.HeightProperty, 16d);
         square.SetValue(Border.CornerRadiusProperty, new CornerRadius(4)); square.SetValue(Border.BorderThicknessProperty, new Thickness(1));
         square.SetValue(Border.BorderBrushProperty, Brush("#A0A0A0")); square.SetValue(Border.BackgroundProperty, Brushes.White);
-        var icon = new FrameworkElementFactory(typeof(SvgViewbox), "Tick"); icon.SetValue(SvgViewbox.SourceProperty, new Uri($"pack://application:,,,/{assemblyName};component/Assets/Figma/public-inquiry-check.svg"));
-        icon.SetValue(FrameworkElement.WidthProperty, 16d); icon.SetValue(FrameworkElement.HeightProperty, 16d); icon.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed); square.AppendChild(icon); panel.AppendChild(square);
+        var icon = new FrameworkElementFactory(typeof(SvgViewbox), "Tick"); icon.SetValue(SvgViewbox.SourceProperty, new Uri($"pack://application:,,,/{assemblyName};component/Assets/Figma/{iconFile}"));
+        icon.SetValue(FrameworkElement.WidthProperty, iconSize); icon.SetValue(FrameworkElement.HeightProperty, iconSize); icon.SetValue(SvgViewbox.StretchProperty, Stretch.Uniform); icon.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed); square.AppendChild(icon); panel.AppendChild(square);
         var content = new FrameworkElementFactory(typeof(ContentPresenter)); content.SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0)); content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center); panel.AppendChild(content);
         template.VisualTree = panel;
         var selected = new Trigger { Property = CheckBox.IsCheckedProperty, Value = true };
         selected.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#005FB8"), "Square")); selected.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#005FB8"), "Square"));
         selected.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Visible, "Tick")); template.Triggers.Add(selected);
         var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true }; focus.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(2), "Square")); template.Triggers.Add(focus);
+        var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false }; disabled.Setters.Add(new Setter(UIElement.OpacityProperty, .45)); template.Triggers.Add(disabled);
         style.Setters.Add(new Setter(Control.TemplateProperty, template)); return style;
     }
 }

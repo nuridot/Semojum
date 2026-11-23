@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Semojum.Core;
@@ -9,112 +11,141 @@ using Semojum.Core.Integration;
 
 namespace Semojum.Desktop.Dialogs;
 
-public sealed class AppliedRulesDialog : CompactDialog
+public sealed class AppliedRulesDialog : FormDialogBase
 {
-    internal DataGrid Rules { get; } = new() { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, SelectionMode = DataGridSelectionMode.Single };
-    public AppliedRulesDialog(SemojumApiClient api, AppliedRuleRow[] rows, bool stale, string sourceText = "", string selectedBraille = "", string? position = null)
-        : base("적용 규정" + (position is null ? "" : " — " + position), 900, 488, popover: true)
-    {
-        if (Content is Border frame) { frame.CornerRadius = new(8); frame.BorderBrush = FigmaDialogElements.Brush("#EAEAEA"); frame.Background = FigmaDialogElements.Brush("#F3F3F3"); }
-        var layout = new Grid(); layout.RowDefinitions.Add(new() { Height = new(56) }); layout.RowDefinitions.Add(new()); layout.RowDefinitions.Add(new() { Height = new(64) }); Body(layout);
-        var header = new Grid { Margin = new(24, 0, 24, 0) };
-        header.Children.Add(new TextBlock { Text = "적용 규정", FontSize = 16, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
-        var dismiss = new Button { Width = 28, Height = 28, MinWidth = 0, MinHeight = 0, Padding = new(0), Background = Brushes.Transparent,
-            BorderBrush = Brushes.Transparent, HorizontalAlignment = HorizontalAlignment.Right, Content = FigmaDialogElements.DesignIcon("applied-rules-close.svg", 16, 16, "Semojum.Feature.Rules.Wpf"), Template = FigmaDialogElements.SurfaceTemplate(0) };
-        AutomationProperties.SetName(dismiss, "닫기"); dismiss.Click += (_, _) => Close(); header.Children.Add(dismiss); layout.Children.Add(header);
+    internal DataGrid Rules { get; } = new() { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false,
+        SelectionMode = DataGridSelectionMode.Single, CanUserResizeRows = false, RowHeaderWidth = 0, CanUserSortColumns = false };
+    private readonly RoutedCommand openRule = new();
 
-        var body = new DockPanel { Margin = new(16, 6, 16, 0) }; Grid.SetRow(body, 1); layout.Children.Add(body);
-        var selection = new StackPanel(); DockPanel.SetDock(selection, Dock.Top); body.Children.Add(selection);
-        selection.Children.Add(new TextBlock { Text = "원문", Height = 22, Foreground = FigmaDialogElements.Brush("#5F5F5F") });
-        var preview = new Grid { Margin = new(15, 8, 15, 8) };
-        preview.ColumnDefinitions.Add(new()); preview.ColumnDefinitions.Add(new() { Width = new(1) }); preview.ColumnDefinitions.Add(new());
-        var source = new StackPanel(); source.Children.Add(new TextBlock { Text = "묵자", Height = 20, Foreground = FigmaDialogElements.Brush("#5F5F5F") });
-        var sourceValue = new TextBlock { Text = sourceText, FontSize = 18, Height = 24, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = sourceText };
-        AutomationProperties.SetAutomationId(sourceValue, "RulesSourcePreview"); source.Children.Add(sourceValue); preview.Children.Add(source);
-        var separator = new Border { Background = FigmaDialogElements.Brush("#EAEAEA"), Margin = new(0, 3, 0, 3) }; Grid.SetColumn(separator, 1); preview.Children.Add(separator);
-        var braille = new StackPanel { Margin = new(15, 0, 0, 0) }; braille.Children.Add(new TextBlock { Text = "점자", Height = 20, Foreground = FigmaDialogElements.Brush("#5F5F5F") });
-        var brailleText = selectedBraille.Length > 0 ? selectedBraille : string.Concat(rows.Select(r => r.Cells));
-        var brailleFont = (FontFamily)FindResource("BrailleFont");
-        var brailleValue = new TextBlock { Text = brailleText, FontFamily = brailleFont, FontSize = 22, Height = 24, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = brailleText };
-        AutomationProperties.SetAutomationId(brailleValue, "RulesBraillePreview"); braille.Children.Add(brailleValue); Grid.SetColumn(braille, 2); preview.Children.Add(braille);
-        selection.Children.Add(new Border { Height = 72, CornerRadius = new(6), Background = FigmaDialogElements.Brush("#F9F9F9"), BorderBrush = FigmaDialogElements.Brush("#EAEAEA"), BorderThickness = new(1), Child = preview });
-        Rules.Margin = new(0, 16, 0, 0); Rules.Style = (Style)FindResource("AppliedRulesGrid"); Rules.MinRowHeight = 56;
-        Rules.Background = Rules.RowBackground = Rules.AlternatingRowBackground = FigmaDialogElements.Brush("#F3F3F3");
-        var baseCell = (Style)Rules.Style.Setters.OfType<Setter>().Single(s => s.Property == DataGrid.CellStyleProperty).Value;
-        var cells = new Style(typeof(DataGridCell), baseCell); cells.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
-        var selected = new Trigger { Property = DataGridCell.IsSelectedProperty, Value = true }; selected.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent)); cells.Triggers.Add(selected);
-        var focused = new MultiTrigger(); focused.Conditions.Add(new System.Windows.Condition(DataGridCell.IsSelectedProperty, true)); focused.Conditions.Add(new System.Windows.Condition(IsKeyboardFocusWithinProperty, true));
-        focused.Setters.Add(new Setter(Control.BackgroundProperty, FigmaDialogElements.Brush("#CCE4F7"))); cells.Triggers.Add(focused); Rules.CellStyle = cells;
-        var baseHeader = (Style)Rules.Style.Setters.OfType<Setter>().Single(s => s.Property == DataGrid.ColumnHeaderStyleProperty).Value;
-        var headers = new Style(typeof(System.Windows.Controls.Primitives.DataGridColumnHeader), baseHeader); headers.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0))); headers.Setters.Add(new Setter(Control.BackgroundProperty, FigmaDialogElements.Brush("#F3F3F3"))); Rules.ColumnHeaderStyle = headers;
-        DataGridTextColumn Column(string caption, string field, double width, bool brailleColumn = false)
+    public AppliedRulesDialog(SemojumApiClient api, AppliedRuleRow[] rows, bool stale, string sourceText = "", string selectedBraille = "", string? position = null)
+        : base("적용 규정", 900, 418, EditorModalDesign.Icon("applied-rules-close", assemblyName:"Semojum.Feature.Rules.Wpf"))
+    {
+        if (position is not null) Title += " — " + position;
+        UseControlBorder();
+        AlignLabelBaseline();
+        var preview = new Grid();
+        preview.ColumnDefinitions.Add(new()); preview.ColumnDefinitions.Add(new() { Width = new(16) }); preview.ColumnDefinitions.Add(new());
+        preview.Children.Add(Preview("묵자", sourceText, false));
+        var braille = Preview("점자", selectedBraille.Length > 0 ? selectedBraille : string.Concat(rows.Select(r => r.Cells)), true);
+        Grid.SetColumn(braille,2); preview.Children.Add(braille);
+        Fields.Children.Add(preview);
+
+        void Open(AppliedRuleRow row) => new RuleDialog(api, [], "", "", row.RuleId) { Owner = this }.ShowDialog();
+        CommandBindings.Add(new CommandBinding(openRule, (_,e) =>
         {
-            var style = new Style(typeof(TextBlock)); style.Setters.Add(new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap));
-            style.Setters.Add(new Setter(FrameworkElement.ToolTipProperty, new Binding(field)));
-            if (brailleColumn) { style.Setters.Add(new Setter(TextBlock.FontFamilyProperty, brailleFont)); style.Setters.Add(new Setter(TextBlock.FontSizeProperty, 22d)); }
-            if (field == "Symbol")
+            if (api.Account is not null && e.Parameter is AppliedRuleRow row && !string.IsNullOrWhiteSpace(row.RuleId))
             {
-                style.Setters.Add(new Setter(TextBlock.FontSizeProperty, 14d)); style.Setters.Add(new Setter(TextBlock.FontWeightProperty, FontWeights.Bold));
-                foreach (var trigger in new[] { new DataTrigger { Binding = new Binding(field), Value = "줄 전체" }, new DataTrigger { Binding = new Binding(nameof(AppliedRuleRow.IsBlockEvidence)), Value = true } })
-                {
-                    trigger.Setters.Add(new Setter(TextBlock.FontSizeProperty, 12d)); trigger.Setters.Add(new Setter(TextBlock.FontWeightProperty, FontWeights.Normal));
-                    trigger.Setters.Add(new Setter(TextBlock.ForegroundProperty, FigmaDialogElements.Brush("#5F5F5F"))); style.Triggers.Add(trigger);
-                }
+                Rules.SelectedItem = row;
+                Open(row);
             }
-            return new DataGridTextColumn { Header = caption, Binding = new Binding(field), Width = width, ElementStyle = style };
-        }
-        Rules.Columns.Add(Column("걸린 자리", "Symbol", 80)); Rules.Columns.Add(Column("점형", "Cells", 74, true));
-        var description = new FrameworkElementFactory(typeof(StackPanel));
-        var title = new FrameworkElementFactory(typeof(TextBlock)); title.SetBinding(TextBlock.TextProperty, new Binding("Title")); title.SetValue(TextBlock.FontWeightProperty, FontWeights.Bold); title.SetValue(TextBlock.FontSizeProperty, 14d); description.AppendChild(title);
-        var detail = new FrameworkElementFactory(typeof(TextBlock));
-        var sourceSection = new MultiBinding { StringFormat = "{0} · {1}" }; sourceSection.Bindings.Add(new Binding("Source")); sourceSection.Bindings.Add(new Binding("Section"));
-        detail.SetBinding(TextBlock.TextProperty, sourceSection); detail.SetValue(TextBlock.ForegroundProperty, FigmaDialogElements.Brush("#5F5F5F")); detail.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis); description.AppendChild(detail);
-        Rules.Columns.Add(new DataGridTemplateColumn { Header = "규정", Width = 230, CellTemplate = new DataTemplate { VisualTree = description } });
-        var textColumn = Column("조항 원문", "Text", 304); textColumn.Width = new DataGridLength(1, DataGridLengthUnitType.Star); Rules.Columns.Add(textColumn);
-        Root.Children.Remove(Status); Status.Margin = new(0, 4, 0, 4); DockPanel.SetDock(Status, Dock.Bottom); body.Children.Add(Status);
-        Rules.ItemsSource = rows; body.Children.Add(Rules);
+        }, (_,e) => e.CanExecute = api.Account is not null && e.Parameter is AppliedRuleRow rule && !string.IsNullOrWhiteSpace(rule.RuleId)));
+        Rules.Style = (Style)FindResource("AppliedRulesGrid");
+        Rules.MinRowHeight = 44;
+        Rules.Columns.Add(Column("걸린 자리", nameof(AppliedRuleRow.Symbol), 112));
+        Rules.Columns.Add(Column("점형", nameof(AppliedRuleRow.Cells), 122, braille:true));
+        Rules.Columns.Add(ReferenceColumn());
+        var excerpt = Column("조항 원문", nameof(AppliedRuleRow.Text), 320);
+        excerpt.Width = new(1, DataGridLengthUnitType.Star); excerpt.MinWidth = 180; Rules.Columns.Add(excerpt);
+        Rules.ItemsSource = rows;
         if (rows.Length > 0) Rules.SelectedIndex = 0;
-        else Status.Text = stale ? "편집 후에는 적용 규정의 위치가 달라질 수 있습니다. 재점역하면 현재 결과의 근거를 확인할 수 있습니다." : "선택한 위치에 전달된 적용 규정이 없습니다.";
-        var footer = new Border { BorderBrush = FigmaDialogElements.Brush("#EAEAEA"), BorderThickness = new(0, 1, 0, 0) }; Grid.SetRow(footer, 2); layout.Children.Add(footer);
-        var footerLayout = new Grid { Margin = new(16, 0, 24, 0) };
-        footerLayout.ColumnDefinitions.Add(new()); footerLayout.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); footer.Child = footerLayout;
-        var reason = new TextBlock { FontSize = 12, Foreground = FigmaDialogElements.Brush("#5F5F5F"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, Margin = new(0, 0, 8, 0) };
+        var table = new Border { Margin = new(0,16,0,16), Height = 34 + Math.Min(3, rows.Length) * 44,
+            BorderBrush = EditorModalDesign.Color("#EAEAEA"), BorderThickness = new(1), CornerRadius = new(8), Background = Brushes.White, Child = Rules };
+        Rules.SizeChanged += (_,_) => Rules.Clip = new RectangleGeometry(new Rect(Rules.RenderSize),7,7);
+        Fields.Children.Add(table);
+        string note = rows.Length == 0
+            ? stale ? "편집 후에는 적용 규정의 위치가 달라질 수 있습니다. 재점역하면 현재 결과의 근거를 확인할 수 있습니다." : "선택한 위치에 전달된 적용 규정이 없습니다."
+            : "편집한 뒤에는 걸린 자리가 달라질 수 있습니다.";
+        Fields.Children.Add(new TextBlock { Text = note, FontSize = 12, LineHeight = 16, Foreground = EditorModalDesign.Color("#5F5F5F"), TextWrapping = TextWrapping.Wrap });
+        var reason = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = EditorModalDesign.Color("#5F5F5F"), Margin = new(0,4,0,0) };
         AutomationProperties.SetAutomationId(reason, "AppliedRulesOpenUnavailableReason");
         AutomationProperties.SetLiveSetting(reason, AutomationLiveSetting.Polite);
-        footerLayout.Children.Add(reason);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 15, 0, 16) }; Grid.SetColumn(actions, 1); footerLayout.Children.Add(actions);
-        var close = Action("닫기", Close); Actions.Children.Remove(close);
-        Button open = null!;
-        void UpdateOpenAvailability()
+        Fields.Children.Add(reason);
+        var openButton = LeadingFooterButton("규정 전문 열기", () =>
+        {
+            if (Rules.SelectedItem is AppliedRuleRow row && api.Account is not null && !string.IsNullOrWhiteSpace(row.RuleId)) Open(row);
+            return Task.CompletedTask;
+        },103);
+        ToolTipService.SetShowOnDisabled(openButton,true);
+        FooterButton("닫기", Close, true);
+        void UpdateAccess()
         {
             var message = api.Account is null ? "규정 전문을 보려면 로그인해 주세요."
-                : Rules.SelectedItem is not AppliedRuleRow ? "전문을 볼 규정 행을 선택해 주세요."
-                : string.IsNullOrWhiteSpace(((AppliedRuleRow)Rules.SelectedItem).RuleId) ? "선택한 규정의 식별자가 없어 전문을 열 수 없습니다."
-                : "";
-            open.IsEnabled = message.Length == 0;
-            open.ToolTip = message.Length == 0 ? null : message;
-            AutomationProperties.SetHelpText(open, message);
-            reason.Text = message;
-            reason.Visibility = message.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+                : Rules.SelectedItem is not AppliedRuleRow row ? "전문을 볼 규정 행을 선택해 주세요."
+                : string.IsNullOrWhiteSpace(row.RuleId) ? "선택한 규정의 식별자가 없어 전문을 열 수 없습니다." : "";
+            openButton.IsEnabled = message.Length == 0;
+            openButton.ToolTip = message.Length == 0 ? null : message;
+            AutomationProperties.SetHelpText(openButton,message);
+            reason.Text = message; reason.Visibility = message.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
-        open = Action("규정 전문 열기", () =>
+        Rules.SelectionChanged += (_,_) => UpdateAccess();
+        Activated += (_,_) => UpdateAccess();
+        bool authenticated = api.Account is not null;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        timer.Tick += (_,_) =>
         {
-            UpdateOpenAvailability();
-            if (open.IsEnabled && Rules.SelectedItem is AppliedRuleRow row)
-                new RuleDialog(api, [], "", "", row.RuleId) { Owner = this }.ShowDialog();
-        }, true);
-        Actions.Children.Remove(open);
-        ToolTipService.SetShowOnDisabled(open, true);
-        Rules.SelectionChanged += (_, _) => UpdateOpenAvailability();
-        Activated += (_, _) => UpdateOpenAvailability();
-        // Authentication can expire while this modal remains open. Keep the
-        // visible action in sync without changing the selected evidence row.
-        var accountCheck = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        accountCheck.Tick += (_, _) => UpdateOpenAvailability();
-        Loaded += (_, _) => accountCheck.Start();
-        Closed += (_, _) => accountCheck.Stop();
-        UpdateOpenAvailability();
-        foreach (var (button, width) in new[] { (close, 88d), (open, 132d) })
-        { button.Width = width; button.MinWidth = 0; button.Height = 32; button.MinHeight = 0; button.Padding = new(0); button.BorderBrush = button == close ? FigmaDialogElements.Brush("#EAEAEA") : FigmaDialogElements.Brush("#005FB8"); button.Template = FigmaDialogElements.SurfaceTemplate(4); actions.Children.Add(button); }
+            if (authenticated == (api.Account is not null)) return;
+            authenticated = api.Account is not null;
+            UpdateAccess();
+            CommandManager.InvalidateRequerySuggested();
+        };
+        Loaded += (_,_) => timer.Start();
+        Closed += (_,_) => timer.Stop();
+        UpdateAccess();
+    }
+
+    private Border Preview(string label, string value, bool braille)
+    {
+        var group = new StackPanel();
+        group.Children.Add(new TextBlock { Text = label, Height = 16, FontSize = 12, LineHeight = 16, Foreground = EditorModalDesign.Color("#5F5F5F") });
+        var text = new TextBlock { Text = value, ToolTip = value, FontSize = braille ? 22 : 14, Height = braille ? 28 : 20,
+            LineHeight = braille ? 28 : 20, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new(0,4,0,0) };
+        if (braille) text.FontFamily = (FontFamily)FindResource("BraillePlainFont");
+        AutomationProperties.SetAutomationId(text,braille ? "RulesBraillePreview" : "RulesSourcePreview");
+        group.Children.Add(text);
+        return new Border { Child = group, Background = Brushes.White, BorderBrush = EditorModalDesign.Color("#EAEAEA"),
+            BorderThickness = new(1), CornerRadius = new(8), Padding = new(16,12,16,12), VerticalAlignment = VerticalAlignment.Top };
+    }
+
+    private DataGridTextColumn Column(string title, string field, double width, bool braille = false)
+    {
+        var style = new Style(typeof(TextBlock), (Style)FindResource(typeof(TextBlock)));
+        style.Setters.Add(new Setter(TextBlock.FontSizeProperty, braille ? 22d : field == nameof(AppliedRuleRow.Text) ? 12d : 14d));
+        style.Setters.Add(new Setter(FrameworkElement.ToolTipProperty, new Binding(field)));
+        style.Setters.Add(new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap));
+        if (braille) style.Setters.Add(new Setter(TextBlock.FontFamilyProperty, (FontFamily)FindResource("BraillePlainFont")));
+        if (field == nameof(AppliedRuleRow.Symbol))
+        {
+            foreach (var trigger in new[] { new DataTrigger { Binding = new Binding(field), Value = "줄 전체" },
+                new DataTrigger { Binding = new Binding(nameof(AppliedRuleRow.IsBlockEvidence)), Value = true } })
+            {
+                trigger.Setters.Add(new Setter(TextBlock.FontSizeProperty, 12d));
+                trigger.Setters.Add(new Setter(TextBlock.ForegroundProperty, EditorModalDesign.Color("#5F5F5F")));
+                style.Triggers.Add(trigger);
+            }
+        }
+        return new DataGridTextColumn { Header = title, Binding = new Binding(field), Width = width, ElementStyle = style };
+    }
+
+    private DataGridTemplateColumn ReferenceColumn()
+    {
+        var link = new FrameworkElementFactory(typeof(Button));
+        var caption = new Binding { Converter = new Citation() };
+        link.SetBinding(ContentControl.ContentProperty,caption);
+        link.SetBinding(FrameworkElement.ToolTipProperty,new Binding(nameof(AppliedRuleRow.Title)));
+        link.SetValue(System.Windows.Controls.Primitives.ButtonBase.CommandProperty,openRule);
+        link.SetBinding(System.Windows.Controls.Primitives.ButtonBase.CommandParameterProperty,new Binding());
+        link.SetValue(FrameworkElement.StyleProperty,FindResource("AppliedRuleLink"));
+        return new DataGridTemplateColumn { Header = "규정", Width = 272, CellTemplate = new DataTemplate { VisualTree = link }, ClipboardContentBinding = caption };
+    }
+
+    private sealed class Citation : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is not AppliedRuleRow row) return "";
+            var parts = new[] { row.Source,row.Section }.Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
+            return parts.Length > 0 ? string.Join(" › ",parts) : string.IsNullOrWhiteSpace(row.Title) ? row.RuleId : row.Title;
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
     }
 }

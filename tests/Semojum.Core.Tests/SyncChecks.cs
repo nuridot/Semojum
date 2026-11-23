@@ -229,17 +229,23 @@ internal static class SyncChecks
         Equal(5, ServerContract.LocalOnlyLayout(new PageLayout(PageNumbers: "짝수 페이지", Footer: "짝수 페이지", PadToEven: true, NumberRanges: PageNumberRange.Parse("1-3")), [new(2, null, "단원")]).Length);
         // Forms are rejected before any request; a supported layout still reaches the server.
         var calls = 0;
-        using var http = new HttpClient(new Handler(request =>
+        using var http = new HttpClient(new Handler(async request =>
         {
-            if (request.RequestUri!.AbsolutePath.EndsWith("login")) return Task.FromResult(Tokens());
+            if (request.RequestUri!.AbsolutePath.EndsWith("login")) return Tokens();
             calls++;
-            return Task.FromResult(Ok(new { formId = "f1", name = "양식", builtin = false, layoutOptions = new { pageNumberLine = "every" }, brailleOptions = new { } }));
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            return Ok(new { formId = "f1", name = "양식", builtin = false,
+                layoutOptions = body.RootElement.GetProperty("layoutOptions"), brailleOptions = new { } });
         }));
         var api = new SemojumApiClient(http); await api.LoginAsync("test", "pw"); var client = new SettingsClient(api);
         var rejected = await Rejected<ArgumentException>(() => client.SaveFormAsync(null, "양식", null, new PageLayout(PageNumbers: "짝수 페이지", PadToEven: true), new()));
         True(rejected.Message.Contains("짝수") && rejected.Message.Contains("보정")); Equal(0, calls);
-        var saved = await client.SaveFormAsync(null, "양식", null, new PageLayout(PageNumbers: "모든 페이지"), new());
-        Equal("모든 페이지", saved.Layout.PageNumbers); Equal(1, calls);
+        foreach (var side in new[] { "홀수 페이지", "짝수 페이지", "모든 페이지", "출력 안 함" })
+        {
+            var saved = await client.SaveFormAsync(null, "양식", null, new PageLayout(PageNumbers: side), new());
+            Equal(side, saved.Layout.PageNumbers);
+        }
+        Equal(4, calls);
     }
 
     private static Task<InvalidOperationException> Rejected(Func<Task> action) => Rejected<InvalidOperationException>(action);

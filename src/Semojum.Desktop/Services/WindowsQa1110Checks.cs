@@ -107,8 +107,8 @@ internal static class WindowsQa1110Checks
             Verify(window.Session.ActiveBlock?.Braille == "⠁⠈", "QA1110: actual main panel persists two consecutive braille cells");
             Verify(!InputMethod.GetIsInputMethodEnabled(grid), "QA1110: main braille panel bypasses Korean IME");
             await window.ExecuteAsync("new");
-            Verify(window.OriginalPanel.IsVisible && window.Braille.IsVisible && window.PageEditor.IsVisible,
-                "QA1110: new text document shows original, text and braille panels");
+            Verify(!window.OriginalPanel.IsVisible && window.Braille.IsVisible && window.PageEditor.IsVisible,
+                "A new text document shows its two editable panels");
         }
         finally { window.PrepareSmokeShutdown(); window.Close(); }
         await using var navigationEngine = EngineRuntime.Create();

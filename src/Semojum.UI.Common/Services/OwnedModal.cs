@@ -17,7 +17,7 @@ public static class OwnedModal
     }
     private sealed class Backdrop(UIElement adorned) : Adorner(adorned)
     {
-        private static readonly Brush Fill = new SolidColorBrush(Color.FromArgb(115, 180, 180, 180));
+        private static readonly Brush Fill = new SolidColorBrush(Color.FromArgb(76, 0, 0, 0));
         protected override void OnRender(DrawingContext drawingContext) => drawingContext.DrawRectangle(Fill, null, new Rect(RenderSize));
     }
     private static readonly ConditionalWeakTable<Window, State> Owners = new();

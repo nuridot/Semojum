@@ -37,8 +37,22 @@ internal static class WindowsInstitutionClientChecks
         check(quote.Url.StartsWith("https://", StringComparison.Ordinal) && fixture.LastUri == "/api/org/orders/3f56ae22-d121-48b1-a804-a3b48e3d3b82/quote",
             "견적서 내려받기 asks GET /api/org/orders/{orderId}/quote for its presigned URL");
         var estimate = await client.CreditEstimateAsync(3000);
-        check(estimate is { Credits: 3000, UnitPriceKrw: 260, AmountKrw: 780000 } && fixture.LastUri == "/api/org/credit-estimate?credits=3000",
+        check(estimate is { Credits: 3000, UnitPriceKrw: 2.6m, AmountKrw: 7800 } && fixture.LastUri == "/api/org/credit-estimate?credits=3000",
             "The credit estimate is the server's VAT-inclusive amount from GET /api/org/credit-estimate?credits=N");
+        foreach (var price in new[] { 1.5m, 1.2m })
+        {
+            fixture.UnitPrice = price;
+            var contractEstimate = await client.CreditEstimateAsync(3000);
+            check(contractEstimate.UnitPriceKrw == price && contractEstimate.AmountKrw == (long)(3000 * price),
+                $"Institution contract estimate preserves the fractional rate {price}");
+        }
+        var contract = (await client.ContractsAsync()).Single();
+        var invoice = (await client.InvoicesAsync()).Single();
+        var document = (await client.DocumentsAsync()).Single();
+        var download = await client.DocumentFileAsync(document.Id);
+        check(contract is { Number: "C-1", End: null } && invoice is { Number: "I-1", Total: 13000, Outstanding: 3000 }
+            && document.Invoice == invoice.Number && download.FileName == "invoice.pdf" && fixture.LastUri == $"/api/org/billing/documents/{document.Id}/download",
+            "Institution contracts, outstanding balances and shared invoice downloads use the organization routes");
         var estimateReads = fixture.Reads;
         try { await client.CreditEstimateAsync(0); check(false, "A credit estimate below one must be rejected"); } catch (ArgumentOutOfRangeException) { }
         check(fixture.Reads == estimateReads, "A credit estimate below one is rejected before any request");
@@ -147,6 +161,7 @@ internal static class WindowsInstitutionClientChecks
     }
     private sealed class Handler : HttpMessageHandler
     {
+        internal decimal UnitPrice = 2.6m;
         internal string Role = "ROLE_ORG_ADMIN"; internal int Writes, Reads; internal string? LastUri, LastBody; internal HttpMethod? LastMethod;
         internal bool Malformed, BadReceipt, RejectOnce, TokenOnly, ForbidReceipt, RejectReceiptOnce, WrongEstimate; internal string RefreshRole = "ROLE_ORG_ADMIN"; internal int RequestPostCount, ReceiptPatchCount;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -174,7 +189,11 @@ internal static class WindowsInstitutionClientChecks
                 "/api/org/accounts" when Malformed => new { usageSince = (string?)null, items = new[] { new { loginId = "a", status = "ACTIVE", role = "ROLE_USER", usedCredits = 1 } } },
                 "/api/org/accounts" => new { usageSince = "2026-01-01", items = new object[] { new { loginId = "a b", alias = (string?)null, status = "ACTIVE", role = "ROLE_USER", lastLoginAt = (string?)null, usedCredits = 7, self = true },
                     new { loginId = "kblib02", alias = "수학 담당", status = "ACTIVE", role = "ROLE_USER", lastLoginAt = (string?)null, usedCredits = 3120, self = false, email = "math@kblib.or.kr", creditLimit = 0, monthUsedCredits = 1140, createdAt = "2026-02-24T10:00:00" } } },
-                "/api/org/credit-estimate" when long.TryParse(request.RequestUri.Query.Split('=').Last(), out var credits) => new { credits = WrongEstimate ? credits + 1 : credits, unitPriceKrw = 260, amountKrw = credits * 260 },
+                "/api/org/contracts" => new[] { new { contractNo = "C-1", status = "ACTIVE", startDate = "2026-02-01", endDate = (string?)null } },
+                "/api/org/billing/invoices" => new[] { new { invoiceNo = "I-1", status = "ISSUED", totalAmount = 13000, outstandingAmount = 3000 } },
+                "/api/org/billing/documents" => new[] { new { id = "3f56ae22-d121-48b1-a804-a3b48e3d3b82", documentNo = "D-1", docType = "INVOICE", invoiceNo = "I-1" } },
+                "/api/org/billing/documents/3f56ae22-d121-48b1-a804-a3b48e3d3b82/download" => new { fileName = "invoice.pdf", url = "https://storage.invalid/invoice" },
+                "/api/org/credit-estimate" when long.TryParse(request.RequestUri.Query.Split('=').Last(), out var credits) => new { credits = WrongEstimate ? credits + 1 : credits, unitPriceKrw = UnitPrice, amountKrw = (long)(credits * UnitPrice) },
                 var p when p.EndsWith("/jobs", StringComparison.Ordinal) => new { loginId = "a b", alias = (string?)null, from = "2026-10-01", to = "2026-10-30", items = new[] { new { jobId = "job-1", fileName = "국어.pdf".Normalize(NormalizationForm.FormD), mode = "a", status = "COMPLETED", totalPages = 3, donePages = (int?)null, failedPages = 1, credits = 4, startedAt = "2026-10-01T00:00:00", finishedAt = (string?)null } }, totalPages = 3, totalCredits = 4 },
                 "/api/org/orders" => new { receiptEmail = (string?)null, items = new[] { new { id = "3f56ae22-d121-48b1-a804-a3b48e3d3b82", orderDate = "2026-10-01", description = "충전", amountKrw = 1200, creditAmount = (long?)null, paidAt = (string?)null, invoiceStatus = "ISSUED", receiptFileName = "receipt.pdf",
                     requestedBy = "kblib00", requestedByRole = "ROLE_ORG_ADMIN", requestedAt = "2026-06-02T02:20:00Z", quoteFileName = "견적서.pdf".Normalize(NormalizationForm.FormD) } } },

@@ -10,21 +10,30 @@ public sealed class UpdateReadyDialog : CompactDialog
 {
     public Button RestartButton { get; }
     public Button DismissButton { get; }
-    public UpdateReadyDialog(Func<Task<bool>> restart) : base("업데이트 준비 완료", 580, 80, popover: true)
+    public UpdateReadyDialog(Func<Task<bool>> restart) : base("업데이트 준비 완료", 560, 66, popover: true)
     {
-        var layout = new Grid();
-        foreach (var width in new[] { 4d, 60d, -1d, 87d, 8d, 84d, 16d })
+        UseLayoutRounding = true;
+        AllowsTransparency = true;
+        Background = Brushes.Transparent;
+        var surface = (Border)Content;
+        surface.CornerRadius = new(8);
+        surface.BorderBrush = Brush("#EAEAEA");
+        surface.Background = Brush("#FBFBFB");
+        var layout = new Grid { Margin = new(16, 0, 16, 0) };
+        foreach (var width in new[] { 24d, 12d, -1d, 12d, 88d, 12d, 88d })
             layout.ColumnDefinitions.Add(new ColumnDefinition { Width = width < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(width) });
-        layout.Children.Add(new Border { Background = Brush("#005FB8") });
-        var icon = new SvgViewbox { Source = new Uri("pack://application:,,,/Semojum.Feature.Shell.Wpf;component/Assets/Figma/update-ready-recon.svg"), Width = 28, Height = 28, Stretch = Stretch.None, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(icon, 1); layout.Children.Add(icon);
+        var icon = EditorModalDesign.Icon("update-ready", 24, 24, "Semojum.Feature.Shell.Wpf");
+        icon.VerticalAlignment = VerticalAlignment.Center;
+        layout.Children.Add(icon);
         var labels = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        labels.Children.Add(new TextBlock { Text = "새 버전이 업데이트되었습니다.", FontSize = 14, FontWeight = FontWeights.Bold, Foreground = Brush("#1A1A1A"), TextTrimming = TextTrimming.CharacterEllipsis });
+        labels.Children.Add(new TextBlock { Text = "새 버전이 업데이트되었습니다.", FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new(0, 0, 0, 4), Foreground = Brush("#1A1A1A"), TextTrimming = TextTrimming.CharacterEllipsis });
         labels.Children.Add(new TextBlock { Text = "다시 시작하면 자동으로 업데이트됩니다.", FontSize = 12, Foreground = Brush("#5F5F5F"), TextTrimming = TextTrimming.CharacterEllipsis });
         Grid.SetColumn(labels, 2); layout.Children.Add(labels);
-        RestartButton = new Button { Content = "다시 시작", Width = 87, Height = 32, MinHeight = 32, Padding = new(0), Background = Brush("#005FB8"), BorderBrush = Brush("#005FB8"), Foreground = Brushes.White, IsDefault = true };
-        DismissButton = new Button { Content = "취소", Width = 84, Height = 32, MinHeight = 32, Padding = new(0), IsCancel = true };
-        Grid.SetColumn(RestartButton, 3); Grid.SetColumn(DismissButton, 5); layout.Children.Add(RestartButton); layout.Children.Add(DismissButton);
+        RestartButton = new Button { Content = "다시 시작", Width = 88, Height = 32, MinHeight = 32, Padding = new(0), Background = Brush("#005FB8"), BorderBrush = Brush("#005FB8"), Foreground = Brushes.White, IsDefault = true };
+        DismissButton = new Button { Content = "취소", Width = 88, Height = 32, MinHeight = 32, Padding = new(0), IsCancel = true };
+        DismissButton.Background = Brush("#FBFBFB"); DismissButton.BorderBrush = Brush("#D1D1D1");
+        DismissButton.Template = RestartButton.Template = EditorModalDesign.ButtonTemplate(typeof(Button));
+        Grid.SetColumn(DismissButton, 4); Grid.SetColumn(RestartButton, 6); layout.Children.Add(DismissButton); layout.Children.Add(RestartButton);
         DismissButton.Click += (_, _) => Close();
         RestartButton.Click += async (_, _) =>
         {

@@ -13,7 +13,7 @@ namespace Semojum.Desktop.Services;
 
 internal static class WindowsPublicDesignChecks
 {
-    internal static async Task RunAsync(Action<bool, string> check)
+    internal static async Task RunAsync(Action<bool, string> check, string directory)
     {
         var fixture = new Fixture(); using var http = new HttpClient(fixture); var api = new SemojumApiClient(http);
         var notices = new PublicNoticesDialog(api); notices.Show();
@@ -71,15 +71,25 @@ internal static class WindowsPublicDesignChecks
         try
         {
             await Task.Delay(50); inquiry.UpdateLayout();
-            check(inquiry.Width == 540 && inquiry.Height == 528, "Public inquiry uses the final 540x528 modal");
-            var close = Descendants(inquiry).OfType<Button>().FirstOrDefault(b => AutomationProperties.GetAutomationId(b) == "PublicInquiryClose");
+            check(inquiry.Width == 820 && inquiry.Height == 510, "A3 login inquiry uses the 820×510 Figma window");
+            Rect FormBounds(FrameworkElement e) => e.TransformToAncestor(inquiry).TransformBounds(new Rect(0,0,e.ActualWidth,e.ActualHeight));
+            var address = Descendants(inquiry).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "답 받을 주소");
+            var messageInput = Descendants(inquiry).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "내용");
+            var sendAction = Descendants(inquiry).OfType<Button>().Single(b => Equals(b.Content, "보내기"));
+            var scroll = Descendants(inquiry).OfType<ScrollViewer>().Single(v => AutomationProperties.GetAutomationId(v) == "InquiryFormScroll");
+            var a3Email = FormBounds(address); var a3Body = FormBounds(messageInput); var a3Send = FormBounds(sendAction);
+            check(Math.Abs(a3Email.X-195) <= 2 && Math.Abs(a3Email.Y-89) <= 2 && Math.Abs(a3Email.Width-592) <= 2 && a3Email.Height == 32
+                && Math.Abs(a3Body.Y-221) <= 2 && a3Body.Height == 140 && Math.Abs(a3Send.X-699) <= 2 && Math.Abs(a3Send.Y-453) <= 2
+                && a3Send.Width == 88 && a3Send.Height == 32 && scroll.ScrollableHeight == 0,
+                "A3 fits email, multiline message and send action at their Figma coordinates without scrolling");
+            var close = Descendants(inquiry).OfType<Button>().FirstOrDefault(b => AutomationProperties.GetName(b) == "닫기");
             check(close?.Content is SvgViewbox { Width: 16, Height: 16, Drawings.Bounds.IsEmpty: false }, "Public inquiry title uses the exact Figma close icon");
             var upload = Descendants(inquiry).OfType<Button>().FirstOrDefault(b => AutomationProperties.GetAutomationId(b) == "PublicInquiryAttachment");
-            var limit = Descendants(inquiry).OfType<TextBlock>().SingleOrDefault(t => t.Text == "최대 3개 · 10MB 제한");
-            check(upload is { IsEnabled: true, Width: 104, Height: 32, Opacity: 1, ToolTip: null } && limit is { IsVisible: true, FontSize: 12, Foreground: SolidColorBrush { Color: var muted } } && muted == Color.FromRgb(95, 95, 95)
+            var limit = Descendants(inquiry).OfType<TextBlock>().SingleOrDefault(t => t.Text == "최대 3개 · 10MB");
+            check(upload is { IsEnabled: true, Width: 88, Height: 32, Opacity: 1, ToolTip: null } && limit is { IsVisible: true, FontSize: 12, Foreground: SolidColorBrush { Color: var muted } } && muted == Color.FromRgb(95, 95, 95)
                 && limit.TransformToAncestor(inquiry).Transform(new Point()).X - upload.TransformToAncestor(inquiry).Transform(new Point(upload.ActualWidth, 0)).X is >= 11 and <= 13
                 && !Descendants(inquiry).OfType<TextBlock>().Any(t => t.Text.Contains("지원되지 않습니다", StringComparison.Ordinal)),
-                "The inquiry 「파일」 button is enabled with the Figma 「최대 3개 · 10MB 제한」 12px beside it");
+                "The inquiry 「파일 추가」 button is enabled with the Figma 「최대 3개 · 10MB」 12px beside it");
             var attached = Descendants(inquiry).OfType<ListBox>().Single(l => AutomationProperties.GetAutomationId(l) == "PublicInquiryAttachments");
             check(!attached.IsVisible, "No attachment list shows before a file is chosen");
             var attachmentPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "qa1110-" + Guid.NewGuid() + ".txt");
@@ -104,16 +114,16 @@ internal static class WindowsPublicDesignChecks
                 }
                 System.IO.File.Delete(attachmentPath);
             }
-            check(HasIcon(inquiry, "public-inquiry-chevron.svg") && upload is not null && HasIcon(upload, "public-inquiry-upload.svg"),
-                "Inquiry category and attachment slots use the matching Figma 16px icons");
+            check(Equals(upload?.Content, "파일 추가") && Descendants(inquiry).OfType<ListBoxItem>().Count(i => i.IsVisible && i.Content is string) == 4,
+                "The inquiry shows four radio choices and the text-only add-file button");
             check(Descendants(inquiry).OfType<TextBox>().Any(b => AutomationProperties.GetName(b) == "기관명")
                 && Descendants(inquiry).OfType<TextBox>().Any(b => AutomationProperties.GetName(b) == "제목"), "Organization and title fields remain available");
-            var category = Descendants(inquiry).OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "분류");
+            var category = Descendants(inquiry).OfType<ListBox>().Single(c => AutomationProperties.GetName(c) == "분류");
             check(category.Items.Cast<string>().SequenceEqual(["계정 · 발급", "점역 결과", "크레딧 · 결제", "사용법"]) && Equals(category.SelectedItem, "계정 · 발급"),
                 "Inquiry categories follow the final Figma list and start at 「계정 · 발급」");
             check(!Descendants(inquiry).OfType<TextBlock>().Any(t => t.Text.Contains("전달됩니다", StringComparison.Ordinal) || t.Text.Contains("문의 이메일", StringComparison.Ordinal)),
                 "The inquiry form has no delivery-scope or contact-mail lines that the final Figma does not show");
-            check(Descendants(inquiry).OfType<CheckBox>().Any(c => Equals(c.Content, "개인정보 수집·이용에 동의합니다 (답변 목적 · 1년 보관)"))
+            check(Descendants(inquiry).OfType<CheckBox>().Any(c => AutomationProperties.GetName(c).Contains("답변 목적 · 1년 보관", StringComparison.Ordinal))
                 && Descendants(inquiry).OfType<TextBlock>().Any(t => t.IsVisible && t.Text.Contains("1년 보관", StringComparison.Ordinal)),
                 "The inquiry consent states the final purpose and one-year retention period");
             var consent = Descendants(inquiry).OfType<CheckBox>().Single(c => AutomationProperties.GetAutomationId(c) == "PublicInquiryConsent");
@@ -122,7 +132,7 @@ internal static class WindowsPublicDesignChecks
             consent.IsChecked = true; inquiry.UpdateLayout();
             check(HasIcon(consent, "public-inquiry-check.svg"), "The checked inquiry consent uses the original Figma 16px icon");
             consent.IsChecked = false;
-            var inquiryScroll = Descendants(inquiry).OfType<ScrollViewer>().First(s => s.Content is StackPanel);
+            var inquiryScroll = Descendants(inquiry).OfType<ScrollViewer>().Single(s => AutomationProperties.GetAutomationId(s) == "InquiryFormScroll");
             var consentTop = consent.TransformToAncestor(inquiryScroll).Transform(new Point()).Y;
             check(consentTop >= 0 && consentTop + consent.ActualHeight <= inquiryScroll.ViewportHeight + 1,
                 $"Default inquiry window fully displays consent above the footer (top={consentTop:F1}, height={consent.ActualHeight:F1}, viewport={inquiryScroll.ViewportHeight:F1})");
@@ -132,11 +142,43 @@ internal static class WindowsPublicDesignChecks
             var send = Descendants(inquiry).OfType<Button>().Single(b => Equals(b.Content, "보내기"));
             check(inquiryScroll.ScrollableHeight > 0 && consentTop >= 0 && consentTop + consent.ActualHeight <= inquiryScroll.ViewportHeight + 1 && send.IsVisible && send.IsEnabled,
                 "A smaller inquiry window can scroll to consent while the send button remains accessible");
-            inquiry.Width = 540; inquiry.Height = 528; inquiryScroll.ScrollToTop();
+            inquiry.Width = 820; inquiry.Height = 510; inquiryScroll.ScrollToTop();
             await inquiry.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle); inquiry.UpdateLayout();
             if (Environment.GetEnvironmentVariable("PUBLIC_INQUIRY_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(inquiry, capture);
         }
         finally { inquiry.Close(); }
+        var page = new PublicInquiryDialog(api, standalone: true); page.Show();
+        try
+        {
+            await page.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            page.UpdateLayout();
+            var scroll = Descendants(page).OfType<ScrollViewer>().Single(s => AutomationProperties.GetAutomationId(s) == "InquiryFormScroll");
+            var card = (Border)scroll.Content;
+            check(page.WindowState == WindowState.Maximized && Math.Abs(card.ActualWidth - 720) < 1 && card.Padding == new Thickness(32, 24, 32, 24),
+                "G7 opens full-screen with a centered 720px inquiry card and design padding");
+            var back = Descendants(page).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "돌아가기");
+            check(HasIcon(back, "inquiry-back.svg") && !Descendants(page).OfType<Button>().Any(b => Equals(b.Content, "취소")), "G7 uses the back arrow and a single send action");
+            // Restore the normal window at the reference viewport after checking its maximized entry.
+            page.WindowState = WindowState.Normal;
+            page.MaxWidth = page.MaxHeight = double.PositiveInfinity;
+            page.Width = 1440; page.Height = 1000;
+            await page.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            page.UpdateLayout();
+            await WindowsSmoke.RenderAsync(page, System.IO.Path.Combine(directory,"public-inquiry.png"));
+            void At(FrameworkElement control, double x, double y, double width, double height)
+            {
+                var point = control.TranslatePoint(new(), page);
+                check(Math.Abs(point.X-x) <= 1 && Math.Abs(point.Y-y) <= 1 && Math.Abs(control.ActualWidth-width) <= 1 && Math.Abs(control.ActualHeight-height) <= 1,
+$"G7 {control.Name} at {point.X},{point.Y} {control.ActualWidth}x{control.ActualHeight} matches {x},{y} {width}x{height}");
+            }
+            At(card,360,113,720,530);
+            At(Descendants(page).OfType<TextBox>().Single(t => t.Name == "EmailInput"),555,222,492,32);
+            At(Descendants(page).OfType<TextBox>().Single(t => t.Name == "MessageInput"),555,354,492,140);
+            At(Descendants(page).OfType<Button>().Single(b => Equals(b.Content,"보내기")),959,586,88,32);
+            back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            check(!page.IsVisible, "G7 back returns without submitting an untouched inquiry");
+        }
+        finally { if (page.IsVisible) page.Close(); }
     }
     private static async Task WaitUntilAsync(Func<bool> predicate)
     {

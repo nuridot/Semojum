@@ -7,7 +7,7 @@ namespace Semojum.Desktop.Services;
 internal static class WindowsFocusedChecks
 {
     private static readonly HashSet<string> Areas = new(StringComparer.OrdinalIgnoreCase)
-        { "panels", "recovery", "events", "math", "qa1117", "incremental", "original", "imefont", "export", "tablememo", "drafts", "qa1110", "board", "institution", "editor", "appearance", "usage", "rules", "dialogs", "windows", "account" };
+        { "notices", "progress", "responsive", "ribbon", "update", "panels", "recovery", "events", "math", "qa1117", "incremental", "original", "imefont", "export", "tablememo", "drafts", "qa1110", "board", "institution", "editor", "appearance", "usage", "rules", "dialogs", "windows", "account" };
 
     internal static bool IsKnownArea(string area) => Areas.Contains(area);
 
@@ -29,7 +29,25 @@ internal static class WindowsFocusedChecks
         {
             switch (area.ToLowerInvariant())
             {
+                case "notices":
+                    WindowsCaseDesignChecks.Run(Check);
+                    await WindowsPdfPasswordChecks.RunAsync(Check);
+                    break;
+                case "progress":
+                    await WindowsTabProgressChecks.RunAsync(Check);
+                    break;
+                case "responsive":
+                    await WindowsResponsiveChecks.RunAsync(Check);
+                    break;
+                case "ribbon":
+                    await WindowsRibbonWorkflowChecks.RunAsync(Check);
+                    break;
+                case "update":
+                    await WindowsUpdateSafetyChecks.RunAsync(Check);
+                    await WindowsRequiredUpdateChecks.RunAsync(Check);
+                    break;
                 case "panels":
+                    await WindowsPanelContextChecks.RunAsync(directory, Check);
                     await WindowsStatusZoomChecks.RunAsync(directory, Check);
                     await WindowsPanelWheelChecks.RunAsync(Check);
                     await WindowsOriginalWheelChecks.RunAsync(Check);
@@ -76,6 +94,7 @@ internal static class WindowsFocusedChecks
                 case "tablememo":
                     await WindowsQa1110TableChecks.RunPreviewAsync(Check);
                     await WindowsMemoDeleteChecks.RunAsync(directory, Check);
+                    await WindowsMemoFrameChecks.RunAsync(directory, Check);
                     await WindowsMemoRestoreChecks.RunAsync(directory, Check);
                     await WindowsTableDockChecks.RunAsync(directory, Check);
                     break;
@@ -88,6 +107,9 @@ internal static class WindowsFocusedChecks
                     await WindowsQa1110Checks.RunAsync(Check);
                     break;
                 case "board":
+                    if (Environment.GetEnvironmentVariable("BOARD_NOTICE_QA_ORIGIN") is { Length: > 0 } origin)
+                    { await WindowsNotificationChecks.RunLiveAsync(origin, directory, Check); break; }
+                    await WindowsNotificationChecks.RunAsync(Check, directory);
                     WindowsGridIsolationChecks.Run(Check);
                     await WindowsBoardDesignChecks.RunAsync(Check);
                     await WindowsBoardLatencyChecks.RunAsync(Check);
@@ -102,15 +124,28 @@ internal static class WindowsFocusedChecks
                     await WindowsUsageFeedbackChecks.RunAsync(Check);
                     break;
                 case "rules":
-                    await WindowsRuleDesignChecks.RunAsync(Check);
+                    await WindowsRuleDesignChecks.RunAsync(Check, directory);
+                    await WindowsRuleCatalogChecks.RunAsync(directory, Check);
                     break;
                 case "dialogs":
                     await WindowsPublicInquiryFieldsChecks.RunAsync(Check);
-                    await WindowsPublicDesignChecks.RunAsync(Check);
-                    await WindowsFormDesignChecks.RunAsync(Check);
-                    await WindowsRangeDesignChecks.RunAsync(Check);
-                    await WindowsGoToDesignChecks.RunAsync(Check);
+                    await WindowsPublicDesignChecks.RunAsync(Check, directory);
+                    await WindowsVisualDescriptionDesignChecks.RunAsync(directory, Check);
+                    await WindowsFormDesignChecks.RunAsync(directory, Check);
+                    await WindowsFooterChecks.RunAsync(directory, Check);
+                    await WindowsAppearanceFrameChecks.RunAsync(directory, Check);
+                    await WindowsRangeDesignChecks.RunAsync(Check, directory);
+                    await WindowsNavigationDialogChecks.RunAsync(directory, Check);
+                    await WindowsAboutDesignChecks.RunAsync(directory, Check);
                     await WindowsNoticeDesignChecks.RunAsync(directory, Check);
+                    await WindowsLayoutDialogChecks.RunAsync(directory, Check);
+                    await WindowsSixDotChecks.RunAsync(directory, Check);
+                    await WindowsConversionFormChecks.RunAsync(directory, Check);
+                    await WindowsImageOrderChecks.RunAsync(directory, Check);
+                    await WindowsPrintPreviewFrameChecks.RunAsync(directory, Check);
+                    await WindowsEditorToolChecks.RunAsync(directory, Check);
+                    await WindowsUploadLimitChecks.RunAsync(directory, Check);
+                    await WindowsUploadSafetyChecks.RunAsync(directory, Check);
                     WindowsFileDialogDesignChecks.Run(Check);
                     break;
                 case "windows":
@@ -123,9 +158,10 @@ internal static class WindowsFocusedChecks
                     await WindowsAccountChecks.RunAsync(Check);
                     WindowsLoginDesignChecks.Run(Check);
                     await WindowsLoginLegalChecks.RunAsync(Check, directory);
+                    await WindowsAuthenticationFormChecks.RunAsync(Check, directory);
                     await WindowsAccountChecks.CheckLogoutCancellationAsync(Check);
                     await WindowsAccountChecks.CheckRoleChangeAsync(Check);
-                    await WindowsToolbarAccountChecks.RunAsync(Check);
+                    await WindowsToolbarAccountChecks.RunAsync(Check, directory);
                     await WindowsRequiredUpdateChecks.RunAsync(Check);
                     break;
                 case "editor":

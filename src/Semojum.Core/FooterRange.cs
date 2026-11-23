@@ -15,13 +15,23 @@ public sealed record FooterRange(int Start, int? End, string Text, string? Align
             points[range.Start] = range with { End = null };
             if (range.End is { } end && end < int.MaxValue) points[end + 1] = new(end + 1, null, fallback, alignment);
         }
-        return Continue(points.Values.ToArray());
+        return WithEnds(points.Values.ToArray());
     }
-    public static FooterRange[] Continue(IReadOnlyList<FooterRange> points)
+    private static FooterRange[] WithEnds(FooterRange[] sorted) =>
+        sorted.Select((r, i) => r with { End = i + 1 < sorted.Length ? sorted[i + 1].Start - 1 : null }).ToArray();
+
+    public static FooterRange[] Continue(IReadOnlyList<FooterRange> points) => Continue(points, null);
+
+    public static FooterRange[] Continue(IReadOnlyList<FooterRange> points, IReadOnlySet<int>? implicitFallbackStarts)
     {
-        var sorted = points.OrderBy(r => r.Start).ToArray();
-        var result = sorted.Select((r, i) => r with { End = i + 1 < sorted.Length ? sorted[i + 1].Start - 1 : null }).ToArray();
-        Validate(result); return result;
+        var result = WithEnds(points.OrderBy(r => r.Start).ToArray());
+        ValidateSpans(result);
+        // A finite legacy range can occupy two rows in the editor. The document already
+        // supplies unchanged fallback intervals, so those rows need no extra storage.
+        if (result.Length > 1000 && implicitFallbackStarts is not null)
+            result = result.Where(r => !implicitFallbackStarts.Contains(r.Start)).ToArray();
+        if (result.Length > 1000) throw new ArgumentException("꼬리말 범위는 1,000개까지 지정할 수 있습니다.");
+        return result;
     }
     public static FooterRange[] Insert(IReadOnlyList<FooterRange> current, FooterRange inserted)
     {
@@ -36,8 +46,12 @@ public sealed record FooterRange(int Start, int? End, string Text, string? Align
     public static void Validate(IReadOnlyList<FooterRange> ranges)
     {
         if (ranges.Count > 1000) throw new ArgumentException("꼬리말 범위는 1,000개까지 지정할 수 있습니다.");
+        ValidateSpans(ranges.OrderBy(r => r?.Start));
+    }
+    private static void ValidateSpans(IEnumerable<FooterRange> ranges)
+    {
         var end = 0;
-        foreach (var range in ranges.OrderBy(r => r?.Start))
+        foreach (var range in ranges)
         {
             if (range is null || range.Start < 1 || range.Start <= end || range.End < range.Start || range.Text is null || range.Text.Length > 200 || range.Alignment is not (null or "left" or "center" or "right"))
                 throw new ArgumentException("시작 면은 1 이상, 끝 면은 시작 면 이상으로 입력하고 범위가 겹치지 않게 해 주세요. 꼬리말은 200자까지입니다.");

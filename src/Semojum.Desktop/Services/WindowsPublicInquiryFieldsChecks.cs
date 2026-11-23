@@ -166,7 +166,7 @@ internal static class WindowsPublicInquiryFieldsChecks
         dialog.Show(); await done.Task.WaitAsync(TimeSpan.FromSeconds(8));
         if (failure is not null) throw failure;
         var choiceOnly = new PublicInquiryDialog(api); choiceOnly.Show();
-        var type = Descendants(choiceOnly).OfType<ComboBox>().Single();
+        var type = Descendants(choiceOnly).OfType<ListBox>().Single(c => AutomationProperties.GetName(c) == "분류");
         var cancelOnly = Descendants(choiceOnly).OfType<Button>().Single(b => Equals(b.Content, "취소"));
         var confirmation = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) }; var choiceDeadline = DateTime.UtcNow.AddSeconds(5); var choiceTimedOut = false;
         confirmation.Tick += (_, _) =>
@@ -194,7 +194,7 @@ internal static class WindowsPublicInquiryFieldsChecks
         var untouchedPurchase = new PublicInquiryDialog(api, "크레딧 구매 문의", PublicInquiryCategory.CreditPayment); untouchedPurchase.Show();
         await untouchedPurchase.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle); untouchedPurchase.UpdateLayout();
         var initialPurchaseTitle = Descendants(untouchedPurchase).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "제목");
-        var initialPurchaseCategory = Descendants(untouchedPurchase).OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "분류");
+        var initialPurchaseCategory = Descendants(untouchedPurchase).OfType<ListBox>().Single(c => AutomationProperties.GetName(c) == "분류");
         check(initialPurchaseTitle.Text == "크레딧 구매 문의" && Equals(initialPurchaseCategory.SelectedItem, "크레딧 · 결제"),
             "A purchase inquiry starts with an editable, explicit inquiry title and the 「크레딧 · 결제」 category");
         untouchedPurchase.Close();
@@ -268,7 +268,7 @@ internal static class WindowsPublicInquiryFieldsChecks
         fixture.Accept = false; var sentBefore = fixture.Bodies.Count;
         var categorized = new PublicInquiryDialog(api); categorized.Show();
         await categorized.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle); categorized.UpdateLayout();
-        var categoryBox = Descendants(categorized).OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "분류");
+        var categoryBox = Descendants(categorized).OfType<ListBox>().Single(c => AutomationProperties.GetName(c) == "분류");
         var categoryFields = Descendants(categorized).OfType<TextBox>().ToArray();
         var categoryMessage = categoryFields.Single(t => t.AcceptsReturn);
         var categorySend = Descendants(categorized).OfType<Button>().Single(b => Equals(b.Content, "보내기"));

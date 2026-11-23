@@ -20,16 +20,32 @@ internal static class WindowsLineTranslationDesignChecks
             window.UpdateLayout(); var strip = pane.PreviewStrip;
             var close = Children(strip).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "줄번역 숨기기");
             var icon = close.Content as SvgViewbox;
-            check(strip.ActualHeight == 90 && strip.Cells.Text == "⠼⠉⠀⠦⠊⠴" && strip.LineLabel.Text == "줄번역", "Braille panel line translation displays the supplied cells at the Figma height");
+            check(strip.ActualHeight == 56 && strip.Cells.Text == "⠼⠉⠀⠦⠊⠴" && strip.LineLabel.Text == "줄 점역", "Braille panel line translation displays the supplied cells at the Figma height");
             check(icon is { Width: 16, Height: 16, Drawings.Bounds.IsEmpty: false } && icon.Source?.ToString().EndsWith("line-preview-close.svg", StringComparison.Ordinal) == true && icon.ActualWidth > 0 && icon.ActualWidth <= 16 && icon.ActualHeight > 0 && icon.ActualHeight <= 16, "Line translation uses the exact Figma close SVG in a 16px slot");
             check(pane.GridView.IsVisible, "Braille grid remains visible while line translation is open");
+            pane.SetLinePreview(8, "⠁\n⠃\n⠉");
+            void Layout()
+            {
+                window.UpdateLayout();
+                window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            }
+            Layout();
+            check(strip.NextLine.IsEnabled && !strip.PreviousLine.IsEnabled, "C4 three-line preview starts at the first row");
+            strip.NextLine.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Layout();
+            check(Math.Abs(strip.Viewport.VerticalOffset - 28) < 1 && strip.PreviousLine.IsEnabled, "Down advances one visible braille row");
+            strip.NextLine.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Layout();
+            check(!strip.NextLine.IsEnabled && strip.PreviousLine.IsEnabled, "Navigation stops at the last braille row");
+            strip.PreviousLine.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Layout();
+            check(Math.Abs(strip.Viewport.VerticalOffset - 28) < 1, "Up returns one braille row");
+            pane.SetLinePreview(9, new string('⠿', 250)); Layout();
+            check(strip.NextLine.IsEnabled && !strip.PreviousLine.IsEnabled && strip.Viewport.VerticalOffset == 0, "An unbroken long translation wraps and starts at its first row");
             close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             check(closed && strip.Visibility == Visibility.Collapsed && pane.GridView.IsVisible, "Closing line translation leaves the braille editor available");
         }
         finally { window.Close(); pane.Dispose(); }
 
         var global = new LineTranslation(); global.SetPreview(3, "⠁⠃");
-        check(global.Height == 64 && global.Cells.Text == "⠁⠃", "The shared editor strip retains its existing 64px height and supplied translation");
+        check(global.Height == 56 && global.Cells.Text == "⠁⠃", "The shared editor strip uses the C4 56px height and supplied translation");
 
         var editor = new MainWindow(smoke: true, testWithoutAccount: true); editor.Show();
         try
@@ -39,7 +55,7 @@ internal static class WindowsLineTranslationDesignChecks
             bool TextLineIs(Color expected) => editor.SourceEditor.TextArea.TextView.CurrentLineBackground is SolidColorBrush source && source.Color == expected
                 && editor.PageEditor.Editor.TextArea.TextView.CurrentLineBackground is SolidColorBrush page && page.Color == expected;
             check(TextLineIs(Color.FromRgb(242, 246, 251)), "New text and source editors use the final Figma current-line color");
-            editor.ApplyAppearance(new EditorAppearance(CurrentLineColor: "#123456"), explicitAppearance: true);
+            editor.ApplyAppearance(new EditorAppearance(CurrentLineColor: "#123456"));
             check(TextLineIs(Color.FromRgb(18, 52, 86)), "An unsaved text current-line color is previewed");
             editor.ApplyAppearance(new());
             check(TextLineIs(Color.FromRgb(242, 246, 251)), "Canceling the preview restores the new default text current-line color");
@@ -48,11 +64,11 @@ internal static class WindowsLineTranslationDesignChecks
             editor.ApplyAppearance(stored);
             check(editor.Braille.GridView.CurrentLineBrush is SolidColorBrush { Color: var saved } && saved == Color.FromRgb(255, 245, 163), "A saved yellow current-line color is preserved");
             check(TextLineIs(Color.FromRgb(255, 245, 163)), "Saved yellow current-line colors remain on text and source editors");
-            var custom = stored with { CurrentLineColor = "#123456" }; editor.ApplyAppearance(custom, explicitAppearance: true);
+            var custom = stored with { CurrentLineColor = "#123456" }; editor.ApplyAppearance(custom);
             check(TextLineIs(Color.FromRgb(18, 52, 86)), "A saved user's text current-line color can be previewed");
-            editor.ApplyAppearance(custom with { HighContrast = true }, explicitAppearance: true);
+            editor.ApplyAppearance(custom with { HighContrast = true });
             check(TextLineIs(Color.FromRgb(32, 32, 32)), "High contrast retains its current-line color");
-            editor.ApplyAppearance(custom, explicitAppearance: true);
+            editor.ApplyAppearance(custom);
             check(editor.Braille.GridView.CurrentLineBrush is SolidColorBrush { Color: var customColor } && customColor == Color.FromRgb(18, 52, 86), "A user preview color is applied to the braille grid");
             editor.ToggleDetached();
             check(editor.DetachedPane?.GridView.CurrentLineBrush is SolidColorBrush { Color: var detached } && detached == Color.FromRgb(18, 52, 86), "A detached braille panel retains the current-line color");

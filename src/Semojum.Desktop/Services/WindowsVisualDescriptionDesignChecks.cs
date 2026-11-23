@@ -1,10 +1,16 @@
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
-using System.Windows.Threading;
 using Semojum.Core;
+using Semojum.Core.Integration;
 using Semojum.Desktop.Dialogs;
 using SharpVectors.Converters;
 
@@ -12,55 +18,115 @@ namespace Semojum.Desktop.Services;
 
 internal static class WindowsVisualDescriptionDesignChecks
 {
-    internal static void Run(Window owner, Action<bool, string> check)
+    internal static async Task RunAsync(string directory, Action<bool,string> check)
     {
-        var values = VisualDescriptions.Defaults(); values["figure"] = new(["생략", "상세"], "상세");
-        var dialog = new VisualDescriptionDialog(values) { Owner = owner }; dialog.Show();
+        using var service = new SettingsFixture();
+        using var http = new HttpClient(service);
+        var api = new SemojumApiClient(http);
+        await api.LoginAsync("fixture","fixture");
+        var window = new MainWindow(smoke:true, testWithoutAccount:true, apiClient:api);
+        window.Show();
         try
         {
-            dialog.UpdateLayout(); var checks = Children(dialog).OfType<CheckBox>().ToArray(); var selectors = Children(dialog).OfType<ComboBox>().ToArray();
-            check(dialog.Width == 700 && dialog.Height == 518 && checks.Length == VisualDescriptions.Choices.Values.Sum(v => v.Length) && selectors.Length == 5, "Visual description dialog uses the final Figma size and only supported choices");
-            var detailed = checks.Single(c => AutomationProperties.GetName(c) == "그림 상세");
-            var omitted = checks.Single(c => AutomationProperties.GetName(c) == "그림 생략");
-            var figureDefault = selectors.Single(c => AutomationProperties.GetName(c) == "그림 기본 설명");
-            check(detailed.IsChecked == true && omitted.IsChecked == true && (string?)figureDefault.SelectedItem == "상세", "Visual description dialog restores the caller's selected options and default");
-            detailed.IsChecked = false; detailed.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            check((string?)figureDefault.SelectedItem == "생략" && values["figure"].DefaultOption == "상세", "Removing the current default chooses an enabled alternative without mutating saved input");
-            var restore = Children(dialog).OfType<Button>().Single(b => Equals(b.Content, "기본값 복원")); restore.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            check(omitted.IsChecked == false && detailed.IsChecked == true && (string?)figureDefault.SelectedItem == "개조식", "Visual description restore returns the original defaults");
-            dialog.UpdateLayout();
-            var icons = Children(dialog).OfType<SvgViewbox>().Where(i => i.IsVisible).ToArray();
-            check(icons.Length > 0 && icons.All(i => i.Drawings is { Bounds.IsEmpty: false } && i.ActualWidth > 0 && i.ActualHeight > 0 && i.ActualWidth <= i.Width + 1 && i.ActualHeight <= i.Height + 1), "Visual description Figma SVGs render in their intended slots");
+            await Open(async dialog =>
+            {
+                var types = List(dialog);
+                check(dialog.Title == "대체 초안 유형" && dialog.ActualWidth == 680 && dialog.ActualHeight == 442 &&
+                    types.Items.Count == 5 && types.SelectedIndex == 0, "The ribbon opens the 680x442 two-column figure description settings");
+                var input = Choice(dialog,"그림 생략");
+                var origin = input.TranslatePoint(new(),dialog);
+                check(origin == new Point(201,89) && input.ActualWidth == 454 && input.ActualHeight == 40,
+                    $"The first description row is at {origin} and measures {input.ActualWidth}x{input.ActualHeight}");
+                check(Items<TextBlock>(types).Where(t => t.Text.Contains('/')).Select(t => t.Text).SequenceEqual(["4/6","4/4","3/6","4/6","2/4"]),
+                    "Initial enabled counts match the Figma for all five material types");
+                check(Items<SvgViewbox>(dialog).Where(i => i.IsVisible).All(i => i.Drawings is { Bounds.IsEmpty:false }),
+                    "The original close, reset and checkmark artwork renders");
+                await WindowsSmoke.RenderAsync(dialog,Path.Combine(directory,"visual-types.png"));
+                input.IsChecked = true;
+                var preferred = input.ContextMenu!.Items.OfType<MenuItem>().Single();
+                check(preferred.IsEnabled, "A selected description exposes its default-setting command");
+                preferred.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                types.SelectedIndex = 1;
+                dialog.UpdateLayout();
+                Choice(dialog,"표 풀어쓰기").IsChecked = false;
+                types.SelectedIndex = 0;
+                dialog.UpdateLayout();
+                check(Choice(dialog,"그림 생략").IsChecked == true && AutomationProperties.GetHelpText(Choice(dialog,"그림 생략")) == "현재 기본 설명",
+                    "Switching material categories retains the selected choices and preferred description");
+                Press(dialog,"확인");
+            });
+            var saved = window.Session.Options.VisualDescriptions!;
+            check(service.Writes == 1 && saved["figure"].DefaultOption == "생략" && saved["table"].Options.Length == 3 &&
+                service.Stored["visualDescriptions"]?["figure"]?["defaultOption"]?.GetValue<string>() == "생략" &&
+                service.Stored["formId"]?.GetValue<string>() == "builtin:EXAM", "Confirm saves the selected default through the account API and applies it to the open document");
+            var file = Path.Combine(directory,"visual-types.smj");
+            await SmjFile.SaveAsync(file,SmjFile.Snapshot(window.Session));
+            var reloaded = await SmjFile.LoadAsync(file);
+            check(reloaded.Options.VisualDescriptions?["figure"].DefaultOption == "생략" && reloaded.Options.VisualDescriptions["table"].Options.Length == 3,
+                "Reopening the SMJ restores the document description choices and default");
+            await Open(dialog =>
+            {
+                var types = List(dialog);
+                var omit = Choice(dialog,"그림 생략");
+                check(omit.IsChecked == true && AutomationProperties.GetHelpText(omit) == "현재 기본 설명", "Reopening settings loads the saved preferred option");
+                omit.IsChecked = false;
+                check(AutomationProperties.GetHelpText(Choice(dialog,"그림 짧은 제목")) == "현재 기본 설명", "Removing the preferred choice picks the first remaining enabled description");
+                foreach (var choice in Items<CheckBox>(dialog).ToArray()) choice.IsChecked = false;
+                types.SelectedIndex = 2;
+                Press(dialog,"확인");
+                dialog.UpdateLayout();
+                check(dialog.IsVisible && types.SelectedIndex == 0 && Items<TextBlock>(dialog).Any(t => t.IsVisible && t.Text.Contains("하나 이상")),
+                    "Saving locates a category left empty even when another category is open");
+                var restore = Items<Button>(dialog).Single(b => AutomationProperties.GetName(b) == "기본값 복원");
+                restore.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                types.SelectedIndex = 1;
+                dialog.UpdateLayout();
+                check(Choice(dialog,"표 풀어쓰기").IsChecked == true, "Restore resets inactive categories as well as the selected one");
+                Press(dialog,"취소");
+                return Task.CompletedTask;
+            });
+            check(service.Writes == 1 && window.Session.Options.VisualDescriptions!["figure"].DefaultOption == "생략", "Cancel after reset leaves account and document choices unchanged");
         }
-        finally { dialog.Close(); }
+        finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
 
-        var save = new VisualDescriptionDialog(values) { Owner = owner }; var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) }; var deadline = DateTime.UtcNow.AddSeconds(5);
-        timer.Tick += (_, _) =>
-        {
-            if (!save.IsVisible) { if (DateTime.UtcNow >= deadline) timer.Stop(); return; }
-            timer.Stop(); var omit = Children(save).OfType<CheckBox>().Single(c => AutomationProperties.GetName(c) == "그림 생략");
-            omit.IsChecked = false; omit.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            Children(save).OfType<Button>().Single(b => Equals(b.Content, "확인")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        };
-        try { timer.Start(); check(save.ShowDialog() == true && save.Result["figure"].Options.SequenceEqual(["상세"]) && save.Result["figure"].DefaultOption == "상세" && values["figure"].Options.SequenceEqual(["생략", "상세"]), "Confirm returns selected descriptions without changing caller data"); }
-        finally { timer.Stop(); }
-
-        var invalid = new VisualDescriptionDialog(values) { Owner = owner }; var blocked = false;
-        var invalidTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) }; var invalidDeadline = DateTime.UtcNow.AddSeconds(5);
-        invalidTimer.Tick += (_, _) =>
-        {
-            if (!invalid.IsVisible) { if (DateTime.UtcNow >= invalidDeadline) invalidTimer.Stop(); return; }
-            invalidTimer.Stop(); foreach (var box in Children(invalid).OfType<CheckBox>().Where(c => AutomationProperties.GetName(c).StartsWith("그림 ", StringComparison.Ordinal))) { box.IsChecked = false; box.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); }
-            Children(invalid).OfType<Button>().Single(b => Equals(b.Content, "확인")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            blocked = invalid.IsVisible && Children(invalid).OfType<TextBlock>().Any(t => t.IsVisible && t.Text.Contains("하나 이상", StringComparison.Ordinal));
-            Children(invalid).OfType<Button>().Single(b => Equals(b.Content, "취소")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        };
-        try { invalidTimer.Start(); check(invalid.ShowDialog() == false && blocked, "Empty visual description choices are rejected before saving"); }
-        finally { invalidTimer.Stop(); }
+        Task Open(Func<VisualDescriptionDialog,Task> inspect) => WindowsSmoke.WithModal(() => window.ExecuteAsync("visualDescriptions"),inspect);
     }
-    private static IEnumerable<DependencyObject> Children(DependencyObject root)
+
+    private static ListBox List(Window window) => Items<ListBox>(window).Single(b => AutomationProperties.GetName(b) == "자료 유형");
+    private static CheckBox Choice(Window window,string name) => Items<CheckBox>(window).Single(b => AutomationProperties.GetName(b) == name);
+    private static void Press(Window window,string label) => Items<Button>(window).Single(b => Equals(b.Content,label)).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+    private static IEnumerable<T> Items<T>(DependencyObject root) where T:DependencyObject
     {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-        { var child = VisualTreeHelper.GetChild(root, i); yield return child; foreach (var nested in Children(child)) yield return nested; }
+        for (int i=0; i<VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root,i);
+            if (child is T item) yield return item;
+            foreach (var nested in Items<T>(child)) yield return nested;
+        }
+    }
+
+    private sealed class SettingsFixture : HttpMessageHandler
+    {
+        internal JsonObject Stored { get; private set; } = new() { ["formId"]="builtin:EXAM", ["pageNumberLine"]="odd" };
+        internal int Writes { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken token)
+        {
+            JsonNode result = new JsonObject();
+            switch (request.RequestUri!.AbsolutePath)
+            {
+                case "/api/auth/login":
+                    result = new JsonObject { ["accessToken"]="fixture", ["refreshToken"]="fixture", ["role"]="ROLE_USER", ["alias"]="검수자" };
+                    break;
+                case "/api/users/braille-options":
+                    if (request.Method == HttpMethod.Put)
+                    {
+                        Stored = JsonNode.Parse(await request.Content!.ReadAsStringAsync(token))!.AsObject();
+                        Writes++;
+                    }
+                    result = Stored;
+                    break;
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { isSuccess=true,result }), Encoding.UTF8,"application/json") };
+        }
     }
 }

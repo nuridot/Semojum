@@ -19,6 +19,7 @@ public partial class MainWindow
     private const string SpacingReason = "직접 고친 점자의 빈 줄이 조판 빈 줄과 겹치거나 엔진이 쪽 빈 줄을 정하지 못한 블록입니다.";
     private void ConnectGrid(BraillePane pane)
     {
+        ConnectPanelZoom(pane.FacePageBar, pane.Header, ZoomPanel.Braille);
         pane.PreviewMouseDown += (_, _) => ActivateZoom(ZoomPanel.Braille);
         pane.GotKeyboardFocus += (_, _) => ActivateZoom(ZoomPanel.Braille);
         pane.GridView.PreviewMouseDown += (_, _) => { if (regionOwner is not null) SetActiveEditor(pane.Editor); };
@@ -86,7 +87,20 @@ public partial class MainWindow
 
             async Task<ComposedBraille> ComposeAndReportAsync()
             {
-                var result = await local.ComposeAsync(SmjFile.Snapshot(model, false).Manifest, documentLifetime.Token);
+                var snapshot = SmjFile.Snapshot(model, false).Manifest;
+                var failed = model.PageStatuses.Keys.Where(model.IsConversionFailed).ToHashSet();
+                if (failed.Count > 0)
+                {
+                    // Reserve the rows in this view. The compositor maps these cells back to the failed block,
+                    // and the grid blanks them before display. Saved and exported braille keep their real contents.
+                    snapshot = snapshot with { Blocks = snapshot.Blocks.Select(b => !failed.Contains(b.Page) ? b : b with
+                    {
+                        Source = "", Braille = b.Braille.Length == 0 ? "⠁" :
+                            new string(b.Braille.Select(c => c is '\r' or '\n' or '⠀' or ' ' ? c : '⠁').ToArray()),
+                        HasManualBraille = true, Translation = null, Metadata = new()
+                    }).ToArray() };
+                }
+                var result = await local.ComposeAsync(snapshot, documentLifetime.Token);
                 if (session == model && result.SpacingUnknownBlockIds is { Length: > 0 } ids)
                     model.Status = "조판 빈 줄 확인 필요: 블록 " + DescribeSpacingBlocks(ids) + ". " + SpacingReason;
                 if (session == model && result.AlignmentUnknownBlockIds is { Length: > 0 } alignmentIds)
@@ -131,7 +145,7 @@ public partial class MainWindow
     private void ShowLocalTranslationReview(EditorBlock block, Window owner)
     {
         if (block.Translation is not { NeedsReview: true } result) return;
-        NoticeDialog.Choose(owner, "점역 검토 필요", MemoMargin.DescribeReview(result), ["확인"], error: true);
+        NoticeDialog.Choose(owner, "점역 검토 필요", MemoMargin.DescribeReview(result, compact: true), ["확인"], width: 480, height: 178);
     }
 
     private void RefreshLinkedSource()

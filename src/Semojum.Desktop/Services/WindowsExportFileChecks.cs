@@ -15,11 +15,17 @@ internal static class WindowsExportFileChecks
     {
         var folder = Path.Combine(directory, "range-output-" + Guid.NewGuid()); Directory.CreateDirectory(folder);
         var window = new MainWindow(testWithoutAccount: true);
-        var notices = new List<(string Message, string[] Labels, bool Red)>(); var rejectExisting = false; var clicked = -2;
+        var notices = new List<(string Message, string Detail, string[] Labels, bool Red)>(); var rejectExisting = false; var clicked = -2;
         window.ExportConfirmation = notice =>
         {
-            notices.Add((notice.MessageText, notice.ActionButtons.Select(b => (string)b.Content).ToArray(),
+            notices.Add((notice.MessageText, notice.DetailText, notice.ActionButtons.Select(b => (string)b.Content).ToArray(),
                 notice.ActionButtons[0].Background is SolidColorBrush { Color: var c } && c == Color.FromRgb(196, 43, 28)));
+            if (notice.MessageText == "내보내기 전에 확인할 자리가 있습니다.")
+            {
+                notice.Loaded += (_, _) => notice.Dispatcher.BeginInvoke(new Action(() => notice.ActionButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent))));
+                notice.ShowDialog();
+                return notice.Choice;
+            }
             if (!rejectExisting || notice.MessageText != "형식 변경으로 선택한 파일이 이미 있습니다.") { notice.Close(); return 0; }
             // Show the real message window once and press 「취소」 so the button, not only the hook, decides.
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -29,6 +35,8 @@ internal static class WindowsExportFileChecks
         };
         try
         {
+            window.Show();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             var document = new DocumentSession { Layout = new(Columns: 16, Lines: 4, PageNumbers: "출력 안 함", Footer: "모든 페이지"), FooterText = "바" };
             document.Add(new EditorBlock { Id = 1, Page = 1, Source = "가나다", Braille = "⠫⠉⠊", HasManualBraille = true });
             document.Add(new EditorBlock { Id = 2, Page = 2, Source = "다른 쪽", Braille = "⠙", HasManualBraille = true });
@@ -44,19 +52,25 @@ internal static class WindowsExportFileChecks
                 rejectExisting = rejectOverwrite;
                 window.ExportRangeSelection = async range =>
                 {
-                    var type = typeof(ExportRangeDialog);
-                    var scope = (Semojum.Desktop.Controls.SegmentedChoice)type.GetField("scope", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(range)!;
-                    scope.SelectedIndex = chosen is ".txt — 점자" or ".brf" ? 1 : 0;
-                    for (var i = 0; !scope.IsEnabled && i < 300; i++) await Task.Delay(50);
-                    if (!scope.IsEnabled) throw new TimeoutException("Export page count did not complete");
-                    if (scope.SelectedIndex == 1 && type.GetField("pageCount", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(range) is null)
+                    range.Owner = window;
+                    var interaction = window.Dispatcher.InvokeAsync(async () =>
                     {
-                        var status = (TextBlock)typeof(CompactDialog).GetField("Status", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(range)!;
-                        throw new InvalidOperationException("Braille range count failed: " + status.Text);
-                    }
-                    ((ComboBox)type.GetField("formatChoice", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(range)!).SelectedItem = chosen;
-                    ((TextBox)type.GetField("end", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(range)!).Text = "1";
-                    return (bool)type.GetMethod("Apply", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(range, null)!;
+                        try
+                        {
+                            WindowsExportRangeChecks.Choice(range, chosen is ".txt — 점자" or ".brf" ? "점자 페이지" : "원본 페이지").IsChecked = true;
+                            var save = WindowsExportRangeChecks.Save(range);
+                            var until = DateTime.UtcNow.AddSeconds(15);
+                            while (!save.IsEnabled && DateTime.UtcNow < until) await Task.Delay(20);
+                            if (!save.IsEnabled) throw new TimeoutException("Export page count did not complete");
+                            WindowsExportRangeChecks.Choice(range, chosen.Replace(" — ", " ")).IsChecked = true;
+                            WindowsExportRangeChecks.Field(range,false).Text = "1";
+                            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        }
+                        finally { if (range.IsVisible) range.Close(); }
+                    }, DispatcherPriority.ApplicationIdle);
+                    var accepted = range.ShowDialog() == true;
+                    await interaction.Task.Unwrap();
+                    return accepted;
                 };
                 Console.WriteLine("RANGE-TEST exporting " + chosen);
                 await ((Task)method.Invoke(window, [proposed, format, true])!).WaitAsync(TimeSpan.FromSeconds(20));
@@ -100,7 +114,7 @@ internal static class WindowsExportFileChecks
             check(!File.Exists(proposedTxt) && bytes.Length > 0 && bytes[^1] == 12 && bytes.All(b => b < 128)
                 && DocumentExport.BrfPages(System.Text.Encoding.ASCII.GetString(bytes)).Length == 1
                 && System.Text.Encoding.ASCII.GetString(bytes).Split("\r\n").Count(line => line.Trim().Length > 0) >= 2
-                && !notices.Any(n => n.Message == "조판 빈 줄을 확인해 주세요."),
+                && !notices.Any(n => n.Message == "내보내기 전에 확인할 자리가 있습니다." && n.Detail.Contains("조판 빈 줄")),
                 "Changing source TXT to BRF writes the selected page with its footer and matching extension; edited braille without blank lines is not questioned");
             await Export(proposedTxt, 2, ".brf", rejectOverwrite: true);
             check((await File.ReadAllBytesAsync(braillePath)).SequenceEqual(bytes) && !File.Exists(proposedTxt) && clicked == 1
@@ -110,13 +124,13 @@ internal static class WindowsExportFileChecks
             // A-5: the engine lays out page blank lines (translate_page). Only an edited block whose typed blank line meets one is questioned.
             var first = reopened.Blocks[0]; first.Metadata = new(Type: "title", HeadingLevel: 2); first.Braille = "⠫⠉⠊\n\n";
             notices.Clear(); await Export(proposedTxt, 2, ".brf");
-            check(notices.Count(n => n.Message == "조판 빈 줄을 확인해 주세요.") == 1
-                && notices.Single(n => n.Message == "조판 빈 줄을 확인해 주세요.").Labels.SequenceEqual(["내보내기", "취소"]) && !notices.Single(n => n.Message == "조판 빈 줄을 확인해 주세요.").Red
+            check(notices.Count(n => n.Message == "내보내기 전에 확인할 자리가 있습니다." && n.Detail.Contains("조판 빈 줄")) == 1
+                && notices.Single(n => n.Message == "내보내기 전에 확인할 자리가 있습니다." && n.Detail.Contains("조판 빈 줄")).Labels.SequenceEqual(["계속", "취소"]) && !notices.Single(n => n.Message == "내보내기 전에 확인할 자리가 있습니다." && n.Detail.Contains("조판 빈 줄")).Red
                 && first.Braille == "⠫⠉⠊\n\n" && first.HasManualBraille,
                 "A manually edited title whose typed blank line meets the layout blank line asks once before export and keeps its cells");
             first.Braille = "⠫⠉⠊"; first.Translation = BrailleTranslation.Plain("⠫⠉⠊") with { SourceText = first.Source }; first.HasManualBraille = false;
             notices.Clear(); await Export(proposedTxt, 2, ".brf");
-            check(!notices.Any(n => n.Message == "조판 빈 줄을 확인해 주세요.") && File.Exists(braillePath),
+            check(!notices.Any(n => n.Message == "내보내기 전에 확인할 자리가 있습니다." && n.Detail.Contains("조판 빈 줄")) && File.Exists(braillePath),
                 "An engine-translated block never raises the blank-line notice on export");
         }
         finally { window.PrepareSmokeShutdown(); window.Close(); await window.ReleaseResourcesAsync(); Directory.Delete(folder, true); }

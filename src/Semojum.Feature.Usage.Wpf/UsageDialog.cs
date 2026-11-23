@@ -19,8 +19,9 @@ public sealed class UsageDialog : CompactDialog
     public string? JobId { get; private set; }
     public string? FileName { get; private set; }
     public bool LogoutRequested { get; private set; }
+    public bool CredentialsRevoked { get; private set; }
     internal TabControl Navigation { get; } = new() { TabStripPlacement = Dock.Left };
-    public UsageDialog(SemojumApiClient api, string workInfo = "", UsageActions? actions = null) : base("마이페이지 - 누리닷", 1440, 1000, editor: true)
+    public UsageDialog(SemojumApiClient api, string workInfo = "", UsageActions? actions = null, bool openInquiries = false) : base("마이페이지 - 누리닷", 1440, 1000, editor: true)
     {
         Background = Brushes.White; ApplyCaptionDesign(); var tabs = Navigation;
         Loaded += (_, _) => WindowState = WindowState.Maximized;
@@ -29,6 +30,7 @@ public sealed class UsageDialog : CompactDialog
         var menu = new Menu { Height = 32, Padding = new(4, 0, 0, 0) };
         // An institution administrator opens my page from the 기관 관리 window and never reaches the editor.
         var administrator = api.Account?.Role == "ROLE_ORG_ADMIN";
+        var personal = api.Account?.MemberType == "PERSONAL";
         var fileMenu = new MenuItem { Header = "파일(_F)", Width = 64 }; menu.Items.Add(fileMenu);
         var closeItem = new MenuItem { Header = administrator ? "닫기" : "편집기로 돌아가기" }; closeItem.Click += (_, _) => Close(); fileMenu.Items.Add(closeItem);
         DockPanel.SetDock(menu, Dock.Top); Root.Children.Add(menu);
@@ -56,9 +58,14 @@ public sealed class UsageDialog : CompactDialog
         System.Windows.Automation.AutomationProperties.SetName(period, "사용량 기간");
         Grid.SetColumn(period, 2); usageHeading.Children.Add(period);
         panel.Children.Add(usageHeading);
+        if (personal) panel.Children.Add(Button("내 크레딧 · 결제 내역 · 청구서", () =>
+        {
+            new PersonalBillingDialog(api) { Owner = this }.ShowDialog();
+            return Task.CompletedTask;
+        }));
         Border Card(UIElement child, double height) => new() { Child = child, Height = height, BorderBrush = ColorBrush("#EAEAEA"), BorderThickness = new(1), CornerRadius = new(8), Background = Brushes.White };
         var summaryPanel = new StackPanel { Margin = new(15, 11, 15, 0) };
-        summaryPanel.Children.Add(new TextBlock { Text = "기관 크레딧", Foreground = (Brush)FindResource("Muted") });
+        summaryPanel.Children.Add(new TextBlock { Text = personal ? "내 크레딧" : "기관 크레딧", Foreground = (Brush)FindResource("Muted") });
         var summaryRow = new DockPanel { Height = 50 }; summaryPanel.Children.Add(summaryRow);
         var summary = new TextBlock { FontSize = 28, FontWeight = FontWeights.SemiBold, MinWidth = 110, VerticalAlignment = VerticalAlignment.Top }; summaryRow.Children.Add(summary);
         System.Windows.Automation.AutomationProperties.SetAutomationId(summary, "OrganizationCreditBalance");
@@ -219,7 +226,14 @@ public sealed class UsageDialog : CompactDialog
         Row(account, "아이디", new TextBlock { Text = api.Account?.LoginId ?? "—" });
         Row(account, "계정명", new TextBlock { Text = api.Account?.DisplayName ?? "—" });
         Row(account, "권한", new TextBlock { Text = api.Account?.Role == "ROLE_ADMIN" ? "운영자" : "사용자" });
-        account.Children.Add(new TextBlock { Text = "계정 정보 변경은 기관 관리자에게 문의해 주세요.", Margin = new(0, 16, 0, 0) });
+        if (personal)
+            account.Children.Add(Button("프로필 · 이메일 · 비밀번호 · 탈퇴", () =>
+            {
+                var profile = new PersonalProfileDialog(api) { Owner = this };
+                if (profile.ShowDialog() == true && profile.SignInAgain) { CredentialsRevoked = true; LogoutRequested = true; DialogResult = true; }
+                return Task.CompletedTask;
+            }));
+        else account.Children.Add(new TextBlock { Text = "계정 정보 변경은 기관 관리자에게 문의해 주세요.", Margin = new(0, 16, 0, 0) });
         tabs.Items.Add(new TabItem { Header = "계정 정보", Content = account });
         // 「기관 관리 · 관리자」 is shown to administrators only (Figma 263:6289-6290) and returns to their open 기관 관리 window.
         var institutionHeader = new DockPanel(); var administratorLabel = new TextBlock { Text = "관리자", Foreground = ColorBrush("#8A8A8A"), Margin = new(0, 0, 12, 0) };
@@ -454,6 +468,7 @@ public sealed class UsageDialog : CompactDialog
         void Open() { if (jobs.SelectedItem is JobRow j) OpenJob(j); }
         jobs.MouseDoubleClick += (_, _) => Open();
 
+        if (openInquiries) tabs.SelectedItem = inquiryTab;
         OnLoad(async () => { await LoadUsageAsync(); try { await LoadJobsAsync(); } catch (Exception ex) when (ex is not OperationCanceledException) { Status.Text = "작업 내역을 불러오지 못했습니다. " + ex.Message; } });
     }
     private static Brush ColorBrush(string value) => (Brush)new BrushConverter().ConvertFromString(value)!;
@@ -534,7 +549,11 @@ public sealed class UsageDialog : CompactDialog
         }
     }
     /// <summary>A 상세 내역 row from /api/users/usage/credit-history: 구분 is the server's USE (사용) or CHARGE (충전); 잔액 is the institution balance after the row (— without an institution).</summary>
-    internal sealed record BillingRow(string Date, string Kind, string Description, string Pages, string Credits, string Balance);
+    internal sealed record BillingRow(string Date, string Kind, string Description, string Pages, string Credits, string Balance)
+    {
+        public bool IsDebit => Credits.StartsWith('-');
+        public bool IsCredit => Credits.StartsWith('+');
+    }
     internal static BillingRow ReadBillingRow(JsonElement item)
     {
         static decimal? Amount(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var n) ? n : null;

@@ -6,5 +6,5 @@ namespace Semojum.UI.Common;
 public interface IEmbeddedScreenHost
 {
     Window Window { get; }
-    Task<T> ShowScreenAsync<T>(FrameworkElement screen, string title, Task<T> completion);
+    Task<T> ShowScreenAsync<T>(FrameworkElement screen, string title, Task<T> completion, FrameworkElement? caption = null);
 }

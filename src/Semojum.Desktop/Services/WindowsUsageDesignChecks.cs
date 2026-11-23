@@ -20,6 +20,8 @@ internal static class WindowsUsageDesignChecks
         await WindowsRecentJobChecks.RunAsync(check);
         var fixture = new Fixture(); using var http = new HttpClient(fixture); var api = new SemojumApiClient(http);
         await api.LoginAsync("fixture", "fixture");
+        await VerifyScrollingPageAsync(check);
+        await VerifyPersonalPageAsync(check);
         var dialog = new UsageDialog(api, actions: DesktopUsageActions.Create(api, "")); dialog.Show();
         try
         {
@@ -217,6 +219,125 @@ internal static class WindowsUsageDesignChecks
         }
         finally { dialog.Close(); }
     }
+    private static async Task VerifyScrollingPageAsync(Action<bool, string> check)
+    {
+        using var http = new HttpClient(new Fixture());
+        var api = new SemojumApiClient(http);
+        await api.LoginAsync("fixture", "fixture");
+        var window = new MyPageWindow(api, "검수", DesktopUsageActions.Create(api, "검수"));
+        window.Show();
+        try
+        {
+            var view = Descendants(window).OfType<MyPageView>().Single();
+            T Named<T>(string name) where T : FrameworkElement => (T)view.FindName(name);
+            await WaitAsync(() => Named<TextBlock>("OrgValue").Text == "8,251 / 10,000");
+            window.WindowState = WindowState.Normal; window.Width = 1440; window.Height = 1000;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
+            var body = Named<StackPanel>("PageBody");
+            var scroll = Named<ScrollViewer>("PageScroll");
+            var icons = Descendants(view).OfType<SvgViewbox>().Where(i => i.Source?.ToString().Contains("mypage-", StringComparison.Ordinal) == true).ToArray();
+            check(icons.Length >= 6 && icons.All(i => i.Drawings is { Bounds.IsEmpty: false }), "My page renders the Figma back, user, menu, notification and disclosure icons");
+            var headings = Descendants(body).OfType<TextBlock>().Where(t => t.FontSize == 20).Select(t => t.Text).ToArray();
+            check(headings.Contains("사용량") && headings.Contains("결제") && headings.Contains("계정 정보") && body.ActualWidth == 1040 &&
+                !Descendants(view).OfType<TabControl>().Any(), "APP_UI E1 places usage, billing and account on a single centered 1040px page");
+            check(Named<TextBlock>("OwnValue").Text == "1,749" && Named<TextBlock>("OwnKind").Text == "이번 달 사용량" &&
+                Math.Round(Named<ProgressBar>("OrgBar").Value) == 83, "My page distinguishes personal usage from the institution's remaining balance");
+            if (Environment.GetEnvironmentVariable("MYPAGE_CAPTURE") is { Length: > 0 } capture)
+                await WindowsSmoke.RenderElementAsync(window, capture);
+            Named<Expander>("Usage").IsExpanded = true;
+            await WaitAsync(() => Named<DataGrid>("UsageRows").Items.Count == 3);
+            check(Named<Expander>("Usage").IsExpanded && Named<TextBlock>("UsagePeriod").Text.Contains("3건"),
+                "E1-1 expands the server's recent credit history on the page");
+            var grid = Named<DataGrid>("UsageRows");
+            var filter = Named<ComboBox>("UsageFilter");
+            filter.SelectedItem = "충전";
+            check(grid.Items.Count == 1 && grid.Items[0] is UsageDialog.BillingRow { Kind: "충전", IsCredit: true },
+                "E1-1 can select just the institution credit grants");
+            filter.SelectedItem = "사용";
+            check(grid.Items.Count == 2 && grid.Items.Cast<UsageDialog.BillingRow>().All(r => r.IsDebit),
+                "E1-1 use history shows only debits");
+            filter.SelectedItem = "전체";
+            check(grid.Items.Count == 3 && grid.RowHeight == 40 && grid.ColumnHeaderHeight == 32,
+                "Choosing all restores the original rows in the 40 DIP design table");
+            Named<Expander>("Payments").IsExpanded = true;
+            check(Named<TextBlock>("PaymentsMessage").Text.Contains("기관 관리자") && !Named<Button>("LeaveAction").IsEnabled,
+                "Institution users see the billing contact and cannot change personal-only credentials");
+            scroll.ScrollToBottom(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            check(scroll.VerticalOffset > 0 && scroll.ScrollableHeight > 0, "Scrolling reaches account settings below the expanded histories");
+            var account = Named<Button>("Account"); account.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var menu = account.ContextMenu!;
+            var pageMenu = menu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, "마이페이지"));
+            check(menu.IsOpen && menu.Width == 220 && menu.Height == 135 && menu.Items.Count == 3 &&
+                menu.Items.OfType<MenuItem>().Any(i => Equals(i.Header, "로그아웃")) && pageMenu.Items.OfType<MenuItem>().Any(i => Equals(i.Header, "문의 내역")),
+                "E1-5 account menu shows identity, My Page and logout, with inquiry history and editor navigation available under My Page");
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); menu.UpdateLayout();
+            if (Environment.GetEnvironmentVariable("MYPAGE_CHILD_CAPTURE") is { } menuCapture)
+                await WindowsSmoke.RenderElementAsync(menu, System.IO.Path.Combine(menuCapture, "E1-5.png"));
+            pageMenu.IsSubmenuOpen = true; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            check(pageMenu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, "문의 내역")).IsVisible, "E1-5 exposes the inquiry history command when the My Page submenu opens");
+            if (account.ContextMenu is not null) account.ContextMenu.IsOpen = false;
+            bool maximized = false;
+            var inspectWriting = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+            inspectWriting.Tick += (_, _) =>
+            {
+                if (Application.Current.Windows.OfType<BoardDialog>().FirstOrDefault(w => w.Owner == window && w.IsVisible) is not { } writing) return;
+                inspectWriting.Stop();
+                maximized = writing.WindowState == WindowState.Maximized && Descendants(writing).OfType<TextBox>().Any(t => t.AcceptsReturn && t.IsVisible);
+                writing.Close();
+            };
+            inspectWriting.Start();
+            try { DesktopUsageActions.Create(api, "검수").NewInquiry(window); }
+            finally { inspectWriting.Stop(); }
+            check(maximized, "My page New Inquiry opens the authenticated writing form maximized on its owner's monitor");
+        }
+        finally { window.Close(); }
+    }
+    private static async Task VerifyPersonalPageAsync(Action<bool, string> check)
+    {
+        var fixture = new Fixture { Personal = true, PagedMovements = true };
+        using var http = new HttpClient(fixture);
+        var api = new SemojumApiClient(http);
+        await api.LoginAsync("fixture", "fixture");
+        var window = new MyPageWindow(api, "검수", DesktopUsageActions.Create(api, "검수"));
+        window.Show();
+        try
+        {
+            var view = Descendants(window).OfType<MyPageView>().Single();
+            T Named<T>(string name) where T : FrameworkElement => (T)view.FindName(name);
+            await WaitAsync(() => Named<Button>("EmailAction").IsEnabled && Named<TextBlock>("PlanName").Text == "Standard");
+            check(Named<TextBlock>("OwnValue").Text == "886,000 / 1,000,000" && Named<TextBlock>("Renewal").Text.Contains("다음 크레딧 지급")
+                && Named<TextBlock>("AlertCount").Text == "2" && Named<TextBlock>("EmailValue").Text.EndsWith("@example.test"),
+                "Personal E1 presents the authenticated wallet, real plan, email and unread count");
+            Named<Expander>("Payments").IsExpanded = true;
+            Named<Expander>("Usage").IsExpanded = true;
+            var grid = Named<DataGrid>("UsageRows");
+            var filter = Named<ComboBox>("UsageFilter");
+            var more = Named<Button>("UsageMore");
+            await WaitAsync(() => Named<DataGrid>("PaymentsRows").Items.Count == 2 && grid.Items.Count == 10);
+            check(Named<TextBlock>("PaymentsPeriod").Text.EndsWith("2건") && Named<TextBlock>("UsagePeriod").Text.EndsWith("100+건"),
+                "E1 personal usage and order histories expand in place from separate server records");
+            filter.SelectedItem = "사용";
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
+            check(grid.Items.Count == 0 && more.IsVisible && more.IsEnabled,
+                $"An empty filtered first page can still load older transactions (rows={grid.Items.Count}, filter={filter.SelectedItem}, more={more.Visibility}/{more.IsVisible}, enabled={more.IsEnabled})");
+            more.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitAsync(() => grid.Items.Count == 1 && !more.IsVisible);
+            check(grid.Items[0] is UsageDialog.BillingRow { Kind: "사용", IsDebit: true } && Named<TextBlock>("UsagePeriod").Text.EndsWith("101건"),
+                "The filtered second page uses the before cursor and excludes transactions outside the 30-day window");
+            filter.SelectedItem = "전체";
+            more.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            check(grid.Items.Count == 20, "Switching back to all and loading ten more uses the retained transaction history");
+            var marketing = Named<CheckBox>("Marketing");
+            marketing.IsChecked = false; marketing.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+            await WaitAsync(() => fixture.ProfileUpdates == 1 && marketing.IsEnabled);
+            check(marketing.IsChecked == false, "Personal E1 persists an explicit marketing preference change");
+            await WindowsMyPageActionChecks.RunAsync(window, view, api, check);
+            check(fixture.SavedDrafts == 1 && fixture.CancelledOrders == 0, "The purchase action creates only the requested draft");
+            check(fixture.EmailRequests == 1 && fixture.PasswordChanges == 1 && fixture.Withdrawals == 0,
+                "Email verification and password change use their authenticated contracts; cancelling withdrawal sends nothing");
+        }
+        finally { window.Close(); }
+    }
     private static bool Overlaps(Rect a, Rect b) => a.Left < b.Right - .5 && a.Right > b.Left + .5 &&
         a.Top < b.Bottom - .5 && a.Bottom > b.Top + .5;
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
@@ -238,6 +359,34 @@ internal static class WindowsUsageDesignChecks
         internal List<string> UsageMonths { get; } = [];
         internal List<string> CreditQueries { get; } = [];
         internal bool CreditFails;
+        internal bool Personal;
+        internal bool PagedMovements;
+
+        private object Transactions(string query)
+        {
+            var now = DateTimeOffset.UtcNow;
+            object Row(int id, string kind, int days, int delta) => new
+            {
+                id, createdAt = now.AddDays(days), entryType = kind, source = "TEST", balanceDelta = delta, balanceAfter = 1000
+            };
+            if (!PagedMovements) return new[] { Row(5, "GRANT", 0, 1000) };
+            if (query == "") return Enumerable.Range(0, 100).Select(i => Row(200 - i, "GRANT", 0, 10)).ToArray();
+            if (query == "?before=101") return new[] { Row(100, "CAPTURE", -29, -10), Row(99, "CAPTURE", -30, -5) };
+            throw new InvalidOperationException("Unexpected personal ledger cursor " + query);
+        }
+        internal int ProfileUpdates;
+        internal int SavedDrafts, CancelledOrders, EmailRequests, PasswordChanges, Withdrawals;
+        private static object BillingQuote(JsonElement selection)
+        {
+            if (selection.GetProperty("kind").GetString() == "PLAN")
+                return new { credits = 250000, amountKrw = 297000 };
+            long n = selection.GetProperty("credits").GetInt64();
+            int percent = n >= 1000000 ? 30 : n >= 300000 ? 20 : n >= 100000 ? 10 : 0;
+            long gross = (long)Math.Round(n * 2.6m, MidpointRounding.AwayFromZero);
+            long net = (long)Math.Round(gross * (100 - percent) / 100m, MidpointRounding.AwayFromZero);
+            long vat = (long)Math.Round(net * 0.1m, MidpointRounding.AwayFromZero);
+            return new { credits = n, amountKrw = net + vat, discountPercent = percent, discountKrw = gross - net, vatKrw = vat };
+        }
         internal static string Month(DateOnly month) => month.ToString("yyyy-MM", CultureInfo.InvariantCulture);
         /// <summary>The Figma C0-8 rows: two uses and an institution charge; the last row comes from a time without institution (balanceAfter null).</summary>
         private object CreditHistory(string query)
@@ -272,9 +421,28 @@ internal static class WindowsUsageDesignChecks
                 CreditQueries.Add(request.RequestUri.Query);
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("{\"isSuccess\":false,\"code\":\"COMMON5000\",\"message\":\"실패\"}", Encoding.UTF8, "application/json") });
             }
+            JsonElement Payload() => JsonSerializer.Deserialize<JsonElement>(request.Content!.ReadAsStringAsync(token).GetAwaiter().GetResult());
             object result = path switch
             {
-                "/api/auth/login" => new { accessToken = "fixture", refreshToken = "fixture", role = "ROLE_USER", alias = "검수자" },
+                "/api/auth/login" => new { accessToken = "fixture", refreshToken = "fixture", role = "ROLE_USER", alias = "검수자", memberType = Personal ? "PERSONAL" : "ORGANIZATION" },
+                "/api/users/credit/wallet" => new { available = 886000, validBalance = 1000000, subscription = new { planName = "Standard", nextGrantOn = "2026-12-01" } },
+                "/api/board/notifications" => new { unreadCount = 2 },
+                "/api/members/me/profile" when request.Method == HttpMethod.Put => new { updates = ++ProfileUpdates },
+                "/api/members/me/profile" => new { alias = "검수자", email = "fixture@example.test", passwordLogin = true, marketing = true, photoPng = (string?)null },
+                "/api/members/me/email/request" when Payload().GetProperty("currentPassword").GetString() == "test-current" => new { verificationToken = "fixture-challenge-" + ++EmailRequests, expiresInSeconds = 300 },
+                "/api/members/me/password" when Payload().GetProperty("newPassword").GetString() == "test-new-password" => new { changes = ++PasswordChanges },
+                "/api/members/me/withdraw" => new { withdrawals = ++Withdrawals },
+                "/api/members/me/billing/plans" => new[] {
+                    new { code = "FREE", name = "Free", credits = 1000, amountKrw = 0 }, new { code = "BASIC", name = "Basic", credits = 10000, amountKrw = 18000 },
+                    new { code = "STANDARD", name = "Standard", credits = 30000, amountKrw = 50000 }, new { code = "PREMIUM", name = "Premium", credits = 250000, amountKrw = 297000 } },
+                "/api/members/me/billing/quote" => BillingQuote(Payload()),
+                "/api/members/me/billing/orders" when request.Method == HttpMethod.Post && Payload().GetProperty("expectedAmountKrw").GetInt64() == 7150 => new { drafts = ++SavedDrafts },
+                _ when path.EndsWith("/cancel", StringComparison.Ordinal) => new { cancels = ++CancelledOrders },
+                "/api/members/me/billing/orders" => new object[] {
+                    new { kind = "TOPUP", credits = 3000, amountKrw = 3000, status = "DRAFT", createdAt = "2026-11-20T01:00:00Z", hasInvoice = false },
+                    new { id = "6d4f997e-13a4-42cf-a41f-2ba734fa2603", kind = "PLAN", planCode = "Standard", credits = 30000,
+                        amountKrw = 50000, status = "PAID", createdAt = "2026-10-31T04:00:00Z", paidAt = "2026-10-31T23:30:00Z", hasInvoice = true } },
+                "/api/members/me/billing/transactions" => Transactions(request.RequestUri.Query),
                 "/api/users/usage" => Usage(request.RequestUri.Query),
                 "/api/users/usage/jobs" => Jobs(),
                 "/api/users/usage/credit-history" => CreditHistory(request.RequestUri.Query),

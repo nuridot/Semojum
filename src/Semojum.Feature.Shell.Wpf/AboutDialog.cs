@@ -3,31 +3,50 @@ using System.Windows.Controls;
 
 namespace Semojum.Desktop.Dialogs;
 
-public sealed class AboutDialog : CompactDialog
+public sealed class AboutDialog : FormDialogBase
 {
-    public TextBlock EngineVersion { get; } = new() { Text = "확인 중…" };
-    public AboutDialog(string version, Func<Task<string>> engineVersion) : base("누리닷 정보", 440, 278)
+    public TextBlock EngineVersion { get; } = new() { Text = "확인 중…", FontSize = 14 };
+    public AboutDialog(string version, Func<Task<string>> engineVersion)
+        : base("누리닷 정보", 440, 302, EditorModalDesign.Icon("form-close", assemblyName: "Semojum.UI.Common"))
     {
-        var body = new StackPanel { Margin = new(16, 7, 16, 0) }; Body(body);
+        AlignLabelBaseline();
+        var rows = new StackPanel();
+        Fields.Children.Add(Card(rows, new(16, 12, 16, 12)));
         void Info(string label, FrameworkElement value)
         {
-            var row = new DockPanel { Height = 33 };
-            row.Children.Add(new TextBlock { Text = label, Width = 114, FontSize = 14, Height = 20, Margin = new(0, 9, 0, 4) });
-            value.Height = 20; value.Margin = new(0, 9, 0, 4); row.Children.Add(value);
-            body.Children.Add(new Border { BorderBrush = (System.Windows.Media.Brush)FindResource("Line"), BorderThickness = new(0, 0, 0, 1), Child = row });
+            var row = new DockPanel { Height = 28, Margin = new(0, rows.Children.Count == 0 ? 0 : 12, 0, 0) };
+            row.Children.Add(new TextBlock
+            {
+                Text = label,
+                Width = 108,
+                FontSize = 14,
+                Foreground = EditorModalDesign.Color("#5F5F5F"),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            value.VerticalAlignment = VerticalAlignment.Center;
+            row.Children.Add(value); rows.Children.Add(row);
         }
-        Info("버전", new TextBlock { Text = "V" + version.TrimStart('V', 'v'), FontSize = 14, FontWeight = FontWeights.SemiBold });
+        Info("버전", new TextBlock { Text = "V" + version.TrimStart('v', 'V'), FontSize = 14 });
         var engine = new StackPanel { Orientation = Orientation.Horizontal };
-        engine.Children.Add(new TextBlock { Text = "Semojum V", FontSize = 14 }); EngineVersion.FontSize = 14; engine.Children.Add(EngineVersion);
+        var prefix = new TextBlock { Text = "v", FontSize = 14, Visibility = Visibility.Collapsed };
+        engine.Children.Add(prefix); engine.Children.Add(EngineVersion);
         Info("점역 엔진", engine);
         Info("운영 기관", new TextBlock { Text = "누리닷", FontSize = 14 });
         Info("연락처", new TextBlock { Text = "contact@nuridot.com", FontSize = 14 });
-        OnLoad(async () =>
+        FooterButton("확인", Close, true);
+        Loaded += async (_, _) =>
         {
-            try { EngineVersion.Text = await engineVersion(); }
-            catch { EngineVersion.Text = "확인 불가 · 엔진 연결을 확인해 주세요."; }
-        });
-        Action("확인", Close, true);
-        EditorModalDesign.Frame(this, Root, Actions);
+            try
+            {
+                var value = await engineVersion();
+                if (Lifetime.IsCancellationRequested) return;
+                EngineVersion.Text = value;
+                prefix.Visibility = Version.TryParse(value, out _) ? Visibility.Visible : Visibility.Collapsed;
+            }
+            catch
+            {
+                if (!Lifetime.IsCancellationRequested) EngineVersion.Text = "확인 불가 · 엔진 연결을 확인해 주세요.";
+            }
+        };
     }
 }

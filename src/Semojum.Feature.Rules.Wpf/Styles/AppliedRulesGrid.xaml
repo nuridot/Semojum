@@ -1,17 +1,40 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Semojum.UI.Common;component/Styles/GridBehavior.xaml"/></ResourceDictionary.MergedDictionaries>
-  <!-- This screen owns its header, cell, selection, and grid appearance. -->
-  <Style x:Key="AppliedRulesHeader" TargetType="DataGridColumnHeader">
-    <Setter Property="Background" Value="#F4F6F9"/><Setter Property="Foreground" Value="#5F5F5F"/><Setter Property="FontWeight" Value="Normal"/><Setter Property="Padding" Value="8,0"/>
-    <Setter Property="BorderBrush" Value="#EAEAEA"/><Setter Property="BorderThickness" Value="0,0,0,1"/>
-  </Style>
-  <Style x:Key="AppliedRulesCell" TargetType="DataGridCell" BasedOn="{StaticResource GridCellBehavior}">
-    <Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="8,0"/><Setter Property="Foreground" Value="#1A1A1A"/>
-    <Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#EFF6FC"/></Trigger></Style.Triggers>
-  </Style>
-  <Style x:Key="AppliedRulesGrid" TargetType="DataGrid" BasedOn="{StaticResource GridBehavior}">
-    <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="White"/><Setter Property="HeadersVisibility" Value="Column"/>
-    <Setter Property="GridLinesVisibility" Value="Horizontal"/><Setter Property="HorizontalGridLinesBrush" Value="#EAEAEA"/><Setter Property="ColumnHeaderHeight" Value="24"/>
-    <Setter Property="ColumnHeaderStyle" Value="{StaticResource AppliedRulesHeader}"/><Setter Property="CellStyle" Value="{StaticResource AppliedRulesCell}"/>
-  </Style>
+    <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/Semojum.UI.Common;component/Styles/GridBehavior.xaml"/></ResourceDictionary.MergedDictionaries>
+    <Style x:Key="AppliedRulesHeader" TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="#F9F9F9"/><Setter Property="Foreground" Value="#5F5F5F"/><Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="FontSize" Value="12"/><Setter Property="Padding" Value="12,0,0,0"/>
+        <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style x:Key="AppliedRulesCell" TargetType="DataGridCell" BasedOn="{StaticResource GridCellBehavior}">
+        <Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="12,0,0,0"/><Setter Property="Foreground" Value="#1A1A1A"/>
+        <Setter Property="Background" Value="White"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridCell">
+            <Border BorderBrush="#EAEAEA" BorderThickness="0,1,0,0" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                <ContentPresenter VerticalAlignment="Center"/>
+            </Border>
+        </ControlTemplate></Setter.Value></Setter>
+        <Style.Triggers>
+            <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsSelected" Value="True"/><Condition Property="IsKeyboardFocusWithin" Value="True"/></MultiTrigger.Conditions>
+                <Setter Property="Background" Value="#CCE4F7"/>
+            </MultiTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="AppliedRuleLink" TargetType="Button">
+        <Setter Property="FontSize" Value="12"/><Setter Property="Foreground" Value="#003E92"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Margin" Value="0"/><Setter Property="Padding" Value="0"/><Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
+        <Setter Property="Height" Value="Auto"/><Setter Property="HorizontalAlignment" Value="Left"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+            <TextBlock x:Name="Label" Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" TextWrapping="Wrap"/>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Label" Property="TextDecorations" Value="Underline"/></Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Label" Property="TextDecorations" Value="Underline"/></Trigger>
+                <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Label" Property="Foreground" Value="#5F5F5F"/></Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="AppliedRulesGrid" TargetType="DataGrid" BasedOn="{StaticResource GridBehavior}">
+        <Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="White"/><Setter Property="HeadersVisibility" Value="Column"/>
+        <Setter Property="GridLinesVisibility" Value="None"/><Setter Property="ColumnHeaderHeight" Value="32"/>
+        <Setter Property="ColumnHeaderStyle" Value="{StaticResource AppliedRulesHeader}"/><Setter Property="CellStyle" Value="{StaticResource AppliedRulesCell}"/>
+    </Style>
 </ResourceDictionary>

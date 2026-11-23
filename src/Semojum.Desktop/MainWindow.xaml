@@ -1,7 +1,101 @@
 <Window x:Class="Semojum.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit" xmlns:svg="http://sharpvectors.codeplex.com/svgc/" xmlns:editorFeature="clr-namespace:Semojum.Feature.Editor.Wpf;assembly=Semojum.Feature.Editor.Wpf" xmlns:editorControls="clr-namespace:Semojum.Desktop.Controls;assembly=Semojum.Feature.Editor.Wpf" xmlns:local="clr-namespace:Semojum.Desktop.Controls"
         Style="{StaticResource {x:Type Window}}" ShowInTaskbar="True" Title="{Binding WindowTitle}" Width="1440" Height="1000" MinWidth="1280" MinHeight="800" WindowStartupLocation="CenterScreen" Closing="Window_Closing" UseLayoutRounding="True">
-  <Window.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Controls/FinalMenuStyles.xaml"/></ResourceDictionary.MergedDictionaries></ResourceDictionary></Window.Resources>
+  <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Controls/FinalMenuStyles.xaml"/></ResourceDictionary.MergedDictionaries>
+      <SolidColorBrush x:Key="RibbonCaptionInk" Color="#8A8A8A"/>
+      <Style x:Key="StatusBusyIcon" TargetType="Border">
+        <Setter Property="Width" Value="12"/><Setter Property="Height" Value="12"/>
+        <Setter Property="Margin" Value="2,0,6,0"/><Setter Property="CornerRadius" Value="1"/>
+        <Setter Property="BorderThickness" Value="1.3"/><Setter Property="BorderBrush" Value="#5F5F5F"/>
+      </Style>
+      <Style x:Key="DraftChoice" TargetType="RadioButton">
+        <Setter Property="FontFamily" Value="{StaticResource InterfaceFont}"/><Setter Property="Height" Value="32"/>
+        <Setter Property="FontSize" Value="12"/><Setter Property="Foreground" Value="#1A1A1A"/><Setter Property="Background" Value="#FBFBFB"/>
+        <Setter Property="BorderBrush" Value="#EAEAEA"/><Setter Property="Padding" Value="16,0"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+          <Border x:Name="Face" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
+            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#005FB8"/></Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#005FB8"/><Setter TargetName="Face" Property="BorderThickness" Value="2"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+        <Style.Triggers><Trigger Property="IsChecked" Value="True">
+          <Setter Property="Background" Value="#EFF6FC"/><Setter Property="BorderBrush" Value="#005FB8"/><Setter Property="Foreground" Value="#003E92"/>
+          <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="14"/>
+        </Trigger></Style.Triggers>
+      </Style>
+    </ResourceDictionary>
+  </Window.Resources>
   <DockPanel LastChildFill="True">
+    <Grid DockPanel.Dock="Top" Background="#F3F3F3">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <TabControl Grid.Row="1" x:Name="EditorRibbon" Tag="{Binding IsChecked, ElementName=ToolbarToggle}" Background="#F3F3F3" Padding="0" BorderThickness="0" AutomationProperties.Name="편집 리본">
+        <TabControl.ItemContainerStyle><Style TargetType="TabItem">
+          <Setter Property="Foreground" Value="#5F5F5F"/><Setter Property="FontSize" Value="14"/><Setter Property="Height" Value="32"/>
+          <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabItem">
+            <Border x:Name="Face" CornerRadius="4" Background="Transparent" Padding="12,4,12,0"><Grid>
+              <ContentPresenter ContentSource="Header" Height="20" VerticalAlignment="Top" HorizontalAlignment="Center" RecognizesAccessKey="True"/>
+              <Border x:Name="Indicator" Background="#005FB8" Height="3" Width="16" CornerRadius="1.5" Margin="0,0,0,1" VerticalAlignment="Bottom" Visibility="Collapsed"/>
+            </Grid></Border><ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="#F0F0F0"/></Trigger>
+              <Trigger Property="IsSelected" Value="True"><Setter TargetName="Face" Property="MinWidth" Value="40"/><Setter TargetName="Face" Property="Background" Value="White"/><Setter Property="Foreground" Value="#003E92"/><Setter Property="FontWeight" Value="SemiBold"/><Setter TargetName="Indicator" Property="Visibility" Value="Visible"/></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#005FB8"/><Setter TargetName="Face" Property="BorderThickness" Value="1"/></Trigger>
+            </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+        </Style></TabControl.ItemContainerStyle>
+        <TabControl.Template><ControlTemplate TargetType="TabControl">
+          <DockPanel><TabPanel IsItemsHost="True" DockPanel.Dock="Top" Height="32" Margin="8,0,0,0" KeyboardNavigation.TabIndex="0"/>
+            <Border x:Name="RibbonBody" Height="88" Padding="4,0,0,0" BorderBrush="#D1D1D1" BorderThickness="0,0,0,1" Background="White">
+              <ContentPresenter ContentSource="SelectedContent" />
+            </Border>
+          </DockPanel>
+          <ControlTemplate.Triggers><DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" Value="False"><Setter TargetName="RibbonBody" Property="Visibility" Value="Collapsed"/></DataTrigger></ControlTemplate.Triggers>
+        </ControlTemplate></TabControl.Template>
+      </TabControl>
+      <StackPanel x:Name="RibbonHeaderActions" Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Height="32" Margin="0,0,8,0">
+        <Button x:Name="RuleSearch" Width="200" Height="24" Margin="0" Padding="8,0" MinHeight="0" HorizontalContentAlignment="Stretch"
+                  Background="White" BorderBrush="#D1D1D1" BorderThickness="1" Click="RuleSearch_Click" AutomationProperties.Name="점역 규정 검색">
+            <Button.Template><ControlTemplate TargetType="Button"><Border CornerRadius="4" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
+            <DockPanel><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/ribbon-find.svg" Width="16" Height="16" Stretch="None" Margin="0,0,8,0"/>
+              <TextBlock Text="점역 규정 검색..." FontSize="12" Foreground="#8A8A8A" IsHitTestVisible="False"/></DockPanel>
+          </Button>
+        <Border x:Name="ToolbarAccount" MaxWidth="152" Height="24" Margin="8,0,8,0" VerticalAlignment="Center" Background="#F0F0F0" CornerRadius="4">
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
+            <Button x:Name="AccountOpen" Style="{StaticResource ToolButton}" MinWidth="0" MinHeight="0" Height="24" Padding="8,0,0,0" Margin="0" HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0" Click="AccountOpen_Click" ToolTip="마이페이지" AutomationProperties.Name="마이페이지">
+              <DockPanel><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/editor-account-user.svg" Width="16" Height="16" Stretch="None" Margin="0,0,4,0"/>
+                <TextBlock Text="{Binding Text, ElementName=AccountLabel}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></DockPanel>
+            </Button>
+            <Button x:Name="AccountMenuButton" Grid.Column="1" Style="{StaticResource ToolButton}" MinHeight="0" MinWidth="0" Height="24" Width="24" Padding="0" Margin="0" Background="Transparent" BorderThickness="0" Click="RibbonAccount_Click" ToolTip="계정 메뉴" AutomationProperties.Name="계정 메뉴">
+              <svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/ribbon-chevd.svg" Width="12" Height="12" Margin="0,0,4,0" Stretch="None"/>
+            </Button>
+          </Grid>
+        </Border>
+        <Button x:Name="RibbonNotifications" Click="RibbonNotifications_Click" Style="{StaticResource ToolButton}" Width="32" Height="24" Padding="0" Margin="0" MinWidth="0" MinHeight="0" Background="Transparent" AutomationProperties.Name="알림">
+          <Grid Width="32" Height="24"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/ribbon-bell.svg" Width="16" Height="16" Stretch="None"/>
+            <Border x:Name="RibbonBadge" CornerRadius="7" Height="14" HorizontalAlignment="Right" VerticalAlignment="Top" Background="#C42B1C" Padding="4,0" Visibility="{Binding Visibility, ElementName=RibbonUnread}">
+              <TextBlock x:Name="RibbonUnread" Visibility="Collapsed" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
+            </Border>
+          </Grid>
+        </Button>
+        <ToggleButton x:Name="AdditionalCommands" FontSize="12" MinHeight="0" Height="16" Foreground="{StaticResource RibbonCaptionInk}"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Center" ToolTip="전체 명령과 도구 모음 열기 또는 닫기" AutomationProperties.Name="편집창 전체 명령">
+          <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
+            <Border x:Name="Face" Background="Transparent" CornerRadius="4">
+              <TextBlock Text="편집창" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="#F0F0F0"/></Trigger>
+              <Trigger Property="IsChecked" Value="True"><Setter TargetName="Face" Property="Background" Value="#E5F1FB"/></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="Background" Value="#E5F1FB"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate></ToggleButton.Template>
+        </ToggleButton>
+      </StackPanel>
+    </Grid>
+    <StackPanel DockPanel.Dock="Top">
+      <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsChecked, ElementName=AdditionalCommands}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
     <Border DockPanel.Dock="Top" Height="32" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
       <DockPanel>
 
@@ -47,7 +141,7 @@
             <MenuItem x:Name="ReviewToggle" Header="검토 표시" IsCheckable="True" IsChecked="True" Tag="showReviews" Click="Action_Click"/>
             <Separator/>
             <MenuItem x:Name="OriginalToggle" Header="원본 패널" IsCheckable="True" IsChecked="True" Click="OriginalToggle_Click"/>
-            <MenuItem x:Name="SourceToggle" Header="텍스트 패널" IsCheckable="True" IsChecked="True" Click="PanelToggle_Click"/>
+            <MenuItem x:Name="SourceToggle" Header="묵자 패널" IsCheckable="True" IsChecked="True" Click="PanelToggle_Click"/>
             <MenuItem x:Name="BrailleToggle" Header="점자 패널" IsCheckable="True" IsChecked="True" Click="PanelToggle_Click"/>
             <MenuItem Header="패널 모두 제자리로" Tag="restorePanels" Click="Action_Click"/>
           </MenuItem>
@@ -58,10 +152,12 @@
           </MenuItem>
           <MenuItem Header="설정(_M)" Width="64">
             <MenuItem Header="편집용 점자문서 페이지설정" InputGestureText="Alt+Y" Tag="layout" Click="Action_Click"/>
+            <MenuItem x:Name="AccountOutputDefaults" Header="계정 출력 기본값" Visibility="Collapsed" Tag="outputdefaults" Click="Action_Click"/>
             <MenuItem Header="기본 점역 옵션 설정" InputGestureText="Alt+G" Tag="defaults" Click="Action_Click"/>
             <MenuItem Header="점역 양식" Tag="forms" Click="Action_Click"/>
             <MenuItem Header="6점키 설정" InputGestureText="Alt+K" Tag="sixdot" Click="Action_Click"/>
             <MenuItem Header="시각 자료 설명 유형" Tag="visualDescriptions" Click="Action_Click"/>
+            <MenuItem Header="점형 읽기 및 도구 모음" Tag="readingOptions" Click="Action_Click"/>
             <Separator/>
             <MenuItem x:Name="AutoUpdateToggle" Header="업데이트 자동 확인" IsCheckable="True" IsChecked="True" Tag="autoUpdate" Click="Action_Click"/>
             <MenuItem x:Name="SixDotToggle" Visibility="Collapsed" Header="6점 입력" IsCheckable="True" Checked="SixDotToggle_Changed" Unchecked="SixDotToggle_Changed"/>
@@ -84,12 +180,7 @@
       <ScrollViewer x:Name="EditorToolbarScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" AutomationProperties.Name="기본 도구 모음 가로 스크롤">
       <DockPanel Height="39">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="RuleSearch" Width="240" Height="32" Margin="8,0,4,0" Padding="7,0" HorizontalContentAlignment="Stretch"
-                  Background="White" BorderBrush="#D1D1D1" BorderThickness="1" Click="RuleSearch_Click" AutomationProperties.Name="점자 규정 검색">
-            <Button.Template><ControlTemplate TargetType="Button"><Border CornerRadius="4" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center"/></Border></ControlTemplate></Button.Template>
-            <DockPanel><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/common-rulebook.svg" Width="16" Height="16" Stretch="None" Margin="0,0,8,0"/>
-              <TextBlock Text="점역 규정 검색..." FontSize="12" Foreground="#8A8A8A" IsHitTestVisible="False"/></DockPanel>
-          </Button>
+
         </StackPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed">
           <Button Content="‹" Tag="previous" Click="Action_Click" Style="{StaticResource FormatButton}" ToolTip="이전 블록"/>
@@ -120,14 +211,7 @@
     </Border>
     <Border DockPanel.Dock="Top" Background="#F3F3F3" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1" Padding="8,0">
       <DockPanel>
-      <Button x:Name="ToolbarAccount" DockPanel.Dock="Right" Width="128" Height="24" MinWidth="0" MinHeight="0" Margin="8,0,4,0" Padding="0" BorderThickness="0" Background="#F0F0F0" VerticalAlignment="Center" Tag="usage" Click="Action_Click" ToolTip="마이페이지 · 사용량" AutomationProperties.Name="마이페이지 · 사용량">
-        <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="AccountSurface" Background="{TemplateBinding Background}" CornerRadius="12"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="AccountSurface" Property="Background" Value="#E6E6E6"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="AccountSurface" Property="BorderBrush" Value="#005FB8"/><Setter TargetName="AccountSurface" Property="BorderThickness" Value="1"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="AccountSurface" Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
-        <Grid Margin="8,0,4,0"><Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/></Grid.ColumnDefinitions>
-          <svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/editor-account-user.svg" Width="16" Height="16" Stretch="None" HorizontalAlignment="Left" IsHitTestVisible="False"/>
-          <TextBlock Grid.Column="1" Text="{Binding Text, ElementName=AccountLabel}" Foreground="#5F5F5F" FontSize="12" TextTrimming="CharacterEllipsis"/>
-          <svg:SvgViewbox Grid.Column="2" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/editor-account-chevron.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/>
-        </Grid>
-      </Button>
+
       <ScrollViewer x:Name="FormatToolbarScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="서식 도구 모음 가로 스크롤">
       <StackPanel Orientation="Horizontal" Height="31">
         <ComboBox x:Name="TextStylePicker" Width="104" Height="24" MinHeight="24" FontSize="12" SelectedIndex="0" SelectionChanged="TextStylePicker_SelectionChanged" AutomationProperties.Name="텍스트 서식"><ComboBoxItem Content="본문"/><ComboBoxItem Content="강조"/><ComboBoxItem Content="굵은"/><ComboBoxItem Content="색강조"/><ComboBoxItem Content="취소선"/></ComboBox>
@@ -151,9 +235,10 @@
       </ScrollViewer>
       </DockPanel>
     </Border>
-    <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Height="28" Background="#F3F3F3" BorderBrush="#EAEAEA" BorderThickness="0,1,0,0">
-      <DockPanel>
-        <StackPanel x:Name="StatusZoom" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="4,0,12,0">
+    </StackPanel>
+    <Popup x:Name="PanelZoomPopup" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+      <Border Background="White" Padding="8,4" CornerRadius="4" BorderBrush="#D1D1D1" BorderThickness="1">
+        <StackPanel x:Name="StatusZoom" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Width="16" Height="20" Padding="0" BorderThickness="0" Background="Transparent" ToolTip="축소" AutomationProperties.Name="축소" Tag="zoomOut" Click="Action_Click"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/zoom-minus.svg" Width="16" Height="16" IsHitTestVisible="False"/></Button>
           <Slider x:Name="ZoomSlider" Width="106" Height="20" Margin="6,0" Minimum="0" Maximum="100" Value="50" SmallChange="1" LargeChange="5" ValueChanged="ZoomSlider_ValueChanged" AutomationProperties.Name="편집기 확대 비율">
             <Slider.Template><ControlTemplate TargetType="Slider"><Grid><Border Height="4" CornerRadius="2" Background="#D1D1D1"/><Track x:Name="PART_Track"><Track.DecreaseRepeatButton><RepeatButton Command="Slider.DecreaseLarge" Opacity="0"/></Track.DecreaseRepeatButton><Track.Thumb><Thumb Width="12" Height="12"><Thumb.Template><ControlTemplate TargetType="Thumb"><Ellipse Fill="#005FB8"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb><Track.IncreaseRepeatButton><RepeatButton Command="Slider.IncreaseLarge" Opacity="0"/></Track.IncreaseRepeatButton></Track></Grid></ControlTemplate></Slider.Template>
@@ -161,35 +246,82 @@
           <Button Width="16" Height="20" Padding="0" BorderThickness="0" Background="Transparent" ToolTip="확대" AutomationProperties.Name="확대" Tag="zoomIn" Click="Action_Click"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/zoom-plus.svg" Width="16" Height="16" IsHitTestVisible="False"/></Button>
           <TextBlock x:Name="ZoomPercent" Width="40" Margin="8,0,0,0" Text="100%" FontSize="12" Foreground="#5F5F5F" VerticalAlignment="Center"/>
         </StackPanel>
+      </Border>
+    </Popup>
+    <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Height="28" Background="#F3F3F3" BorderBrush="#EAEAEA" BorderThickness="0,1,0,0">
+      <DockPanel>
+        <Button x:Name="ConversionStatus" DockPanel.Dock="Right" Click="ConversionStatus_Click" Visibility="Collapsed" Margin="0,0,12,0" Padding="8,0" MinHeight="0" Height="22" BorderThickness="0" Background="Transparent" Foreground="#003E92" FontSize="12" AutomationProperties.Name="{Binding Text, ElementName=ConversionStatusText}">
+          <Button.Template><ControlTemplate TargetType="Button">
+            <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center"/></Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#F0F0F0"/></Trigger>
+              <Trigger Property="Tag" Value="cancel-menu"><Setter TargetName="Surface" Property="Background" Value="#F0F0F0"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate></Button.Template>
+          <StackPanel Orientation="Horizontal"><Border Style="{StaticResource StatusBusyIcon}"/><TextBlock x:Name="ConversionStatusText" VerticalAlignment="Center"/></StackPanel>
+        </Button>
+        <StackPanel x:Name="FailedPageStatus" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,20,0" Visibility="Collapsed">
+          <svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/page-failure-16.svg" Width="16" Height="16"/>
+          <TextBlock x:Name="FailedPageStatusText" Margin="4,0,0,0" VerticalAlignment="Center" Foreground="#C42B1C" FontSize="12"/>
+        </StackPanel>
+        <ContentControl x:Name="BlockStatus" DockPanel.Dock="Right" Margin="0,0,12,0" Padding="8,0" Height="22" VerticalAlignment="Center" FontSize="12" Foreground="#5F5F5F" Focusable="False" Content="{Binding ActiveBlock.State}" ToolTip="{Binding ActiveBlock.State}">
+          <ContentControl.Template><ControlTemplate TargetType="ContentControl">
+            <StackPanel Orientation="Horizontal" Margin="{TemplateBinding Padding}" VerticalAlignment="Center">
+              <Border x:Name="BusyIcon" Style="{StaticResource StatusBusyIcon}" Visibility="Collapsed"/>
+              <svg:SvgViewbox x:Name="DoneIcon" Width="16" Height="16" Margin="0,0,4,0" Stretch="None" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/status-check.svg" Visibility="Collapsed"/>
+              <TextBlock x:Name="Label" VerticalAlignment="Center" Text="{TemplateBinding Content}"/>
+            </StackPanel>
+            <ControlTemplate.Triggers>
+              <Trigger Property="Content" Value="점역 중…"><Setter TargetName="Label" Property="Text" Value="점역 중"/><Setter TargetName="Label" Property="Foreground" Value="#003E92"/><Setter TargetName="BusyIcon" Property="Visibility" Value="Visible"/></Trigger>
+              <Trigger Property="Content" Value="점역됨 · 검수 전"><Setter TargetName="Label" Property="Text" Value="점역 완료"/><Setter TargetName="Label" Property="Foreground" Value="#0F7B0F"/><Setter TargetName="DoneIcon" Property="Visibility" Value="Visible"/></Trigger>
+              <Trigger Property="Content" Value="교열 완료"><Setter TargetName="Label" Property="Foreground" Value="#0F7B0F"/><Setter TargetName="DoneIcon" Property="Visibility" Value="Visible"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate></ContentControl.Template>
+        </ContentControl>
         <TextBlock x:Name="AccountLabel" Visibility="Collapsed" Text="로그인 안 됨"/>
-        <!-- Figma 263:7467: text at x 20·100·197·332, 1×14 dividers at 87·184·319·493. -->
-        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="20,0,0,0" TextElement.FontSize="12" TextElement.Foreground="#5F5F5F">
-          <TextBlock x:Name="StatusInput" Width="67" TextTrimming="CharacterEllipsis"/>
+        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center" TextElement.FontSize="12" TextElement.Foreground="#5F5F5F">
+          <TextBlock x:Name="StatusInput" Margin="8,0"/>
           <Border Width="1" Height="14" Background="#EAEAEA"/>
-          <TextBlock x:Name="StatusPage" Width="84" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"/>
+          <TextBlock x:Name="StatusPage" Margin="8,0" Foreground="#1A1A1A"/>
           <Border Width="1" Height="14" Background="#EAEAEA"/>
-          <TextBlock x:Name="CaretStatus" Width="122" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"/>
-          <Border Width="1" Height="14" Background="#EAEAEA"/>
-          <TextBlock x:Name="StatusOptions" Width="161" Margin="12,0,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}"/>
-          <Border Width="1" Height="14" Background="#EAEAEA"/>
+          <TextBlock x:Name="CaretStatus" Margin="8,0"/>
+          <Border Width="1" Height="14" Background="#EAEAEA" Visibility="{Binding Visibility, ElementName=CaretStatus}"/>
+          <TextBlock x:Name="StatusOptions" Margin="8,0"/>
         </StackPanel>
         <Border/>
       </DockPanel>
     </Border>
+    <Border x:Name="CreditBanner" DockPanel.Dock="Top" Height="40" Padding="12,0" Background="#FFF4CE" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1" TextElement.FontFamily="{StaticResource InterfaceFont}">
+      <Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding CreditNotice}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style>
+      <Border.ContextMenu><ContextMenu><MenuItem Header="크레딧 안내 닫기" Click="CreditNotice_Close"/></ContextMenu></Border.ContextMenu>
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Content="이어서 처리" Width="88" Height="32" Padding="0" Margin="0" FontSize="12" Style="{StaticResource PrimaryButton}" Click="CreditResume_Click" PreviewKeyDown="CreditResume_KeyDown" ToolTip="크레딧을 충전한 뒤 멈춘 쪽만 다시 처리합니다. 처리된 쪽은 그대로 편집할 수 있습니다."/>
+        <svg:SvgViewbox DockPanel.Dock="Left" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/credit-banner-warning.svg" Width="16" Height="16" Stretch="None" Margin="0,0,8,0"/>
+        <TextBlock Text="{Binding CreditNotice}" FontSize="14" FontWeight="Normal" Foreground="#1A1A1A" TextTrimming="CharacterEllipsis" ToolTip="{Binding CreditNotice}" VerticalAlignment="Center" AutomationProperties.LiveSetting="Assertive"/>
+      </DockPanel>
+    </Border>
     <TabControl x:Name="DocumentTabs" DockPanel.Dock="Top" Height="34" BorderThickness="0" Padding="0" Background="#F9F9F9" SelectionChanged="DocumentTabs_SelectionChanged">
+      <TabControl.Template><ControlTemplate TargetType="TabControl">
+        <Border Background="{TemplateBinding Background}" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1">
+          <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
+            <StackPanel Orientation="Horizontal" IsItemsHost="True" KeyboardNavigation.TabNavigation="Once"/>
+          </ScrollViewer>
+        </Border>
+      </ControlTemplate></TabControl.Template>
       <TabControl.Resources>
         <Style TargetType="{x:Type TabItem}">
-          <Setter Property="Height" Value="34"/><Setter Property="Padding" Value="6,0"/>
+          <Setter Property="Height" Value="33"/><Setter Property="MaxWidth" Value="240"/><Setter Property="Padding" Value="12,0,9,1"/>
           <Setter Property="FontSize" Value="12"/><Setter Property="Foreground" Value="#5F5F5F"/>
           <Setter Property="Background" Value="Transparent"/>
           <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabItem">
             <Grid Background="{TemplateBinding Background}">
+              <Border x:Name="InactiveEdge" BorderBrush="#EAEAEA" BorderThickness="0,0,1,1"/>
               <ContentPresenter ContentSource="Header" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
               <Border x:Name="ActiveLine" Height="2" Background="#005FB8" VerticalAlignment="Top" Visibility="Collapsed"/>
             </Grid>
-            <ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="ActiveLine" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers>
+            <ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="InactiveEdge" Property="Visibility" Value="Collapsed"/><Setter TargetName="ActiveLine" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers>
           </ControlTemplate></Setter.Value></Setter>
-          <Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="White"/><Setter Property="Foreground" Value="#1A1A1A"/><Setter Property="FontWeight" Value="Bold"/><Setter Property="FontSize" Value="14"/></Trigger></Style.Triggers>
+          <Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Padding" Value="12,2,8,0"/><Setter Property="Background" Value="White"/><Setter Property="Foreground" Value="#1A1A1A"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="FontSize" Value="14"/></Trigger></Style.Triggers>
         </Style>
       </TabControl.Resources>
     </TabControl>
@@ -206,15 +338,6 @@
         <TextBlock Text="{Binding ErrorNotice}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"/>
       </DockPanel>
     </Border>
-    <Border x:Name="CreditBanner" DockPanel.Dock="Top" Height="32" Background="#FFF4CE" BorderBrush="#9D5D00" BorderThickness="1">
-      <Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding CreditNotice}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style>
-      <DockPanel>
-        <Button DockPanel.Dock="Right" Width="24" Height="24" MinWidth="24" MinHeight="24" Padding="0" Margin="5,0,3,0" Background="Transparent" BorderBrush="Transparent" Click="CreditNotice_Close" AutomationProperties.Name="크레딧 안내 닫기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/credit-banner-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
-        <Button DockPanel.Dock="Right" Content="이어서 처리" Width="110" Height="30" MinHeight="30" Padding="0" FontSize="12" Style="{StaticResource PrimaryButton}" Click="CreditResume_Click" ToolTip="크레딧을 충전한 뒤 멈춘 쪽만 다시 처리합니다. 처리된 쪽은 그대로 편집할 수 있습니다."/>
-        <svg:SvgViewbox DockPanel.Dock="Left" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/credit-banner-warning.svg" Width="16" Height="16" Stretch="None" Margin="11,0,4,0"/>
-        <TextBlock Text="{Binding CreditNotice}" FontSize="14" FontWeight="Bold" Foreground="#9D5D00" TextTrimming="CharacterEllipsis" ToolTip="{Binding CreditNotice}" VerticalAlignment="Center" AutomationProperties.LiveSetting="Assertive"/>
-      </DockPanel>
-    </Border>
     <Border x:Name="SelectionPane" DockPanel.Dock="Top" Visibility="Collapsed" Background="#FAFAFA" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,1" Padding="8">
       <StackPanel>
         <DockPanel><Button DockPanel.Dock="Right" Content="×" Click="SelectionHide_Click" Height="22" MinHeight="22" Padding="4,0"/><TextBlock x:Name="SelectionCaption" FontSize="12"/></DockPanel>
@@ -228,21 +351,35 @@
     <Grid>
     <ScrollViewer x:Name="PanelScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" AutomationProperties.Name="편집 패널 가로 스크롤">
     <Grid x:Name="PanelGrid" Margin="0">
-      <Grid.ColumnDefinitions><ColumnDefinition x:Name="OriginalColumn" Width="379*" MinWidth="260"/><ColumnDefinition x:Name="OriginalSplitterColumn" Width="1"/><ColumnDefinition Width="483*" MinWidth="300"/><ColumnDefinition Width="1"/><ColumnDefinition Width="576*" MinWidth="300"/></Grid.ColumnDefinitions>
-      <Border x:Name="OriginalPanel" BorderBrush="{StaticResource Line}" BorderThickness="0" Background="White"><Grid>
+      <Grid.ColumnDefinitions><ColumnDefinition x:Name="OriginalColumn" Width="300*" MinWidth="260"/><ColumnDefinition x:Name="OriginalSplitterColumn" Width="1"/><ColumnDefinition Width="554*" MinWidth="300"/><ColumnDefinition Width="1"/><ColumnDefinition Width="586*" MinWidth="300"/></Grid.ColumnDefinitions>
+      <Border x:Name="OriginalPanel" BorderBrush="{StaticResource Line}" BorderThickness="0" Background="White">
+        <Border.ContextMenu>
+          <ContextMenu Style="{StaticResource FinalContextMenu}">
+            <MenuItem Header="다시 변환" Tag="reconvert" Click="Action_Click" Style="{StaticResource FinalContextItem}">
+              <MenuItem.Icon><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/braille-context-recon.svg" Width="16" Height="16" Stretch="None"/></MenuItem.Icon>
+            </MenuItem>
+          </ContextMenu>
+        </Border.ContextMenu>
+        <Grid>
         <Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <Border x:Name="OriginalHeader" Background="#F9F9F9" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1" Padding="12,0,8,0"><DockPanel>
-          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-            <TextBlock x:Name="OriginalPosition" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,8,0" MaxWidth="160" TextTrimming="CharacterEllipsis"/>
-            <Button Content="⧉" Tag="detachOriginal" Click="Action_Click" Style="{StaticResource IconButton}" ToolTip="원본 창 분리 / 합치기" AutomationProperties.Name="원본 창 분리 또는 합치기"/>
-            <Button Tag="hideOriginal" Click="Action_Click" Style="{StaticResource IconButton}" ToolTip="원본 패널 숨기기" AutomationProperties.Name="원본 패널 숨기기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/panel-original-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
-          </StackPanel>
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock x:Name="OriginalPanelTitle" Text="원본" FontSize="14" Foreground="#5F5F5F" VerticalAlignment="Center"/>
-            <Border Width="18" Height="18" CornerRadius="9" Background="#F0F0F0" Margin="8,0,0,0"><TextBlock Text="1" FontFamily="{StaticResource InterfaceFont}" Foreground="#5F5F5F" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></StackPanel>
-        </DockPanel></Border>
-        <editorControls:OriginalPreview x:Name="Original" Grid.Row="1" PreviewMouseWheel="OriginalPreview_MouseWheel"/>
-        <Border Grid.Row="1" x:Name="OriginalEmpty" Visibility="Collapsed" Background="#F4F6F8">
-          <Grid><ScrollViewer x:Name="OriginalScroll" HorizontalScrollBarVisibility="Auto" HorizontalContentAlignment="Stretch" PreviewMouseWheel="OriginalScroll_MouseWheel" ScrollChanged="OriginalScroll_ScrollChanged">
+        <Border x:Name="OriginalHeader" Background="#F9F9F9" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1" Padding="12,0,4,0" Height="36">
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left" ClipToBounds="True">
+              <Border x:Name="OriginalNumberBadge" Width="18" Height="18" CornerRadius="9" Background="#F0F0F0"><TextBlock x:Name="OriginalPanelNumber" Text="1" FontFamily="{StaticResource InterfaceFont}" Foreground="#5F5F5F" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+              <TextBlock x:Name="OriginalPanelTitle" Text="원본" Margin="8,0,0,0" FontSize="14" Foreground="#5F5F5F" VerticalAlignment="Center"/>
+            </StackPanel>
+            <editorFeature:PanelPageBar x:Name="OriginalPageBar" Loaded="OriginalPageBar_Loaded" Grid.Column="1" VerticalAlignment="Center"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+              <Button Tag="detachOriginal" Click="Action_Click" Style="{StaticResource IconButton}" Width="24" Height="24" MinWidth="0" MinHeight="0" Margin="0" Padding="0" ToolTip="원본 창 분리 / 합치기" AutomationProperties.Name="원본 창 분리 또는 합치기"><Border Width="12" Height="12" BorderThickness="1.3" BorderBrush="#5F5F5F" CornerRadius="1"/></Button>
+              <Button Tag="hideOriginal" Click="Action_Click" Style="{StaticResource IconButton}" Width="24" Height="24" MinWidth="0" MinHeight="0" Margin="0" Padding="0" ToolTip="원본 패널 숨기기" AutomationProperties.Name="원본 패널 숨기기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/panel-original-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
+            </StackPanel>
+          </Grid>
+        </Border>
+        <TextBlock x:Name="OriginalPosition" FontSize="12" Visibility="Collapsed"/>
+        <Grid x:Name="OriginalContent" Grid.Row="1">
+        <editorControls:OriginalPreview x:Name="Original" PreviewMouseWheel="OriginalPreview_MouseWheel"/>
+        <Border x:Name="OriginalEmpty" Visibility="Collapsed" Background="#F4F6F8">
+          <Grid><ScrollViewer x:Name="OriginalScroll" Style="{StaticResource EditorDocumentScrollStyle}" HorizontalScrollBarVisibility="Auto" HorizontalContentAlignment="Stretch" PreviewMouseWheel="OriginalScroll_MouseWheel" ScrollChanged="OriginalScroll_ScrollChanged">
             <Grid MinHeight="{Binding ViewportHeight, ElementName=OriginalScroll}">
               <Viewbox x:Name="OriginalImageView" Stretch="Uniform" VerticalAlignment="Top" HorizontalAlignment="Left">
                 <Grid x:Name="OriginalImageGrid" MouseLeftButtonDown="OriginalImage_MouseDown" MouseMove="OriginalImage_MouseMove" MouseLeftButtonUp="OriginalImage_MouseUp" LostMouseCapture="OriginalImage_LostCapture" Cursor="Hand">
@@ -261,24 +398,40 @@
             </StackPanel>
           </Border></Grid>
         </Border>
-        <editorFeature:PanelPageBar x:Name="OriginalPageBar" Grid.Row="2" Loaded="OriginalPageBar_Loaded"/>
+        </Grid>
+        <Border x:Name="OriginalFailure" Grid.Row="1" Visibility="Collapsed" Background="#F9F9F9" Padding="20,16">
+          <Border Background="#EEEEEE" Padding="20,0">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+              <svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/page-failure-24.svg" Width="24" Height="24"/>
+              <TextBlock x:Name="FailureReasonText" Margin="0,16" TextWrapping="Wrap" TextAlignment="Center" Foreground="#1A1A1A" FontSize="14"/>
+              <Button x:Name="OriginalRetryButton" Style="{StaticResource PrimaryButton}" Content="다시 변환" Width="88" Height="32" MinHeight="0" Padding="0" HorizontalAlignment="Center" Click="OriginalRetry_Click"/>
+            </StackPanel>
+          </Border>
+        </Border>
       </Grid></Border>
       <GridSplitter Grid.Column="1" ResizeBehavior="PreviousAndNext"/>
       <Border x:Name="SourcePanel" Grid.Column="2" BorderBrush="{StaticResource Line}" BorderThickness="0" Background="White">
         <Grid><Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-          <Border x:Name="SourceHeader" Background="#F9F9F9" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1" Padding="12,0,8,0"><DockPanel>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-              <TextBlock x:Name="SourcePosition" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,8,0" MaxWidth="160" TextTrimming="CharacterEllipsis"/>
-              <Button Content="⧉" Tag="detachSource" Click="Action_Click" Style="{StaticResource IconButton}" ToolTip="텍스트 창 분리 / 합치기" AutomationProperties.Name="텍스트 창 분리 또는 합치기"/>
-              <Button Tag="hideSource" Click="Action_Click" Style="{StaticResource IconButton}" ToolTip="텍스트 패널 숨기기" AutomationProperties.Name="텍스트 패널 숨기기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/panel-source-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
+        <Border x:Name="SourceHeader" Background="#F9F9F9" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1" Padding="12,0,4,0" Height="36">
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left" ClipToBounds="True">
+              <Border x:Name="SourceNumberBadge" Width="18" Height="18" CornerRadius="9" Background="#F0F0F0"><TextBlock x:Name="SourcePanelNumber" Text="2" FontFamily="{StaticResource InterfaceFont}" Foreground="#5F5F5F" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+              <TextBlock x:Name="SourcePanelTitle" Text="묵자" Margin="8,0,0,0" FontSize="14" Foreground="#5F5F5F" VerticalAlignment="Center"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock x:Name="SourcePanelTitle" Text="텍스트" FontSize="14" Foreground="#5F5F5F" VerticalAlignment="Center"/>
-              <Border Width="18" Height="18" CornerRadius="9" Background="#F0F0F0" Margin="8,0,0,0"><TextBlock x:Name="SourcePanelNumber" Text="2" FontFamily="{StaticResource InterfaceFont}" Foreground="#5F5F5F" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></StackPanel>
-          </DockPanel></Border>
+            <editorFeature:PanelPageBar x:Name="SourcePageBar" Loaded="SourcePageBar_Loaded" Grid.Column="1" VerticalAlignment="Center"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+              <Button Tag="detachSource" Click="Action_Click" Style="{StaticResource IconButton}" Width="24" Height="24" MinWidth="0" MinHeight="0" Margin="0" Padding="0" ToolTip="묵자 창 분리 / 합치기" AutomationProperties.Name="묵자 창 분리 또는 합치기"><Border Width="12" Height="12" BorderThickness="1.3" BorderBrush="#5F5F5F" CornerRadius="1"/></Button>
+              <Button Tag="hideSource" Click="Action_Click" Style="{StaticResource IconButton}" Width="24" Height="24" MinWidth="0" MinHeight="0" Margin="0" Padding="0" ToolTip="묵자 패널 숨기기" AutomationProperties.Name="묵자 패널 숨기기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/panel-source-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
+            </StackPanel>
+          </Grid>
+        </Border>
           <editorControls:ContinuousSourceEditor Grid.Row="1" x:Name="PageEditor" Visibility="Collapsed"/>
           <ae:TextEditor Grid.Row="1" x:Name="SourceEditor" FontFamily="{StaticResource InterfaceFont}" FontSize="14" ShowLineNumbers="True" WordWrap="True" Padding="8,4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="원문 텍스트 편집기"/>
           <editorControls:MathPreviewDock Grid.Row="2" x:Name="MathDock" Visibility="Collapsed"/>
-          <editorFeature:PanelPageBar x:Name="SourcePageBar" Grid.Row="3" Loaded="SourcePageBar_Loaded"/>
+          <Border Grid.Row="1" Height="24" Padding="12,0" Margin="0,0,24,12" Background="#FBFBFB" BorderBrush="#EAEAEA" BorderThickness="1" CornerRadius="12" IsHitTestVisible="False" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+            <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=SourcePosition}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style>
+            <TextBlock x:Name="SourcePosition" FontSize="12" Foreground="#5F5F5F" VerticalAlignment="Center"/>
+          </Border>
         </Grid>
       </Border>
       <GridSplitter Grid.Column="3" ResizeBehavior="PreviousAndNext"/>
@@ -286,33 +439,99 @@
         <editorControls:BraillePane x:Name="Braille"/>
         <Border x:Name="DetachedPlaceholder" Visibility="Collapsed" Background="#F4F6F8"><StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"><TextBlock Text="점자 창이 분리되어 있습니다" FontSize="17"/><TextBlock Text="독립 창에서도 같은 블록을 편집합니다." Foreground="{StaticResource Muted}" Margin="0,12,0,20"/><Button Content="이 창으로 합치기" Tag="detach" Click="Action_Click" Style="{StaticResource PrimaryButton}"/></StackPanel></Border>
       </Grid></Border>
-      <Border x:Name="DraftDock" Grid.Column="2" Grid.ColumnSpan="3" Panel.ZIndex="10" VerticalAlignment="Bottom" Height="360" MaxHeight="{Binding ActualHeight, ElementName=PanelGrid}"
-              Visibility="Collapsed" Background="White" BorderBrush="#D1D1D1" BorderThickness="1">
+      <Border x:Name="DraftDock" Grid.Column="2" Grid.ColumnSpan="3" Panel.ZIndex="10" VerticalAlignment="Bottom"
+              Height="219" MaxHeight="{Binding ActualHeight, ElementName=PanelGrid}" Visibility="Collapsed"
+              Background="White" BorderBrush="#D1D1D1" BorderThickness="1" CornerRadius="8">
+        <Border.Effect><DropShadowEffect BlurRadius="18" ShadowDepth="8" Opacity=".18"/></Border.Effect>
         <Grid>
-          <Grid.RowDefinitions><RowDefinition Height="6"/><RowDefinition Height="28"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-          <Thumb x:Name="DraftDockResize" Height="6" Cursor="SizeNS" Focusable="True" DragDelta="DraftDockResize_DragDelta" PreviewKeyDown="DraftDockResize_KeyDown" AutomationProperties.Name="대체 초안 높이 조절" Background="Transparent"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="{TemplateBinding Background}"/></ControlTemplate></Thumb.Template></Thumb><Border Grid.Row="1" Background="#F3F3F3" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1">
-            <DockPanel Margin="11,0,11,0">
-              <Button x:Name="DraftDockClose" DockPanel.Dock="Right" Click="DraftDockClose_Click" Width="24" Height="24" MinWidth="24" MinHeight="24" Padding="0" Background="Transparent" BorderBrush="Transparent" Style="{StaticResource PanelButton}" ToolTip="선택한 초안 적용하고 닫기" AutomationProperties.Name="선택한 초안 적용하고 닫기"><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/draft-dock-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/></Button>
-              <svg:SvgViewbox DockPanel.Dock="Left" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/draft-dock-icon.svg" Width="16" Height="16" Stretch="None" Margin="0,0,4,0"/>
-              <TextBlock x:Name="DraftDockTitle" FontFamily="{StaticResource InterfaceFont}" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
-            </DockPanel>
-          </Border>
-          <Border Grid.Row="2" MinHeight="40" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1">
-            <ScrollViewer x:Name="DraftChoiceScroll" MaxHeight="56" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto" Margin="0,0,32,0"><StackPanel x:Name="DraftChoiceGrid" Orientation="Horizontal"/></ScrollViewer>
+          <Grid.RowDefinitions><RowDefinition Height="8"/><RowDefinition Height="37"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+          <Border Grid.RowSpan="2" Background="#F9F9F9" CornerRadius="7,7,0,0" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1"/>
+          <Thumb x:Name="DraftDockResize" Cursor="SizeNS" Focusable="True" DragDelta="DraftDockResize_DragDelta"
+                 PreviewKeyDown="DraftDockResize_KeyDown" AutomationProperties.Name="대체 초안 높이 조절">
+            <Thumb.Template><ControlTemplate TargetType="Thumb"><Grid Background="Transparent">
+              <Border x:Name="Grip" Width="32" Height="4" VerticalAlignment="Bottom" CornerRadius="2" Background="#D1D1D1"/>
+            </Grid><ControlTemplate.Triggers><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Grip" Property="Background" Value="#005FB8"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Thumb.Template>
+          </Thumb>
+          <DockPanel Grid.Row="1" Margin="16,0,4,1">
+            <Button x:Name="DraftDockClose" DockPanel.Dock="Right" Click="DraftDockClose_Click" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0"
+                    Style="{StaticResource PanelButton}" Background="Transparent" BorderBrush="Transparent" ToolTip="선택한 초안 적용하고 닫기" AutomationProperties.Name="선택한 초안 적용하고 닫기">
+              <svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/draft-dock-close.svg" Width="16" Height="16" Stretch="None" IsHitTestVisible="False"/>
+            </Button>
+            <TextBlock x:Name="DraftDockTitle" FontFamily="{StaticResource InterfaceFont}" FontSize="14" Foreground="#1A1A1A" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          </DockPanel>
+          <Border Grid.Row="2" MinHeight="48" BorderBrush="#EAEAEA" BorderThickness="0,0,0,1">
+            <ScrollViewer x:Name="DraftChoiceScroll" Margin="16,0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto" VerticalContentAlignment="Center">
+              <StackPanel x:Name="DraftChoiceGrid" Orientation="Horizontal" VerticalAlignment="Center"/>
+            </ScrollViewer>
           </Border>
           <Grid Grid.Row="3">
             <Grid.ColumnDefinitions><ColumnDefinition x:Name="DraftTextColumn"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Border BorderBrush="#D1D1D1" BorderThickness="0,0,1,0" Padding="15,8,8,4">
-              <DockPanel><TextBlock DockPanel.Dock="Top" Text="묵자" FontFamily="{StaticResource InterfaceFont}" FontSize="12" Foreground="#5F5F5F"/><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="DraftTextPreview" FontFamily="{StaticResource InterfaceFont}" FontSize="12" LineHeight="20" TextWrapping="Wrap" VerticalAlignment="Top" Margin="0,2,0,0" AutomationProperties.Name="선택한 초안 묵자 미리보기"/></ScrollViewer></DockPanel>
+            <Border BorderBrush="#EAEAEA" BorderThickness="0,0,1,0" Padding="16,12">
+              <DockPanel><TextBlock DockPanel.Dock="Top" Text="묵자" FontSize="12" Foreground="#5F5F5F" Margin="0,0,0,4"/>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                  <TextBlock x:Name="DraftTextPreview" FontFamily="{Binding FontFamily, ElementName=SourceEditor}" FontSize="{Binding FontSize, ElementName=SourceEditor}"
+                             Foreground="#1A1A1A" TextWrapping="Wrap" AutomationProperties.Name="선택한 초안 묵자 미리보기"/>
+                </ScrollViewer>
+              </DockPanel>
             </Border>
-            <Border Grid.Column="1" Padding="15,8,8,4">
-              <DockPanel><TextBlock DockPanel.Dock="Top" Text="점자" FontFamily="{StaticResource InterfaceFont}" FontSize="12" Foreground="#5F5F5F"/><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="DraftBraillePreview" FontFamily="{StaticResource BrailleFont}" FontSize="22" LineHeight="28" TextWrapping="Wrap" VerticalAlignment="Top" AutomationProperties.Name="선택한 초안 점자 미리보기"/></ScrollViewer></DockPanel>
+            <Border Grid.Column="1" Padding="16,12">
+              <DockPanel><TextBlock DockPanel.Dock="Top" Text="점자" Height="16" FontSize="12" Foreground="#5F5F5F"/>
+                <ScrollViewer x:Name="DraftBrailleScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                  <TextBlock x:Name="DraftBraillePreview" FontFamily="{StaticResource BraillePlainFont}"
+                             Foreground="#1A1A1A" TextWrapping="Wrap" AutomationProperties.Name="선택한 초안 점자 미리보기"/>
+                </ScrollViewer>
+              </DockPanel>
             </Border>
           </Grid>
         </Grid>
       </Border>
     </Grid>
     </ScrollViewer>
+    <Grid x:Name="EmptyPanelActions" Visibility="Collapsed" Background="#F3F3F3">
+      <Grid.Resources>
+        <Style x:Key="RestoreTile" TargetType="Button">
+          <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+            <Grid>
+              <Border Background="White" CornerRadius="8" IsHitTestVisible="False">
+                <Border.Effect><DropShadowEffect BlurRadius="2" ShadowDepth="0" Opacity=".06"/></Border.Effect>
+              </Border>
+              <Border x:Name="Tile" Background="White" BorderBrush="#D1D1D1" BorderThickness="1" CornerRadius="8">
+              <Border.Effect><DropShadowEffect BlurRadius="6" ShadowDepth="2" Direction="270" Opacity=".10"/></Border.Effect>
+              <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False">
+                <Border Width="48" Height="48" CornerRadius="24" Background="#EFF6FC">
+                  <Grid Width="24" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Grid>
+                </Border>
+                <TextBlock Margin="0,8,0,0" Text="{Binding Path=(AutomationProperties.Name), RelativeSource={RelativeSource TemplatedParent}}" FontSize="14" FontWeight="SemiBold" Foreground="#1A1A1A" HorizontalAlignment="Center"/>
+              </StackPanel>
+              </Border>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="#005FB8"/></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Tile" Property="BorderBrush" Value="#005FB8"/><Setter TargetName="Tile" Property="BorderThickness" Value="2"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate></Setter.Value></Setter>
+        </Style>
+      </Grid.Resources>
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" VerticalAlignment="Center" Focusable="False">
+        <StackPanel MaxWidth="512" Margin="8,4">
+          <Grid Height="128">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="16"/><ColumnDefinition/><ColumnDefinition Width="16"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Tag="original" AutomationProperties.Name="원본 패널" ToolTip="원본 패널 켜기" Style="{StaticResource RestoreTile}" Click="RestorePanel_Click">
+              <svg:SvgViewbox Width="24" Height="24" Stretch="None" IsHitTestVisible="False" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/restore-original.svg"/>
+            </Button>
+            <Button Grid.Column="2" Tag="source" AutomationProperties.Name="묵자 패널" ToolTip="묵자 패널 켜기" Style="{StaticResource RestoreTile}" Click="RestorePanel_Click">
+              <svg:SvgViewbox Width="24" Height="24" Stretch="None" IsHitTestVisible="False" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/restore-source.svg"/>
+            </Button>
+            <Button Grid.Column="4" Tag="braille" AutomationProperties.Name="점자 패널" ToolTip="점자 패널 켜기" Style="{StaticResource RestoreTile}" Click="RestorePanel_Click">
+              <svg:SvgViewbox Width="24" Height="24" Stretch="None" IsHitTestVisible="False" Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/restore-braille.svg"/>
+            </Button>
+          </Grid>
+          <Button Tag="all" Content="모두 켜기" HorizontalAlignment="Center" Width="88" Height="32" Margin="0,20,0,0" Click="RestorePanel_Click" Style="{StaticResource PrimaryButton}"/>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
     </Grid>
   </DockPanel>
 </Window>

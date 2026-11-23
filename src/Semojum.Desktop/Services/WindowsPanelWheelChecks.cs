@@ -29,6 +29,7 @@ internal static class WindowsPanelWheelChecks
             var middle = Wheel(-120); await Settle();
             check(!middle.Handled && model.ActiveBlock == first, "QA1110: source wheel inside a page preserves ordinary scrolling");
             scroll.ScrollToBottom(); window.UpdateLayout();
+            await WaitForWheelEdge(bottom: true);
             var next = Wheel(-120);
             var deadline = DateTime.UtcNow.AddSeconds(5);
             while (window.PageEditor.DisplayedPage != 2 && DateTime.UtcNow < deadline) await Task.Delay(20);
@@ -39,6 +40,7 @@ internal static class WindowsPanelWheelChecks
             check(previous.Handled && window.PageEditor.DisplayedPage == 1 && model.ActiveBlock == first && scroll.VerticalOffset >= scroll.ScrollableHeight - 1,
                 "QA1110: source wheel at top opens previous page at bottom");
             scroll.ScrollToTop(); window.UpdateLayout();
+            await WaitForWheelEdge(bottom: false);
             var boundary = Wheel(120); await Settle();
             check(!boundary.Handled && model.ActiveBlock == first, "QA1110: source wheel respects first-page boundary");
 
@@ -95,6 +97,20 @@ internal static class WindowsPanelWheelChecks
             check(window.PageEditor.DisplayedPage == 2 && grid.ActiveBlock == second && window.Braille.DisplayedFace == grid.Items.Count,
                 "Clicking the same original block again brings both browsed panels back");
 
+            async Task WaitForWheelEdge(bool bottom)
+            {
+                // ScrollViewer queues its scroll command. Wait for the AvalonEdit view that handles the wheel.
+                var view = (System.Windows.Controls.Primitives.IScrollInfo)editor.TextArea.TextView;
+                var limit = DateTime.UtcNow.AddSeconds(3);
+                do
+                {
+                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                    var edge = bottom ? Math.Max(0, view.ExtentHeight - view.ViewportHeight) : 0;
+                    if (Math.Abs(view.VerticalOffset - edge) <= .5 && Keyboard.Modifiers == ModifierKeys.None) return;
+                    await Task.Delay(20);
+                } while (DateTime.UtcNow < limit);
+                throw new InvalidOperationException($"Wheel fixture did not reach the requested edge (offset={view.VerticalOffset}, height={view.ExtentHeight}, viewport={view.ViewportHeight}, modifiers={Keyboard.Modifiers})");
+            }
             MouseWheelEventArgs Wheel(int delta)
             {
                 var args = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, delta)

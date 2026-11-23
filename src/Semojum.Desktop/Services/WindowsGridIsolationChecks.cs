@@ -15,13 +15,13 @@ internal static class WindowsGridIsolationChecks
             && grids.Select(grid => grid.ColumnHeaderStyle).Distinct().Count() == keys.Length
             && grids.Select(grid => grid.CellStyle).Distinct().Count() == keys.Length,
             "Each screen owns its table, header and cell styles");
-        var originalHeaders = grids.Select(grid => new DataGridColumnHeader { Style = grid.ColumnHeaderStyle }).ToArray();
+        var originalColors = grids.Select(grid => ((SolidColorBrush)new DataGridColumnHeader { Style = grid.ColumnHeaderStyle }.Background).Color).ToArray();
         var boardOverride = new Style(typeof(DataGridColumnHeader), grids[0].ColumnHeaderStyle);
         boardOverride.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.HotPink));
         grids[0].ColumnHeaderStyle = boardOverride;
         var changedHeader = new DataGridColumnHeader { Style = grids[0].ColumnHeaderStyle };
-        check(changedHeader.Background == Brushes.HotPink && originalHeaders.Skip(1).All(header =>
-                header.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(0xF4, 0xF6, 0xF9)),
+        check(changedHeader.Background == Brushes.HotPink && grids.Skip(1).Select(grid =>
+                ((SolidColorBrush)new DataGridColumnHeader { Style = grid.ColumnHeaderStyle }.Background).Color).SequenceEqual(originalColors.Skip(1)),
             "A board-only header change leaves other screen headers unchanged");
         check(grids.All(grid => grid.Style.BasedOn is { } common && common.Setters.OfType<Setter>().All(setter =>
                 setter.Property != Control.BackgroundProperty && setter.Property != DataGrid.ColumnHeaderStyleProperty

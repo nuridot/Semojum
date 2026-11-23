@@ -25,8 +25,25 @@ public partial class MainWindow
     {
         if (zoomPanel == panel) return;
         zoomPanel = panel;
+        PaintPanelHeaders();
         RefreshZoomControls();
         RefreshEditorStatus();
+    }
+
+    private void ConnectPanelZoom(Semojum.Feature.Editor.Wpf.PanelPageBar bar, System.Windows.Controls.Border header, ZoomPanel panel)
+    {
+        header.SizeChanged += (_, e) => bar.SetCompact(e.NewSize.Width < 370);
+        bar.ConfigureZoom(panel == ZoomPanel.Source ? "묵자" : "점자", direction =>
+        {
+            ActivateZoom(panel);
+            StepPanelZoom(direction);
+        }, anchor =>
+        {
+            ActivateZoom(panel);
+            PanelZoomPopup.PlacementTarget = anchor;
+            PanelZoomPopup.IsOpen = true;
+            ZoomSlider.Focus();
+        });
     }
 
     private void SetBrailleSize(double size)
@@ -94,6 +111,10 @@ public partial class MainWindow
             FontSizeLabel.SelectedItem = Label(size);
             FontSizeLabel.ToolTip = original ? "원본 배율" : zoomPanel == ZoomPanel.Source ? "텍스트 글자 크기" : "점자 글자 크기";
             var percent = (size / scale.Normal * 100).ToString("0") + "%";
+            SourcePageBar.SetZoomPercent((SourceEditor.FontSize / appearance.TextSize * 100).ToString("0") + "%");
+            var braillePercent = (Braille.Editor.FontSize / appearance.BrailleSize * 100).ToString("0") + "%";
+            Braille.FacePageBar.SetZoomPercent(braillePercent);
+            detachedPane?.FacePageBar.SetZoomPercent(braillePercent);
             ZoomPicker.Text = ZoomPercent.Text = percent;
             ZoomSlider.Value = size == scale.Normal ? 50 : size < scale.Normal
                 ? (size - scale.Min) * 50 / (scale.Normal - scale.Min)

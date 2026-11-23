@@ -23,6 +23,14 @@ public partial class MainWindow
     { api = service; api.RefreshedIdentityAllowed = account => AutomaticLogin.IsSameDesktopArea(api.Account, account); api.RefreshRequiresIdentity = account => account.Role == "ROLE_ORG_ADMIN"; jobs = new(service); }
 
     private void CreditNotice_Close(object sender, RoutedEventArgs e) => session.CreditNotice = "";
+    private void CreditResume_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            session.CreditNotice = "";
+            e.Handled = true;
+        }
+    }
     private async Task TranslateImportedTextAsync(OpenDocument context)
     {
         if (smoke) return;
@@ -48,7 +56,11 @@ public partial class MainWindow
     }
     private void RefreshAccount()
     {
-        AccountLabel.Text = api.Account is { } account ? account.LoginId : "로그인 안 됨";
+        AccountLabel.Text = api.Account is { } account ? account.DisplayName : "로그인 안 됨";
+        AccountOutputDefaults.Visibility = api.Account is null ? Visibility.Collapsed : Visibility.Visible;
+        AccountOpen.ToolTip = api.Account is null ? "로그인" : "마이페이지";
+        System.Windows.Automation.AutomationProperties.SetName(AccountOpen, (string)AccountOpen.ToolTip);
+        _ = RefreshUnreadAsync();
         if (api.Account is null) { appEvents?.Suspend(); eventDocuments.Clear(); }
         else _ = RefreshEventConfigAsync();
     }
@@ -85,7 +97,7 @@ public partial class MainWindow
     private async Task<bool> ShowInstitutionAsync()
     {
         var maximized = WindowState == WindowState.Maximized;
-        var institution = Institution = new InstitutionWindow(api, LogoutInstitutionAsync, OpenInstitutionMyPage) { ShowInTaskbar = true, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+        var institution = Institution = new InstitutionWindow(api, LogoutInstitutionAsync, OpenInstitutionMyPage, owner => new PublicInquiryDialog(api, standalone: true) { Owner = owner }.ShowDialog()) { ShowInTaskbar = true, WindowStartupLocation = WindowStartupLocation.CenterScreen };
         if (maximized) institution.WindowState = WindowState.Maximized;
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         institution.Closed += (_, _) => closed.TrySetResult();
@@ -99,7 +111,7 @@ public partial class MainWindow
     private void OpenInstitutionMyPage(InstitutionWindow institution)
     {
         var workInfo = $"누리닷 {CurrentVersion.ToString(3)}\n운영체제: {Environment.OSVersion}";
-        var usage = new UsageDialog(api, workInfo, DesktopUsageActions.Create(api, workInfo) with { OpenInstitution = _ => institution.Activate() }) { Owner = institution };
+        var usage = new MyPageWindow(api, workInfo, DesktopUsageActions.Create(api, workInfo) with { OpenInstitution = _ => institution.Activate() }) { Owner = institution };
         if (usage.ShowDialog() == true && usage.LogoutRequested) _ = institution.LogoutAsync();
     }
 
@@ -128,6 +140,29 @@ public partial class MainWindow
         await LoadJobAsync(dialog.Value.Trim(), "서버 작업.smj");
     }
 
+    private async Task ReconvertOriginalAsync()
+    {
+        var owner = session;
+        if (owner.JobId is not { } source || owner.IsTextJob == true || owner.IsReadOnly || owner.HasPendingRestart || owner.HasPendingServerPages || fileBusy)
+            throw new InvalidOperationException("서버 원본이 있고 변환을 마친 작업에서 사용할 수 있습니다.");
+        var account = api.SessionMarker;
+        var ct = documentLifetime.Token;
+        var available = owner.PageStatuses.Where(p => p.Value is "COMPLETED" or "NEEDS_REVIEW").Select(p => p.Key).ToHashSet();
+        if (available.Count == 0) throw new InvalidOperationException("다시 변환할 수 있는 쪽이 없습니다.");
+        var pricing = await new SettingsClient(api).ProofPricingAsync(ct);
+        if (!ReferenceEquals(owner, session) || ct.IsCancellationRequested) return;
+        if (owner.IsDirty && (!await SaveAsync(false) || owner.IsDirty || !ReferenceEquals(session, owner))) return;
+        var dialog = new PageReconversionDialog(DisplayedOriginalPage, available, pricing, async (pages, model, requestId) =>
+        {
+            if (!ReferenceEquals(owner, session) || owner.JobId != source || owner.IsDirty) throw new InvalidOperationException("문서가 변경되었습니다. 다시 선택해 주세요.");
+            var result = await api.SendAuthenticatedAsync(HttpMethod.Post, $"/api/jobs/{Uri.EscapeDataString(source)}/reconversions",
+                new { requestId, pages, proofModel = model }, ct, account);
+            return result.GetProperty("jobId").GetString() ?? throw new InvalidDataException("재변환 작업 번호가 없습니다.");
+        }, pages => owner.Blocks.Any(b => pages.Contains(b.Page) && (b.HasManualBraille || b.SourceRevision > 0 || b.Memos.Count > 0)), owner.Layout.ProofModel) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.CreatedJob is { } child)
+            await LoadJobAsync(child, Path.GetFileNameWithoutExtension(owner.Title) + " (쪽 다시 변환).smj", restorePage: DisplayedOriginalPage);
+    }
+
     private async Task UploadAsync(string[]? previousPaths = null)
     {
         if (fileBusy || uploadFlowBusy) return;
@@ -139,21 +174,37 @@ public partial class MainWindow
             if (selectedPaths is not { Length: > 0 }) return;
             if (selectedPaths.Length == 1 && Path.GetExtension(selectedPaths[0]).Equals(".smj", StringComparison.OrdinalIgnoreCase))
             { await OpenAsync(selectedPaths[0]); return; }
+            OpenDocumentDialog.ValidatePaths(selectedPaths);
             if (!await EnsureAccountAsync()) return;
+            if (selectedPaths.Length > 1)
+            {
+                var order = new ImageOrderDialog(selectedPaths) { Owner = this };
+                if (order.ShowDialog() != true) return;
+                selectedPaths = order.Paths;
+            }
             var client = new SettingsClient(api);
             BrailleForm[] forms = []; var defaults = new AccountDefaults(session.Options, null, "odd"); var available = true;
             using var settingsTimeout = CancellationTokenSource.CreateLinkedTokenSource(documentLifetime.Token);
             settingsTimeout.CancelAfter(TimeSpan.FromSeconds(8));
             try { forms = await client.FormsAsync(settingsTimeout.Token); defaults = await client.DefaultsAsync(settingsTimeout.Token); }
             catch (Exception ex) when (ex is HttpRequestException or SemojumApiException || ex is OperationCanceledException && !documentLifetime.IsCancellationRequested) { available = false; }
-            var dialog = new OpenDocumentDialog(forms, defaults, available) { Owner = this };
+            ProofPricing? pricing = null;
+            try { if (available) pricing = await client.ProofPricingAsync(settingsTimeout.Token); }
+            catch (Exception ex) when (ex is HttpRequestException or SemojumApiException or System.Text.Json.JsonException or KeyNotFoundException or InvalidDataException ||
+                ex is OperationCanceledException && !documentLifetime.IsCancellationRequested) { }
+            var dialog = new OpenDocumentDialog(forms, defaults, available, pricing) { Owner = this };
+            if (!available)
+            {
+                var notice = FileNotices.ServerSettingsUnavailable();
+                notice.Owner = this;
+                notice.ShowDialog();
+            }
             dialog.SetPaths(selectedPaths);
             if (dialog.ShowDialog() != true) return;
             var orderedFiles = dialog.Paths;
             var settings = dialog.Settings;
             if (orderedFiles.Length == 1 && Path.GetExtension(orderedFiles[0]).ToLowerInvariant() is ".smj" or ".txt")
             { await OpenAsync(orderedFiles[0], settings, dialog.FormId); return; }
-            if (orderedFiles.Length > 1) { var order = new ImageOrderDialog(orderedFiles) { Owner = this }; if (order.ShowDialog() != true) return; orderedFiles = order.Paths; }
             fileBusy = true;
             using var openEvent = EventOpen(() => settings);
             try
@@ -270,34 +321,44 @@ public partial class MainWindow
                 model.CreditNotice = status.CreditExhausted ? $"크레딧이 소진되었습니다. ({status.SucceededPages}/{status.TotalPages}쪽 완료)" : "";
                 // BE 2026-11-02: the server estimates the time left for the waiting and running pages (status estimatedRemainingSec,
                 // SSE queue_position.estimated_wait_sec). Progress inside a page is unknown, so the bar stays per page; no estimate hides the line.
-                model.Progress = status.IsTerminal ? null : status.ToProgress(ConversionProgress.RemainingLabel(status.EstimatedRemainingSec ?? events.EstimatedWaitSec));
+                model.Progress = status.IsTerminal ? null : status.ToProgress(
+                    ConversionProgress.RemainingLabel(status.EstimatedRemainingSec ?? events.EstimatedWaitSec), model.Layout.ProofModel);
                 model.Status = $"AI 변환 {status.FinishedPages}/{status.TotalPages}쪽 처리 · 성공 {status.SucceededPages} · 확인 필요 {status.FailedPages} · {status.Label}";
                 foreach (var page in status.Pages.Where(p => JobStatus.IsSucceededPage(p.Value) || JobStatus.IsFailedPage(p.Value)).OrderBy(p => p.Key))
                 {
                     if (loadedPages.Contains(page.Key)) continue;
-                    RemotePage result; var missingCreditResult = false;
+                    RemotePage result;
+                    var missingResult = false;
                     try { result = await jobs.PageAsync(model.JobId!, page.Key, nextId, ct); }
-                    catch (SemojumApiException ex) when (status.CreditExhausted && page.Value == "BLOCKED"
+                    catch (SemojumApiException ex) when (page.Value is ("FAILED" or "BLOCKED")
                         && ex.Status == System.Net.HttpStatusCode.NotFound && ex.Code == "JOB4001")
                     {
-                        // A page stopped before processing has no result yet. Keep any existing edits, and
-                        // continue receiving completed pages instead of treating credit exhaustion as a connection error.
-                        missingCreditResult = true;
-                        if (model.Blocks.Any(b => b.Page == page.Key && (!b.Metadata.IsBlocked || b.ServerId is not null)))
-                        { loadedPages.Add(page.Key); MarkPageChecked(page.Key); continue; }
+                        // Older servers have no page detail when the worker stopped before producing a result.
+                        missingResult = true;
                         result = new RemotePage(page.Key, page.Value, [], null, null, null, 0, 0);
                     }
+                    var missingCreditResult = page.Value == "BLOCKED" && (result.BlockedReason == "CREDIT_EXHAUSTED"
+                        || result.BlockedReason is null && status.CreditExhausted);
+                    if (page.Value is "BLOCKED" or "FAILED")
+                        model.RememberFailureReason(page.Key, missingCreditResult ? "CREDIT_EXHAUSTED" : result.BlockedReason);
+                    var noReplacement = result.Blocks.Length == 0 && page.Value is ("BLOCKED" or "FAILED");
+                    if (noReplacement && model.Blocks.Any(b => b.Page == page.Key
+                        && (!b.Metadata.IsBlocked || b.ServerId is not null || b.Source.Length > 0 || b.Braille.Length > 0 || b.Memos.Count > 0 || b.ReviewMarks.Count > 0)))
+                    { loadedPages.Add(page.Key); MarkPageChecked(page.Key); continue; }
                     foreach (var block in result.Blocks)
                     {
                         // Only a newly requested conversion supplies a known AI original. A reopened server result may already be edited.
                         if (block.AiBaseline is { } baseline && (applyInitialChoices || replacePages?.Contains(page.Key) == true
                             && model.Blocks.Where(b => b.Page == page.Key).All(b => b.AiBaseline?.VersionId != baseline.VersionId)))
                             block.AiBaseline = baseline with { Text = block.Source };
+                        if ((applyInitialChoices || replacePages?.Contains(page.Key) == true) && JobStatus.IsSucceededPage(page.Value)
+                            && block.State == "점역 전" && !block.Metadata.IsBlocked)
+                            block.State = "교열 완료";
                         if (applyInitialChoices) VisualDraftSelection.ApplyInitial(block, model.Options);
                     }
                     var keepLocalPage = replacePages?.Contains(page.Key) == true && model.Blocks.Any(b => b.Page == page.Key
                         && (b.ServerId is not null || !b.Metadata.IsBlocked || b.Source.Length > 0 || b.Braille.Length > 0 || b.Memos.Count > 0 || b.ReviewMarks.Count > 0));
-                    if (keepLocalPage && !missingCreditResult)
+                    if (keepLocalPage && !noReplacement)
                     {
                         // Both versions remain available: never replace local work or record the new server baseline as if it had been applied.
                         foreach (var block in result.Blocks.Where(b => b.Braille.Length == 0 && !b.Metadata.IsBlocked))
@@ -311,7 +372,7 @@ public partial class MainWindow
                         loadedPages.Add(page.Key); MarkPageChecked(page.Key);
                         continue;
                     }
-                    if (!missingCreditResult)
+                    if (!missingResult)
                     {
                         JobClient.Remember(model, result);
                         await CacheOriginalAsync(model, result, ct);
@@ -416,15 +477,28 @@ public partial class MainWindow
         {
             if (notice.Choice == 0) await UploadAsync(openDocument?.UploadPaths);
             else if (notice.Choice == 1 && await EnsureAccountAsync()) new DefaultsDialog(new(api)) { Owner = this }.ShowDialog();
-            else if (notice.Choice == 2) new PublicInquiryDialog(api) { Owner = this }.ShowDialog();
+            else if (notice.Choice == 2) new PublicInquiryDialog(api, standalone: true) { Owner = this }.ShowDialog();
         }
     }
 
     // BE 2026-10-27: retry re-queues AI-failed pages, resume re-queues credit-exhausted pages (기획 10-1). Only those pages are replaced.
+    private async void OriginalRetry_Click(object sender, RoutedEventArgs e)
+    {
+        var owner = session;
+        var page = DisplayedOriginalPage;
+        if (!OriginalRetryButton.IsEnabled || owner?.IsConversionFailed(page) != true) return;
+        if (owner.PageStatuses.Keys.Count(owner.IsConversionFailed) > 1 &&
+            NoticeDialog.Choose(this, "실패한 쪽을 다시 변환할까요?", "이 작업에서 다시 변환할 수 있는 실패 쪽을 모두 요청합니다.",
+                ["다시 변환", "취소"]) != 0) return;
+        if (session != owner || page != DisplayedOriginalPage || !owner.IsConversionFailed(page)) return;
+        try { await RestartJobAsync(owner, retry: true); }
+        catch (Exception ex) { if (session == owner) ShowError(ex); }
+    }
+
     private async Task RestartJobAsync(DocumentSession model, bool retry)
     {
-        if (resourcesReleased || session != model || openDocument is null || model.JobId is null || !await EnsureAccountAsync()) return;
-        var context = openDocument;
+        if (resourcesReleased || session != model || openDocument is not { } context || model.JobId is not { } jobId || model.IsReadOnly) return;
+        if (!await EnsureAccountAsync() || resourcesReleased || session != model || openDocument != context || model.JobId != jobId || model.IsReadOnly) return;
         if (HasOtherTabForJob(context))
         { model.ErrorNotice = "같은 서버 작업의 다른 탭을 닫거나, 닫힌 재개 작업의 원본 파일을 다시 열어 확인한 뒤 재개해 주세요."; return; }
         if (context.ServerSaveInProgress || context.PageSyncInProgress > 0)
@@ -460,7 +534,8 @@ public partial class MainWindow
             if (!requestAccepted && (int)ex.Status is >= 400 and < 500) { model.PendingRestart = null; if (!model.HasPendingServerPages) model.ErrorNotice = ""; }
             if (model.PendingRestart is { Unconfirmed: true }) model.ErrorNotice = UnconfirmedRestartNotice;
             var notice = ex.Code == "CREDIT4001" ? FileNotices.NoCredits()
-                : new NoticeDialog(retry ? "실패한 쪽을 다시 변환하지 못했습니다." : "이어서 처리하지 못했습니다.", $"{ex.Message} ({ex.Code})", ["닫기"], error: true);
+                : retry ? FileNotices.RetryFailed($"{ex.Message} ({ex.Code})")
+                : new NoticeDialog("이어서 처리하지 못했습니다.", $"{ex.Message} ({ex.Code})", ["닫기"], error: true, width: 480, height: 178);
             notice.Owner = this; notice.ShowDialog();
             if (ex.Code == "CREDIT4001") ShowCreditInquiry(notice);
         }
@@ -473,8 +548,8 @@ public partial class MainWindow
 
     private void ShowCreditInquiry(NoticeDialog notice)
     {
-        if (notice.Choice == 0) new PublicInquiryDialog(api, "크레딧 구매 문의", PublicInquiryCategory.CreditPayment) { Owner = this }.ShowDialog();
-        else if (notice.Choice == 1) new PublicInquiryDialog(api) { Owner = this }.ShowDialog();
+        if (notice.Choice == 0) new PublicInquiryDialog(api, "크레딧 구매 문의", PublicInquiryCategory.CreditPayment, standalone: true) { Owner = this }.ShowDialog();
+        else if (notice.Choice == 1) new PublicInquiryDialog(api, standalone: true) { Owner = this }.ShowDialog();
     }
 
     private async void ReviewPendingServerPages_Click(object sender, RoutedEventArgs e)
@@ -482,9 +557,13 @@ public partial class MainWindow
         if (fileBusy || !session.HasPendingServerPages) return;
         var owner = session;
         var pages = owner.PendingServerPages.Values.OrderBy(p => p.Page).ToArray();
-        var choice = NoticeDialog.Choose(this, "재개 결과와 로컬 교정 확인",
-            "재개 결과가 돌아온 쪽에 로컬 교정, 메모 또는 검토 표시가 있습니다. 서버 결과를 별도 탭에서 비교하거나, 현재 교정본을 별도 파일로 보관한 뒤 서버 결과를 적용할 수 있습니다. 서버 결과를 적용한 쪽의 기존 검토 표시는 백업 파일에만 남습니다. 해결 전에는 서버 저장이 차단됩니다.",
-            ["서버 결과 별도 탭", "교정본 백업 후 적용", "닫기"], width: 560);
+        var notice = new NoticeDialog("고친 내용이 있는 쪽에 서버 결과가 도착했습니다.",
+            $"{string.Join(" · ", pages.Select(p => p.Page))}쪽입니다. 정리하기 전에는 서버 저장을 막습니다.",
+            ["서버 결과 별도 탭", "교정본 백업 후 적용", "닫기"], width: 600, height: 178);
+        const string backupHelp = "서버 결과를 적용한 쪽의 기존 교정, 메모와 검토 표시는 백업 파일에만 남습니다.";
+        notice.ActionButtons[1].ToolTip = backupHelp;
+        System.Windows.Automation.AutomationProperties.SetHelpText(notice.ActionButtons[1], backupHelp);
+        var choice = notice.ChooseFor(this);
         if (choice == 0)
         {
             pages = owner.PendingServerPages.Values.OrderBy(p => p.Page).ToArray();

@@ -23,6 +23,8 @@ internal static class WindowsUploadSafetyChecks
             await File.WriteAllBytesAsync(first, [1]); await File.WriteAllBytesAsync(duplicate, [2]); await File.WriteAllBytesAsync(other, [3]);
             using var handler = new Fixture(); using var http = new HttpClient(handler); var api = new SemojumApiClient(http); await api.LoginAsync("fixture", "fixture");
             var window = new MainWindow(api); window.Show();
+            var extra = Path.Combine(a, "extra.png");
+            var matchingEstimate = false;
             var errors = new List<string>(); var settingsShown = 0; var orderShown = 0; var stage = 0;
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
             timer.Tick += (_, _) =>
@@ -30,17 +32,37 @@ internal static class WindowsUploadSafetyChecks
                 var notice = Application.Current.Windows.OfType<NoticeDialog>().FirstOrDefault(n => n.IsVisible && n.Owner == window);
                 if (notice is not null) { errors.Add(notice.DetailText); notice.ActionButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); return; }
                 var settings = Application.Current.Windows.OfType<OpenDocumentDialog>().FirstOrDefault(d => d.IsVisible && d.Owner == window);
-                if (settings is not null && stage == 2)
+                if (settings is not null && stage == 3)
                 {
-                    stage = 3; settingsShown++;
+                    stage = 4; settingsShown++;
+                    settings.Closed += (_, _) => { using var file = new FileStream(other, FileMode.Open, FileAccess.Write, FileShare.ReadWrite); file.SetLength(JobClient.MaximumUploadBytes + 1); };
                     Descendants(settings).OfType<Button>().Single(button => Equals(button.Content, "변환 시작")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     return;
                 }
                 var order = Application.Current.Windows.OfType<ImageOrderDialog>().FirstOrDefault(d => d.IsVisible && d.Owner == window);
-                if (order is not null && stage == 3)
+                if (order is not null && stage == 5)
                 {
-                    stage = 4; orderShown++;
-                    using (var f = new FileStream(other, FileMode.Open, FileAccess.Write, FileShare.ReadWrite)) f.SetLength(JobClient.MaximumUploadBytes + 1);
+                    var browser = Descendants(order).OfType<ImageUploadBrowser>().Single();
+                    var add = Descendants(browser.Files).OfType<CheckBox>().FirstOrDefault(c => c.DataContext is ImageUploadBrowser.FileRow r && r.Path == extra);
+                    if (add is null) return;
+                    stage = 6;
+                    add.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+                    browser.Files.SelectedItem = browser.Files.Items.Cast<ImageUploadBrowser.FileRow>().Single(r => r.Path == other);
+                    ImageUploadBrowser.MoveUp.Execute(null, browser.Files);
+                    Descendants(order).OfType<Button>().Single(b => Equals(b.Content, "올리기")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    return;
+                }
+                if (settings is not null && stage == 6)
+                {
+                    stage = 7;
+                    matchingEstimate = settings.Paths.SequenceEqual([other, first, extra]) && settings.FileNames.Text.EndsWith(" · 3쪽")
+                        && Descendants(settings).OfType<TextBlock>().Any(t => t.Text == "300 크레딧");
+                    Descendants(settings).OfType<Button>().Single(b => Equals(b.Content, "변환 시작")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    return;
+                }
+                if (order is not null && stage == 2)
+                {
+                    stage = 3; orderShown++;
                     Descendants(order).OfType<Button>().Single(button => Equals(button.Content, "올리기")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 }
             };
@@ -61,6 +83,12 @@ internal static class WindowsUploadSafetyChecks
                     "A file enlarged after settings is rejected before upload with a clear error");
                 check(ReferenceEquals(model, window.Session) && model.IsDirty && model.ActiveBlock!.Source == "미저장 원문" && model.ActiveBlock.Braille == "⠁⠃" && window.DocumentTabs.Items.Count == tabs,
                     "Read-time size rejection preserves the unsaved document and manual braille");
+                await File.WriteAllBytesAsync(other, [3]); await File.WriteAllBytesAsync(extra, [4]); stage = 5;
+                window.OriginalUpload.UploadArea.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await WaitFor(() => errors.Count >= 3);
+                check(matchingEstimate, "The conversion options count and price the final ordered selection from the image browser");
+                check(handler.Uploads == 1 && handler.Uploaded.SequenceEqual(new[] { ("other.png", (byte)3), ("same.png", (byte)1), ("extra.png", (byte)4) }),
+                    "The editor sends the chosen images in page order with the matching bytes in its multipart job request");
             }
             finally { timer.Stop(); await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
         }
@@ -78,12 +106,20 @@ internal static class WindowsUploadSafetyChecks
     private sealed class Fixture : HttpMessageHandler
     {
         public int Uploads { get; private set; }
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public List<(string Name, byte Marker)> Uploaded { get; } = [];
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
-            if (request.Method == HttpMethod.Post && path.StartsWith("/api/jobs")) Uploads++;
-            var result = path.EndsWith("/login") ? "{\"accessToken\":\"fixture\",\"refreshToken\":\"fixture\",\"role\":\"ROLE_USER\"}" : path.EndsWith("/braille-forms") ? "{\"items\":[]}" : "{}";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"isSuccess\":true,\"result\":" + result + "}", Encoding.UTF8, "application/json") });
+            if (request.Method == HttpMethod.Post && path == "/api/jobs")
+            {
+                Uploads++;
+                foreach (var part in (MultipartFormDataContent)request.Content!)
+                    if (part.Headers.ContentDisposition?.FileName is { } name)
+                        Uploaded.Add((name.Trim('"'), (await part.ReadAsByteArrayAsync(cancellationToken)).Single()));
+                return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"isSuccess":false,"code":"QA","message":"시험 업로드 확인"}""", Encoding.UTF8, "application/json") };
+            }
+            var result = path.EndsWith("/login") ? "{\"accessToken\":\"fixture\",\"refreshToken\":\"fixture\",\"role\":\"ROLE_USER\"}" : path.EndsWith("/braille-forms") ? "{\"items\":[]}" : path.EndsWith("/proof-pricing") ? """{"pageCredits":{"PAGE_LAYOUT_TEXT":100,"PAGE_LAYOUT_VISUAL":500},"models":[{"code":"MINERU","extraCredits":0}]}""" : "{}";
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"isSuccess\":true,\"result\":" + result + "}", Encoding.UTF8, "application/json") };
         }
     }
 }

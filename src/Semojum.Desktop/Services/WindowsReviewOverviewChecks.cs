@@ -43,9 +43,12 @@ internal static class WindowsReviewOverviewChecks
             check(editor.Overview.MarkerCount == 3 && memo.ManualKinds(0).Contains(ReviewKind.HumanConfirmed), "Overview uses only valid manual reviews and unresolved source memos at known locations");
             var strip = editor.Overview;
             var stripLeft = strip.TranslatePoint(new Point(), editor).X; var textRight = editor.Editor.TranslatePoint(new Point(editor.Editor.ActualWidth, 0), editor).X;
+            var rail = Descendants(editor.Editor).OfType<ScrollBar>().Single(b => b.Orientation == Orientation.Vertical && b.IsVisible);
+            var thumb = Descendants(rail).OfType<Thumb>().Single();
+            var railLeft = rail.TranslatePoint(new Point(), editor).X;
             check(strip.ActualWidth == 12 && Math.Abs(stripLeft - textRight) < .5 && Math.Abs(stripLeft + 12 - editor.ActualWidth) < .5 && strip.ActualHeight == editor.ActualHeight && numbers.ActualWidth >= 32
-                && !Descendants(editor.Editor).OfType<ScrollBar>().Any(b => b.Orientation == Orientation.Vertical && b.IsVisible),
-                "The overview is an independent 12px column right of the text and replaces the native vertical scrollbar");
+                && rail.ActualWidth == 12 && thumb.ActualWidth == 8 && Math.Abs(railLeft + 12 - stripLeft) <= 1,
+                "The Figma scrollbar and review overview occupy adjacent 12px columns with an 8px draggable thumb");
             check(editor.InputHitTest(strip.TranslatePoint(new Point(6, strip.ActualHeight / 2), editor)) == strip, "Mouse presses on the overview reach the strip, not the text");
             var stripColors = Colors(VisualTreeHelper.GetDrawing(strip)).ToArray();
             check(stripColors.Contains(Color.FromRgb(0xFA, 0xFA, 0xFA)) && stripColors.Contains(Color.FromRgb(0xEA, 0xEA, 0xEA)) && stripColors.Contains(Color.FromRgb(0xD1, 0xD1, 0xD1)),
@@ -91,10 +94,19 @@ internal static class WindowsReviewOverviewChecks
             var viewerPeer = UIElementAutomationPeer.CreatePeerForElement(editor.Editor).GetChildren()?.OfType<ScrollViewerAutomationPeer>().FirstOrDefault();
             var viewerScroll = viewerPeer?.GetPattern(PatternInterface.Scroll) as IScrollProvider;
             viewerScroll?.SetScrollPercent(ScrollPatternIdentifiers.NoScroll, 0); await Paint();
-            check(viewerScroll is { VerticallyScrollable: true } && editor.Editor.VerticalOffset < 1, "The editor keeps its UIA scroll pattern with the native scrollbar hidden");
-            editor.Editor.CaretOffset = 0; await Paint();
-            editor.Editor.TextArea.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(editor.Editor)!, 0, Key.PageDown) { RoutedEvent = Keyboard.KeyDownEvent }); await Paint();
-            check(editor.Editor.TextArea.Caret.Line > 1 && editor.Editor.VerticalOffset > 0, "Keyboard paging still scrolls the editor without its native scrollbar");
+            check(viewerScroll is { VerticallyScrollable: true } && editor.Editor.VerticalOffset < 1, "The editor keeps its UIA scroll pattern with the document scrollbar visible");
+            window.Activate(); editor.Editor.TextArea.Focus(); editor.Editor.CaretOffset = 0; await Paint();
+            var pageDownDeadline = DateTime.UtcNow.AddSeconds(3);
+            while (Keyboard.Modifiers != ModifierKeys.None && DateTime.UtcNow < pageDownDeadline) await Task.Delay(20);
+            editor.Editor.TextArea.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(editor.Editor)!, Environment.TickCount, Key.PageDown) { RoutedEvent = Keyboard.KeyDownEvent });
+            // AvalonEdit moves the caret and scrolls it into view on separate layout passes.
+            while ((editor.Editor.TextArea.Caret.Line <= 1 || editor.Editor.VerticalOffset <= 0) && DateTime.UtcNow < pageDownDeadline)
+            {
+                await Task.Delay(20);
+                await Paint();
+            }
+            check(editor.Editor.TextArea.Caret.Line > 1 && editor.Editor.VerticalOffset > 0,
+                $"Keyboard paging still scrolls the editor beside the scrollbar and overview (line={editor.Editor.TextArea.Caret.Line}, offset={editor.Editor.VerticalOffset}, focus={editor.Editor.IsKeyboardFocusWithin}, modifiers={Keyboard.Modifiers})");
             editor.Editor.Select(5, 3);
             check(editor.Editor.SelectionLength == 3 && editor.Selection.Sum(s => s.Length) == 3, "Source selection remains usable beside the overview strip");
             editor.ShowReviews = false; await Paint();
@@ -222,7 +234,7 @@ internal static class WindowsReviewOverviewChecks
             Color red = Color.FromRgb(196, 43, 28), pink = Color.FromRgb(253, 231, 233);
             var numberColors = Colors(VisualTreeHelper.GetDrawing(numbers)).ToArray();
             check(numberColors.Contains(pink) && numberColors.Contains(red) && memo.ManualKinds(0).SequenceEqual([ReviewKind.OpenWarning]) && memo.ManualKinds(1).SequenceEqual([ReviewKind.OpenWarning])
-                && memo.ManualKinds(2).Length == 0 && ReviewVisuals.Label(ReviewKind.OpenWarning) == "안 풀린 경고" && ReviewVisuals.Icon(ReviewKind.OpenWarning).Children.Count > 0,
+                && memo.ManualKinds(2).Length == 0 && ReviewVisuals.Label(ReviewKind.OpenWarning) == "미검수" && ReviewVisuals.Icon(ReviewKind.OpenWarning).Children.Count > 0,
                 "Right after conversion every line of a flagged block shows a red number, pink band and warning triangle; other blocks show none");
             check(editor.Overview.PaintedMarkers.Any(p => p.Kind == ReviewKind.OpenWarning) && Colors(VisualTreeHelper.GetDrawing(editor.Overview)).Contains(red),
                 "The overview strip marks the server warning in red");
@@ -264,7 +276,7 @@ internal static class WindowsReviewOverviewChecks
             var block = window.Session.ActiveBlock!; block.Source = "검토할 첫 줄\n둘째 줄";
             block.AddReviewMark(ReviewKind.SuggestDeletion, ReviewPanel.Text, 0, 1);
             window.PageEditor.Refresh();
-            window.ApplyAppearance(new EditorAppearance(LineNumberColor: "#123456", LineNumberBackground: "#ABCDEF"), true);
+            window.ApplyAppearance(new EditorAppearance(LineNumberColor: "#123456", LineNumberBackground: "#ABCDEF"));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
             var toggle = typeof(MainWindow).GetMethod("ApplyLineNumbers", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
             window.LineNumbersToggle.IsChecked = false; toggle.Invoke(window, null);

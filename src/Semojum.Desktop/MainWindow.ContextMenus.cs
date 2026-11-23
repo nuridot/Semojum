@@ -35,12 +35,15 @@ public partial class MainWindow
         menu.Items.Add(Item("적용 규정 보기", "rules", "rule"));
         if (braille)
         {
-            menu.Items.Add(Item("이 블록 다시 점역", "translate", "recon"));
+            var translate = Item("이 블록 다시 점역", "translate", "recon");
+            translate.SetBinding(VisibilityProperty, new System.Windows.Data.Binding("IsChecked") {
+                Source = AdditionalCommands, Converter = new BooleanToVisibilityConverter() });
+            menu.Items.Add(translate);
             var restore = new MenuItem { Header = "직접 고친 점자 되돌리기", Style = (Style)FindResource("FinalContextItem"), Icon = new SvgViewbox { Source = new Uri("pack://application:,,,/Semojum.Mockup;component/Assets/Figma/braille-context-undo.svg"), Width = 16, Height = 16, Stretch = Stretch.None, IsHitTestVisible = false } };
             restore.Click += (_, _) => RestoreOriginalBraille();
             menu.Opened += (_, _) => { restore.IsEnabled = CanRestoreOriginalBraille(); restore.ToolTip = restore.IsEnabled ? "기록된 원래 점역 결과로 되돌립니다." : "현재 원문과 일치하는 원래 점역 결과가 없습니다."; };
             menu.Items.Add(restore); Line();
-            menu.Items.Add(Group("점자 줄 넣기", "blank", [("상단 줄", "상단줄"), ("중단 줄", "중단줄"), ("하단 줄", "하단줄"), ("상단 굵은 줄", "상단굵은줄"), ("하단 굵은 줄", "하단굵은줄")]));
+            menu.Items.Add(Group("점자 줄 넣기", "blank", [("상단", "상단줄"), ("중단", "중단줄"), ("하단", "하단줄"), ("상단 굵은", "상단굵은줄"), ("하단 굵은", "하단굵은줄")]));
             menu.Items.Add(Group("표 테두리", "table", [("표 시작 테두리 선", "표시작"), ("표 중앙 테두리 선", "표중앙"), ("표 끝 테두리 선", "표끝"), ("표 구분선", "표구분선")]));
         }
         else
@@ -49,7 +52,8 @@ public partial class MainWindow
             menu.Items.Add(Group("강조 넣기", "emph", [("밑줄", "강조"), ("굵게", "굵은"), ("색상 또는 모양", "색강조"), ("취소선", "취소선")]));
             menu.Items.Add(Group("정렬", "align", [("왼쪽", "왼쪽정렬"), ("가운데", "가운데정렬"), ("오른쪽", "오른쪽정렬")]));
             menu.Items.Add(Item("쪽바꿈 넣기", "tag:쪽바꿈", "pagebreak", "Ctrl+Enter"));
-            menu.Items.Add(Item("수식 입력창", "math", "math"));
+            Line();
+            menu.Items.Add(Item("수식 입력창", "math", "math", "Alt+M"));
         }
         return menu;
     }

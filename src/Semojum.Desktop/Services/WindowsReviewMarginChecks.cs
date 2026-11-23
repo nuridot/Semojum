@@ -225,7 +225,7 @@ internal static class WindowsReviewMarginChecks
             check(actual.GutterWidth == 17 && actual.SlotPadding == 1 && Math.Abs(actual.ActualWidth - 17) < .5, "The real source editor preserves the Figma marker gutter without markers");
             var numbers = main.PageEditor.Editor.TextArea.LeftMargins.OfType<ColoredLineNumbers>().Single();
             check(Math.Abs(numbers.ActualWidth + actual.ActualWidth - 49) < .5, "The source number and marker regions place the separator at the Figma 49px coordinate");
-            main.ApplyAppearance(new EditorAppearance(LineNumberColor: "#123456", LineNumberBackground: "#ABCDEF"), true);
+            main.ApplyAppearance(new EditorAppearance(LineNumberColor: "#123456", LineNumberBackground: "#ABCDEF"));
             check(((SolidColorBrush)main.Braille.GridView.LineNumberForeground).Color == (Color)ColorConverter.ConvertFromString("#123456")
                 && ((SolidColorBrush)main.Braille.GridView.LineNumberBackground).Color == (Color)ColorConverter.ConvertFromString("#ABCDEF"),
                 "Custom line-number foreground and background also reach the visible braille grid");
@@ -247,7 +247,7 @@ internal static class WindowsReviewMarginChecks
             {
                 if (Application.Current.Windows.OfType<Semojum.Desktop.Dialogs.NoticeDialog>().FirstOrDefault(d => d.IsVisible) is { } notice)
                 {
-                    localDetailSeen = notice.MessageText == "점역 검토 필요" && notice.DetailText.Contains("기호") && notice.DetailText.Contains("미확인");
+                    localDetailSeen = notice.MessageText == "점역 검토 필요" && notice.DetailText == "인식하지 못한 문자 기호 1개 · 알 수 없는 태그 미확인";
                     timeout.Stop(); notice.Close();
                 }
                 else if (++ticks >= 30) timeout.Stop();

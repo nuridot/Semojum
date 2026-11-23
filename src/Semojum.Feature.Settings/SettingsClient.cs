@@ -6,6 +6,20 @@ using Semojum.Core.Integration;
 namespace Semojum.Feature.Settings;
 
 public sealed record AccountDefaults(BrailleOptions Options, string? FormId, string PageNumberLine);
+public sealed record ProofPrice(string Code, int ExtraCredits)
+{
+    public override string ToString() => $"{Code switch { "MINERU" => "MinerU", "HAIKU" => "Haiku", "SONNET" => "Sonnet", "OPUS" => "Opus", _ => Code }} · 쪽당 추가 +{ExtraCredits:N0}";
+}
+public sealed record ProofPricing(int TextCredits, int VisualCredits, ProofPrice[] Models);
+public sealed record AccountOutputOptions(string PaperSize, int LinesPerPage, int CellsPerLine, int BraillePageStart, string PageNumberLine, bool Duplex, string LineBreakUnit)
+{
+    public void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(PaperSize) || PaperSize.Trim().Length > 30 || LinesPerPage is < 4 or > 100 || CellsPerLine is < 8 or > 100 ||
+            BraillePageStart < 1 || PageNumberLine is not ("odd" or "every") || LineBreakUnit is not ("syllable" or "word"))
+            throw new ArgumentException("용지 이름(1–30자), 줄 수(4–100), 칸 수(8–100), 시작 면(1 이상)을 확인해 주세요.");
+    }
+}
 public sealed record BrailleForm(string FormId, string Name, bool Builtin, string? BaseFormId, PageLayout Layout, BrailleOptions Options)
 {
     public override string ToString() => Name + (Builtin ? " · 기본" : " · 사용자");
@@ -13,6 +27,36 @@ public sealed record BrailleForm(string FormId, string Name, bool Builtin, strin
 
 public sealed class SettingsClient(SemojumApiClient api)
 {
+    public async Task<ProofPricing> ProofPricingAsync(CancellationToken ct)
+    {
+        var data = await api.SendAuthenticatedAsync(HttpMethod.Get, "/api/jobs/proof-pricing", cancellationToken: ct);
+        var baseRates = data.GetProperty("pageCredits");
+        var models = data.GetProperty("models").EnumerateArray().Select(m => new ProofPrice(m.GetProperty("code").GetString()!, m.GetProperty("extraCredits").GetInt32())).ToArray();
+        var fees = new ProofPricing(baseRates.GetProperty("PAGE_LAYOUT_TEXT").GetInt32(), baseRates.GetProperty("PAGE_LAYOUT_VISUAL").GetInt32(), models);
+        if (fees.TextCredits < 0 || fees.VisualCredits < 0 || models.Length == 0 || models.Any(m => m.ExtraCredits < 0 || m.Code is not ("MINERU" or "HAIKU" or "SONNET" or "OPUS")))
+            throw new System.IO.InvalidDataException("교열 모델 요금표가 올바르지 않습니다.");
+        return fees;
+    }
+    private static AccountOutputOptions ReadOutput(JsonElement data)
+    {
+        var options = new AccountOutputOptions(data.GetProperty("paperSize").GetString() ?? "", data.GetProperty("linesPerPage").GetInt32(),
+            data.GetProperty("cellsPerLine").GetInt32(), data.GetProperty("braillePageStart").GetInt32(), data.GetProperty("pageNumberLine").GetString() ?? "",
+            data.GetProperty("duplex").GetBoolean(), data.GetProperty("lineBreakUnit").GetString() ?? "");
+        options.Validate();
+        return options;
+    }
+
+    public async Task<AccountOutputOptions> GetOutputAsync(CancellationToken ct = default) =>
+        ReadOutput(await api.SendAuthenticatedAsync(HttpMethod.Get, "/api/users/output-options", cancellationToken: ct));
+
+    public async Task<AccountOutputOptions> SaveOutputAsync(AccountOutputOptions value, CancellationToken ct = default)
+    {
+        value.Validate();
+        return ReadOutput(await api.SendAuthenticatedAsync(HttpMethod.Put, "/api/users/output-options", new {
+            paperSize = value.PaperSize.Trim(), linesPerPage = value.LinesPerPage, cellsPerLine = value.CellsPerLine,
+            braillePageStart = value.BraillePageStart, pageNumberLine = value.PageNumberLine, duplex = value.Duplex, lineBreakUnit = value.LineBreakUnit
+        }, ct));
+    }
     public async Task<AccountDefaults> DefaultsAsync(CancellationToken ct = default) => ReadDefaults(
         await api.SendAuthenticatedAsync(HttpMethod.Get, "/api/users/braille-options", cancellationToken: ct));
     public async Task<AccountDefaults> SaveDefaultsAsync(AccountDefaults value, CancellationToken ct = default)
@@ -32,9 +76,11 @@ public sealed class SettingsClient(SemojumApiClient api)
         // A form lives only on the server: a value it cannot hold would be dropped or rewritten, so it is rejected up front (C-04).
         if (ServerContract.UnsupportedInForm(layout) is { Length: > 0 } unsupported)
             throw new ArgumentException("서버 양식에 저장할 수 없는 설정입니다: " + string.Join(", ", unsupported) + ". 값을 바꾸거나 작업 설정으로만 사용해 주세요.");
+        var layoutBody = JobClient.LayoutBody(layout);
+        layoutBody["pageNumberLine"] = ServerContract.FormPageNumberLine(layout.PageNumbers)!;
         return ReadForm(await api.SendAuthenticatedAsync(id is null ? HttpMethod.Post : HttpMethod.Patch,
             "/api/users/braille-forms" + (id is null ? "" : "/" + Uri.EscapeDataString(id)),
-            new { name = name.Trim(), baseFormId = baseId, layoutOptions = JobClient.LayoutBody(layout), brailleOptions = JobClient.OptionsBody(options) }, ct));
+            new { name = name.Trim(), baseFormId = baseId, layoutOptions = layoutBody, brailleOptions = JobClient.OptionsBody(options) }, ct));
     }
     public Task DeleteFormAsync(BrailleForm form, CancellationToken ct = default)
     {

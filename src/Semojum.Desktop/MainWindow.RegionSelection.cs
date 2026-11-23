@@ -44,9 +44,8 @@ public partial class MainWindow
         PageEditor.SetLinkedRegionBlocks(regionBlocks);
         // Region ownership is known even without a character/line translation map.
         // A grid being recomposed suppresses these ranges until GridRefreshed runs.
-        var ranges = regionBlocks.Where(b => !b.Metadata.IsBlocked)
-            .Select(b => new BlockSpan(b, 0, b.Braille.Length)).ToArray();
-        Braille.GridView.SetLinkedRanges(ranges); detachedPane?.GridView.SetLinkedRanges(ranges);
+        var blocks = regionBlocks.Where(b => !b.Metadata.IsBlocked).ToArray();
+        Braille.GridView.SetLinkedBlocks(blocks); detachedPane?.GridView.SetLinkedBlocks(blocks);
         return true;
     }
 }

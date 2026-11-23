@@ -13,7 +13,7 @@ using Semojum.Desktop.Dialogs;
 
 namespace Semojum.Desktop.Services;
 
-/// <summary>Figma Case 3 and the BE 2026-11-01 encrypted PDF upload (JOB4018 no password, JOB4019 wrong password; no job is made).</summary>
+/// <summary>Figma Case 4 and the BE 2026-11-01 encrypted PDF upload (JOB4018 no password, JOB4019 wrong password; no job is made).</summary>
 internal static class WindowsPdfPasswordChecks
 {
     // ASCII values, so a JSON escape of the work file cannot hide them from the check below.
@@ -31,16 +31,16 @@ internal static class WindowsPdfPasswordChecks
         try
         {
             prompt.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); prompt.UpdateLayout();
-            check(Math.Abs(prompt.Width - 555) <= 1 && Math.Abs(prompt.Height - 226) <= 1 && prompt.MessageText == "암호가 걸린 PDF 입니다."
+            check(Math.Abs(prompt.Width - 480) <= 1 && Math.Abs(prompt.Height - 250) <= 1 && prompt.MessageText == "암호가 걸린 PDF 입니다."
                   && prompt.DetailText == "문서 암호를 입력하면 변환을 이어서 합니다. 암호는 저장하지 않습니다."
                   && prompt.ActionButtons.Select(b => b.Content as string).SequenceEqual(["확인", "취소"]),
-                "Encrypted PDF notice follows the Figma Case 3 size, wording and actions");
+                "Encrypted PDF notice follows the Figma Case 4 size, wording and actions");
             var field = (Border)((Grid)prompt.PasswordInput.Parent).Parent;
             var label = Descendants(prompt).OfType<TextBlock>().Single(t => t.Text == "문서 암호");
             Point fieldAt = field.TranslatePoint(new Point(), prompt), labelAt = label.TranslatePoint(new Point(), prompt);
-            check(Math.Abs(fieldAt.X - 24) <= 1 && Math.Abs(fieldAt.Y - 120) <= 3 && Math.Abs(field.ActualWidth - 507) <= 1 && Math.Abs(field.ActualHeight - 32) <= .5
-                  && Math.Abs(labelAt.Y - 102) <= 3 && fieldAt.Y + field.ActualHeight <= prompt.ActualHeight - 64 && prompt.PasswordInput.IsVisible,
-                $"The document password field sits at the Figma Case 3 place above the button row (field {fieldAt.X:0},{fieldAt.Y:0} {field.ActualWidth:0}x{field.ActualHeight:0}, label {labelAt.Y:0})");
+            check(Math.Abs(fieldAt.X - 25) <= 1 && Math.Abs(fieldAt.Y - 133) <= 3 && Math.Abs(field.ActualWidth - 430) <= 1 && Math.Abs(field.ActualHeight - 32) <= .5
+                  && Math.Abs(labelAt.Y - 105) <= 3 && fieldAt.Y + field.ActualHeight <= prompt.ActualHeight - 64 && prompt.PasswordInput.IsVisible,
+                $"The document password field sits at the Figma Case 4 place above the button row (field {fieldAt.X:0},{fieldAt.Y:0} {field.ActualWidth:0}x{field.ActualHeight:0}, label {labelAt.Y:0})");
             check(!prompt.ActionButtons[0].IsEnabled && prompt.ActionButtons[1].IsEnabled, "Confirm waits for a password while cancel stays available");
             prompt.PasswordInput.Password = "x";
             check(prompt.ActionButtons[0].IsEnabled && prompt.TakePassword() is null && prompt.PasswordInput.Password.Length == 0,
@@ -52,7 +52,7 @@ internal static class WindowsPdfPasswordChecks
         {
             wrong.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             check(wrong.MessageText == "문서 암호가 맞지 않습니다." && wrong.DetailText.Contains("다시 입력", StringComparison.Ordinal) && wrong.PasswordInput.IsVisible
-                  && Math.Abs(wrong.Height - 226) <= 1, "A wrong password reopens the same Case 3 window with a password field and says it did not match");
+                  && Math.Abs(wrong.Height - 250) <= 1, "A wrong password reopens the same Case 4 window with a password field and says it did not match");
         }
         finally { wrong.Close(); }
     }
@@ -95,16 +95,16 @@ internal static class WindowsPdfPasswordChecks
                 await window.ExecuteAsync("new"); var model = window.Session; model.ActiveBlock!.Source = "미저장 원문";
                 var tabs = window.DocumentTabs.Items.Count; window.FilePicker = _ => [pdf]; timer.Start();
 
-                // No password → Case 3 → a wrong password → the same window says so → cancel stops the upload without a job.
+                // No password → Case 4 → a wrong password → the same window says so → cancel stops the upload without a job.
                 answers.Enqueue(WrongPassword); answers.Enqueue(null);
                 window.OriginalUpload.UploadArea.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitFor(() => model.Status.Contains("취소했습니다", StringComparison.Ordinal));
                 check(fixture.Passwords.SequenceEqual([null, WrongPassword]) && prompts.SequenceEqual(["암호가 걸린 PDF 입니다.", "문서 암호가 맞지 않습니다."]) && errors.Count == 0,
-                    "JOB4018 asks for the password, the retry carries it, and JOB4019 asks again in the same Case 3 window");
+                    "JOB4018 asks for the password, the retry carries it, and JOB4019 asks again in the same Case 4 window");
                 check(ReferenceEquals(model, window.Session) && model.ActiveBlock!.Source == "미저장 원문" && window.DocumentTabs.Items.Count == tabs && fixture.StatusRequests == 0,
                     "Cancelling the password stops the upload and keeps the open document");
 
-                // No password → Case 3 → the right password uploads the same file and opens the job.
+                // No password → Case 4 → the right password uploads the same file and opens the job.
                 prompts.Clear(); fixture.Passwords.Clear(); answers.Enqueue(RightPassword);
                 window.OriginalUpload.UploadArea.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitFor(() => window.Session.JobId == "job_pdf" && fixture.StatusRequests > 0);

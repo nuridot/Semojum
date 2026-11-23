@@ -30,18 +30,15 @@ internal static class WindowsMemoHoverChecks
         try
         {
             window.Show(); await Task.Delay(200); window.UpdateLayout();
-            var rows = ((StackPanel)view.Content).Children.OfType<DockPanel>().ToArray();
-            var root = rows[0].Children.OfType<Button>().ToArray();
-            var reply = rows[1].Children.OfType<Button>().ToArray();
+            var rows = ((StackPanel)view.Content).Children.OfType<StackPanel>().ToArray();
+            static Button[] Actions(FrameworkElement row) => WindowsExportRangeChecks.Tree(row).OfType<Button>().ToArray();
+            var root = Actions(rows[0]); var reply = Actions(rows[1]);
             check(root.Length == 2 && reply.Length == 1, "Root has resolve and delete, reply has delete only");
-            if (rows.All(r => !r.IsMouseOver && !r.IsKeyboardFocusWithin))
-                check(root.All(b => b.Opacity == 0) && reply.All(b => b.Opacity == 0), "Actions are hidden until hover or keyboard focus");
-            check(rows.All(r => r.Children.OfType<StackPanel>().Count() == 1 && r.Children.Count == r.Children.OfType<Button>().Count() + 1), "Author and message are shown without an avatar");
+            check(root.Concat(reply).All(b => b.IsVisible && b.Opacity == 1), "Every row exposes its actions before hover or keyboard focus");
             check(root.Concat(reply).All(b => UIElementAutomationPeer.CreatePeerForElement(b)?.GetName() == AutomationProperties.GetName(b) && !string.IsNullOrEmpty(AutomationProperties.GetName(b))), "Every action has a screen-reader name");
-            var heading = (StackPanel)rows[0].Children.OfType<StackPanel>().Single().Children[0];
-            var author = (TextBlock)heading.Children[0];
-            check(rows.All(row => row.ActualHeight >= 66) && author.FontSize == 14 && author.FontWeight == FontWeights.Bold,
-                "Memo rows keep the Figma minimum height and author typography");
+            var author = WindowsExportRangeChecks.Tree(rows[0]).OfType<TextBlock>().Single(t => t.Text == "작성자");
+            check(rows.All(row => row.DesiredSize.Height == 60) && author.FontSize == 14 && author.FontWeight == FontWeights.SemiBold,
+                "Single-line memo rows take 60 pixels including margins and use a 14px semibold author");
 
             if (Environment.GetEnvironmentVariable("MEMO_INTERACTIVE_CHECKS") == "1" && GetCursorPos(out var originalPointer))
             {
@@ -66,12 +63,12 @@ internal static class WindowsMemoHoverChecks
                     {
                         check(rows[0].IsMouseOver, "WPF recognizes pointer hover on the actual memo row when the test window is under the cursor");
                         var local = Mouse.GetPosition(rows[0]);
-                        check(root.All(b => b.Opacity == 1) && reply.All(b => b.Opacity == 0), $"Hover reveals only the hovered row actions (root hover={rows[0].IsMouseOver}, reply hover={rows[1].IsMouseOver}, local={local}, over={Mouse.DirectlyOver?.GetType().Name}, root opacity={string.Join(',', root.Select(b => b.Opacity))}, reply opacity={string.Join(',', reply.Select(b => b.Opacity))})");
+                        check(root.Concat(reply).All(b => b.IsVisible && b.Opacity == 1), "Hover preserves all Figma row actions");
                         if (Environment.GetEnvironmentVariable("MEMO_HOVER_CAPTURE") is { Length: > 0 } capture)
                             await WindowsSmoke.RenderElementAsync(window, capture);
                         var away = window.PointToScreen(new Point(window.ActualWidth - 8, window.ActualHeight - 8));
                         SetCursorPos((int)away.X, (int)away.Y); await Task.Delay(200);
-                        check(root.All(b => b.Opacity == 0), "Actions hide again after pointer leaves");
+                        check(root.All(b => b.Opacity == 1), "Row actions remain available after the pointer leaves");
                     }
                     if (window.IsActive)
                     { Keyboard.Focus(reply[0]); await Task.Delay(100); check(reply[0].IsKeyboardFocused && reply[0].Opacity == 1, "Keyboard focus reveals reply action"); }
@@ -84,14 +81,14 @@ internal static class WindowsMemoHoverChecks
             reply[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             check(deleted, "Reply action retains its existing behavior");
             view.CanEdit = false; window.UpdateLayout();
-            rows = ((StackPanel)view.Content).Children.OfType<DockPanel>().ToArray();
-            check(rows.SelectMany(r => r.Children.OfType<Button>()).All(b => !b.IsEnabled), "Read-only mode keeps row actions disabled");
+            rows = ((StackPanel)view.Content).Children.OfType<StackPanel>().ToArray();
+            check(rows.SelectMany(Actions).All(b => !b.IsEnabled), "Read-only mode keeps row actions disabled");
             var longText = string.Join(" ", Enumerable.Repeat("긴 메모 내용", 80));
             view.DataContext = memo with { Body = longText };
             window.UpdateLayout();
-            var longRow = ((StackPanel)view.Content).Children.OfType<DockPanel>().First();
-            var longLines = longRow.Children.OfType<StackPanel>().Single();
-            var longMessage = (TextBlock)longLines.Children[1];
+            var longRow = ((StackPanel)view.Content).Children.OfType<StackPanel>().First();
+
+            var longMessage = longRow.Children.OfType<TextBlock>().Single();
             check(longRow.DesiredSize.Height > 66 && longMessage.Text == longText,
                 "A long memo expands its row instead of truncating its text");
 

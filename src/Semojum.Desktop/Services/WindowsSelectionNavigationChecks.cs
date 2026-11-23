@@ -45,13 +45,14 @@ internal static class WindowsSelectionNavigationChecks
                 "Detached braille panel uses the same physical face numbering");
             await window.NavigateAsync(NavigationTarget.BraillePage, "+1", SearchPanel.Braille);
             check(detached.CaretCoordinates is { Face: 3 }, "Relative navigation follows the detached panel caret");
-            check(window.StatusPage.Text == "면 3 / 4", $"Status displays current and total faces in the Figma 「면 n / N」 shape (actual {window.StatusPage.Text})");
+            check(window.StatusPage.Text == "점자 패널" && window.CaretStatus.Text.StartsWith("3면 · ") && detached.Items.Count == 4,
+                $"The detached caret reports its real face in the main footer ({window.CaretStatus.Text})");
             window.UpdateLayout();
-            var status = window.StatusPage;
+            var status = window.CaretStatus;
             var textWidth = new FormattedText(status.Text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
                 new Typeface(status.FontFamily, status.FontStyle, status.FontWeight, status.FontStretch), status.FontSize,
                 status.Foreground, VisualTreeHelper.GetDpi(status).PixelsPerDip).WidthIncludingTrailingWhitespace;
-            check(textWidth <= status.ActualWidth, "Current and total face numbers fit the existing status area");
+            check(textWidth <= status.ActualWidth + 1, "The physical braille coordinates fit in the footer");
             window.ToggleDetached();
         }
         finally

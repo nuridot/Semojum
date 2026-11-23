@@ -14,8 +14,7 @@ public partial class MainWindow
     private void InitializeOriginalUpload()
     {
         OriginalUpload = new Controls.OriginalUploadView { Visibility = Visibility.Collapsed };
-        Grid.SetRow(OriginalUpload, 1);
-        ((Grid)OriginalPanel.Child).Children.Add(OriginalUpload);
+        OriginalContent.Children.Add(OriginalUpload);
         OriginalUpload.UploadRequested += async paths =>
         {
             try
@@ -49,7 +48,7 @@ public partial class MainWindow
         if (smoke || api.Account is null) return;
         try { accountPreferences = profiles.Load(api.Account.LoginId); }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or ArgumentException) { accountPreferences = new(); session.Status = "계정 설정을 읽지 못했습니다: " + ex.Message; }
-        sixDotKeys = accountPreferences.SixDotKeys; Braille.ConfigureKeys(sixDotKeys);
+        useCustomSixDotKeys = accountPreferences.UseCustomSixDotKeys; sixDotKeys = accountPreferences.SixDotKeys; Braille.ConfigureKeys(sixDotKeys);
         Braille.SpaceEnabled = accountPreferences.SpaceEnabled; Braille.EnterEnabled = accountPreferences.EnterEnabled; CopyBrailleSettings(); ApplyAppearance(accountPreferences.Appearance ?? new());
     }
     private Task PersistAccountPreferencesAsync() => smoke || api.Account is null ? Task.CompletedTask : profiles.SaveAsync(api.Account.LoginId, accountPreferences);
@@ -59,7 +58,7 @@ public partial class MainWindow
         if (smoke) return;
         preferences = workspace.Load();
         AutoUpdateToggle.IsChecked = preferences.AutoCheckUpdates;
-        sixDotKeys = preferences.SixDotKeys; Braille.ConfigureKeys(sixDotKeys);
+        useCustomSixDotKeys = preferences.UseCustomSixDotKeys; sixDotKeys = preferences.SixDotKeys; Braille.ConfigureKeys(sixDotKeys);
         Braille.SpaceEnabled = preferences.SpaceEnabled; Braille.EnterEnabled = preferences.EnterEnabled;
         CopyBrailleSettings();
         if (workspace.LoadWarning is { } warning) session.Status = warning;
