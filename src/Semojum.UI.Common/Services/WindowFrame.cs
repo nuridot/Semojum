@@ -54,12 +54,11 @@ public static class WindowFrame
         {
             Caption("—", "최소화", () => SystemCommands.MinimizeWindow(window), "min");
             Caption("□", "최대화 / 복원", () => { if (window.WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(window); else SystemCommands.MaximizeWindow(window); }, "max");
-            var logo = new Border { Width = 24, Height = 16, Margin = new(12, 0, 8, 0),
-                Child = new SvgViewbox
-                {
-                    Source = new Uri("pack://application:,,,/Semojum.UI.Common;component/Assets/Brand/nuridot-symbol.svg"),
-                    Width = 24, Height = 16, Stretch = Stretch.Uniform
-                } };
+            var logo = new Border { Width = 16, Height = 16, Margin = new(12, 0, 8, 0), CornerRadius = new(4),
+                Background = new SolidColorBrush(Color.FromRgb(0, 95, 184)),
+                Child = new TextBlock { Text = "S", FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 12,
+                    Foreground = Brushes.White, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            };
             System.Windows.Automation.AutomationProperties.SetName(logo, "누리닷 로고");
             if (mainEditor) System.Windows.Automation.AutomationProperties.SetAutomationId(logo, "EditorCaptionLogo");
             DockPanel.SetDock(logo, Dock.Left); heading.Children.Add(logo);
@@ -67,7 +66,7 @@ public static class WindowFrame
         Caption("✕", "닫기", () => SystemCommands.CloseWindow(window), "close");
         var title = new TextBlock { FontSize = 12, FontWeight = editor ? FontWeights.Normal : FontWeights.SemiBold,
             Margin = new(editor ? 0 : 12, 0, 8, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-        if (mainEditor) title.Foreground = new SolidColorBrush(Color.FromRgb(95, 95, 95));
+        if (editor) title.Foreground = new SolidColorBrush(Color.FromRgb(95, 95, 95));
         title.SetBinding(TextBlock.TextProperty, new Binding(nameof(Window.Title)) { Source = window }); heading.Children.Add(title);
         // Final Figma rules editor-framed titles (help 263:10632) with #EAEAEA; compact dialogs keep a #D1D1D1 outline.
         root.Children.Add(new Border { Background = new SolidColorBrush(editor ? Color.FromRgb(243, 243, 243) : Color.FromRgb(251, 251, 251)),

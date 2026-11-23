@@ -29,6 +29,10 @@ internal static class WindowsTabProgressChecks
         window.Show();
         try
         {
+            window.WindowState = WindowState.Normal;
+            window.Left = SystemParameters.WorkArea.Left + 140;
+            window.Top = SystemParameters.WorkArea.Top + 48;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             window.UpdateLayout();
             check(window.DocumentTabs.Items.Count == 1 && window.DocumentTabs.IsVisible && window.DocumentTabs.ActualHeight == 34,
                 "A single open document keeps the Figma 34px document tab row visible");
@@ -49,7 +53,7 @@ internal static class WindowsTabProgressChecks
             var activeLine = secondTab.Template.FindName("ActiveLine", secondTab) as FrameworkElement;
             var inactiveLine = firstTab.Template.FindName("ActiveLine", firstTab) as FrameworkElement;
             check(activeLine is { Visibility: Visibility.Visible, Height: 2 } && inactiveLine?.Visibility == Visibility.Collapsed
-                && secondTab.FontWeight == FontWeights.Bold && firstTab.FontWeight != FontWeights.Bold,
+                && secondTab.FontWeight == FontWeights.SemiBold && firstTab.FontWeight != FontWeights.SemiBold,
                 "The selected document tab has the Figma blue stripe and stronger title");
             Button? ProgressButton(TabItem tab) => Descendants((DependencyObject)tab.Header).OfType<Button>()
                 .FirstOrDefault(b => AutomationProperties.GetAutomationId(b) == "TabConversionProgress");
@@ -89,7 +93,7 @@ internal static class WindowsTabProgressChecks
             var triggerScale = (firstButton.PointToScreen(new Point(100, 0)).X - triggerTop.X) / 100;
             var cardTop = ((FrameworkElement)popup.Child).PointToScreen(new Point());
             check(Math.Abs(cardTop.Y - triggerBottom.Y) <= 2 && Math.Abs(cardTop.X - (triggerTop.X - 48 * triggerScale)) <= 2,
-                "Progress popup stays anchored below its tab at the Figma offset");
+                $"Progress popup stays anchored below its tab at the Figma offset (tab {triggerTop}, bottom {triggerBottom}, card {cardTop}, scale {triggerScale})");
             await CheckPointerAsync(firstButton, popup, "below", check);
             if (Environment.GetEnvironmentVariable("TAB_SHADOW_CAPTURE") is { Length: > 0 } shadowCapture
                 && PresentationSource.FromVisual((Visual)popup.Child)?.RootVisual is FrameworkElement popupRoot)

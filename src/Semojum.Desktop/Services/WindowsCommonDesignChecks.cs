@@ -60,9 +60,10 @@ internal static class WindowsCommonDesignChecks
             var glyphs = GlyphFiles(window.FontFamily, "가나다 ABC 123").ToArray();
             check(glyphs.Length > 0 && glyphs.All(f => f.Contains("Pretendard", StringComparison.OrdinalIgnoreCase)),
                 "General Korean and Latin UI text renders with bundled Pretendard");
-            check(BundledFonts.Interface.Source.Contains("#Pretendard", StringComparison.Ordinal) &&
-                BundledFonts.Mono.Source == BundledFonts.Interface.Source,
-                "Document, UI and numeric text share the bundled Pretendard family");
+            var mathGlyphs = GlyphFiles(BundledFonts.Mono, "수식 ABC").ToArray();
+            check(mathGlyphs.Any(f => f.EndsWith("seguisym.ttf", StringComparison.OrdinalIgnoreCase)) &&
+                mathGlyphs.Any(f => f.EndsWith("NotoSansKR-Regular.ttf", StringComparison.OrdinalIgnoreCase)),
+                "Math text renders Latin symbols with Segoe UI Symbol and Korean with bundled Noto Sans KR");
             var lineHeight = new InterfaceLineHeightConverter();
             check(Equals(lineHeight.Convert(18d, typeof(double), null!, CultureInfo.InvariantCulture), 24d) && Equals(lineHeight.Convert(22d, typeof(double), null!, CultureInfo.InvariantCulture), 28d),
                 "General text line heights follow the Figma 18/24 and 22/28 ramp");
@@ -73,6 +74,7 @@ internal static class WindowsCommonDesignChecks
         var editor = new MainWindow(smoke: true, testWithoutAccount: true, startEmpty: true) { Width = 1280, Height = 800 }; editor.Show();
         try
         {
+            editor.AdditionalCommands.IsChecked = true;
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); editor.UpdateLayout();
             check(editor.SourcePanel.ActualWidth >= 300 && editor.Braille.ActualWidth >= 300 && editor.TextStylePicker.ActualHeight == 24,
                 "The minimum 1280-pixel editor retains usable panels and its explicitly compact toolbar");
@@ -83,7 +85,7 @@ internal static class WindowsCommonDesignChecks
             check(documentGlyphs.Length > 0 && documentGlyphs.All(f => f.Contains("Pretendard", StringComparison.OrdinalIgnoreCase)) &&
                 editor.Braille.GridView.FontSize == 22,
                 "Source Korean and Latin text render in Pretendard and braille retains its 22-pixel geometry");
-            check(Descendants(editor).OfType<SvgViewbox>().Any(i => i.Source?.ToString().EndsWith("/common-rulebook.svg", StringComparison.Ordinal) == true && i.Drawings is { Bounds.IsEmpty: false }),
+            check(Descendants(editor.RuleSearch).OfType<SvgViewbox>().Any(i => i.Source?.ToString().EndsWith("/ribbon-find.svg", StringComparison.Ordinal) == true && i.Drawings is { Bounds.IsEmpty: false } && i.Width == 16),
                 "Rule search renders its original Figma icon");
             var separators = Descendants(editor.EditorToolbar).OfType<Border>().Where(b => b.Width == 1 && b.Height == 18 && b.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(234, 234, 234)).ToArray();
             var searchFrame = editor.RuleSearch;
@@ -93,7 +95,7 @@ internal static class WindowsCommonDesignChecks
             check(searchFrame.BorderBrush is SolidColorBrush searchStroke && searchStroke.Color == Color.FromRgb(209, 209, 209) && Descendants(searchFrame).OfType<Border>().Any(b => b.CornerRadius == new CornerRadius(4)) &&
                   hint.Foreground is SolidColorBrush hintInk && hintInk.Color == Color.FromRgb(138, 138, 138) && hint.IsVisible && !hint.IsHitTestVisible,
                 "The rule-search field uses the Figma outline and a non-intercepting hint");
-            check(searchFrame.Focusable && AutomationProperties.GetName(searchFrame) == "점자 규정 검색",
+            check(searchFrame.Focusable && AutomationProperties.GetName(searchFrame) == "점역 규정 검색",
                 "Rule search is a named, keyboard-accessible action");
             if (Environment.GetEnvironmentVariable("COMMON_EDITOR_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(editor, capture);
             // WindowBounds.Fit lowers the 1280 by 800 minimum on a smaller monitor; emulate that to exercise toolbar scrolling.

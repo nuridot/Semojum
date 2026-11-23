@@ -4,7 +4,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Effects;
+using System.Windows.Input;
 using System.Windows.Shell;
 using Semojum.Core.Integration;
 using Semojum.Feature.Account;
@@ -17,6 +17,7 @@ namespace Semojum.Desktop.Dialogs;
 public sealed class AccountDialog : Window
 {
     private Grid? embeddedScreen;
+    private readonly DockPanel authCaption;
     private PasswordBox? embeddedPassword;
     private CancellationTokenSource? embeddedLifetime;
     private TaskCompletionSource<bool>? embeddedResult;
@@ -32,7 +33,7 @@ public sealed class AccountDialog : Window
         Background = Brush("#F7F9FC");
         var root = new Grid(); root.RowDefinitions.Add(new() { Height = new(32) }); root.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         Content = root;
-        var heading = new DockPanel { Background = Brush("#F3F3F3") };
+        var heading = authCaption = new DockPanel { Background = Brush("#F3F3F3") };
         var captionButtons = new StackPanel { Orientation = Orientation.Horizontal };
         DockPanel.SetDock(captionButtons, Dock.Right); heading.Children.Add(captionButtons);
         void Caption(string asset, string label, Action action)
@@ -43,95 +44,110 @@ public sealed class AccountDialog : Window
             AutomationProperties.SetName(button, label); AutomationProperties.SetAutomationId(button, "LoginCaption" + asset);
             WindowChrome.SetIsHitTestVisibleInChrome(button, true); button.Click += (_, _) => action(); captionButtons.Children.Add(button);
         }
-        Caption("min", "최소화", () => SystemCommands.MinimizeWindow(this));
-        Caption("max", "최대화 / 복원", () => { if (WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(this); else SystemCommands.MaximizeWindow(this); });
-        Caption("close", "닫기", () => SystemCommands.CloseWindow(this));
-        heading.Children.Add(new TextBlock { Text = "누리닷", FontSize = 12, Margin = new(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        Window CaptionOwner() => Window.GetWindow(heading) ?? this;
+        Caption("min", "최소화", () => SystemCommands.MinimizeWindow(CaptionOwner()));
+        Caption("max", "최대화 / 복원", () => { var owner = CaptionOwner(); if (owner.WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(owner); else SystemCommands.MaximizeWindow(owner); });
+        Caption("close", "닫기", () => SystemCommands.CloseWindow(CaptionOwner()));
+        var brand = new StackPanel { Orientation = Orientation.Horizontal };
+        brand.Children.Add(new Border { Width = 16, Height = 16, CornerRadius = new(4), Background = Brush("#005FB8"), Child = new TextBlock { Text = "S", FontSize = 12, TextAlignment = TextAlignment.Center, Foreground = Brushes.White } });
+        brand.Children.Add(new TextBlock { Text = "누리닷", FontSize = 12, Foreground = Brush("#5F5F5F"), Margin = new(8,0,0,0), VerticalAlignment = VerticalAlignment.Center });
+        var navigation = new Button { Content = brand, Style = (Style)FindResource("ToolButton"), MinWidth = 0, MinHeight = 0, Height = 32,
+            HorizontalAlignment = HorizontalAlignment.Left, Padding = new(0), Margin = new(12,0,0,0), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent,
+            ToolTip = "회원가입 · 비밀번호 찾기 · 공지사항 (F10)" };
+        AutomationProperties.SetName(navigation, "누리닷 메뉴"); AutomationProperties.SetAutomationId(navigation, "LoginNavigation");
+        WindowChrome.SetIsHitTestVisibleInChrome(navigation, true); heading.Children.Add(navigation);
+        var menu = navigation.ContextMenu = new ContextMenu { PlacementTarget = navigation, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        navigation.Click += (_, _) => menu.IsOpen = true;
         root.Children.Add(new Border { Background = Brush("#F3F3F3"), BorderBrush = Brush("#EAEAEA"), BorderThickness = new(0, 0, 0, 1), Child = heading });
         var screen = new Grid { Background = Brush("#F7F9FC") }; embeddedScreen = screen; Grid.SetRow(screen, 1); root.Children.Add(screen);
         var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalContentAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center };
         screen.Children.Add(scroll);
-        var group = new StackPanel { Width = 420, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-            Margin = new(12, 48, 12, 20) };
+        var group = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new(12,16,12,16) };
         scroll.Content = group;
-        var card = new Border { Width = 420, Background = Brushes.White, BorderBrush = Brush("#EAEAEA"), BorderThickness = new(1), CornerRadius = new(8),
-            Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 8, Opacity = 0.18 } };
-        group.Children.Add(card);
-        var fields = new Grid(); card.Child = fields;
-        foreach (var height in new[] { 43d, 96, 12, 40, 20, 16, 2, 40, 10, 16, 2, 40, 0, 18, 40, 8, 20, 37 })
-            fields.RowDefinitions.Add(new RowDefinition { Height = height == 0 ? GridLength.Auto : new GridLength(height) });
-        void Place(UIElement child, int row, bool inset = true)
-        {
-            Grid.SetRow(child, row); if (inset && child is FrameworkElement element) element.Margin = new(59, 0, 59, 0); fields.Children.Add(child);
-        }
-        var logo = new SvgViewbox
-        {
-            Source = new Uri("pack://application:,,,/Semojum.UI.Common;component/Assets/Brand/nuridot-logo.svg"),
-            Width = 280, Height = 80, Stretch = Stretch.Uniform,
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
-        };
-        AutomationProperties.SetName(logo, "누리닷 로고"); Place(logo, 1, false); Grid.SetRowSpan(logo, 3);
-        Place(new TextBlock { Text = "아이디", FontSize = 12, Foreground = Brush("#5F5F5F") }, 5);
-        var login = new TextBox { BorderThickness = new(0), Background = Brushes.Transparent, Padding = new(11, 0, 11, 0), VerticalContentAlignment = VerticalAlignment.Center };
-        AutomationProperties.SetName(login, "아이디"); Place(InputField(login), 7);
-        Place(new TextBlock { Text = "비밀번호", FontSize = 12, Foreground = Brush("#5F5F5F") }, 9);
-        var password = new PasswordBox { BorderThickness = new(0), Background = Brushes.Transparent, Padding = new(11, 0, 11, 0), VerticalContentAlignment = VerticalAlignment.Center }; embeddedPassword = password;
-        AutomationProperties.SetName(password, "비밀번호"); Place(InputField(password), 11);
-        var error = new TextBlock { Text = initialMessage ?? "", TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Firebrick, Margin = new(59, 6, 59, 0) };
-        error.Visibility = string.IsNullOrEmpty(error.Text) ? Visibility.Collapsed : Visibility.Visible;
-        System.ComponentModel.DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock)).AddValueChanged(error,
-            (_, _) => error.Visibility = string.IsNullOrEmpty(error.Text) ? Visibility.Collapsed : Visibility.Visible);
-        Place(error, 12, false);
-        var submit = new Button { Content = "로그인", IsDefault = true, Height = 40, MinHeight = 40, FontSize = 14, FontWeight = FontWeights.Bold,
-            Background = Brush("#005FB8"), BorderBrush = Brush("#005FB8"), Foreground = Brushes.White, Style = RoundedButtonStyle() };
-        Place(submit, 14);
+        var fields = new StackPanel(); var card = new Border { Child = fields }; AccountFormElements.StyleCard(card); group.Children.Add(card);
+        AutomationProperties.SetAutomationId(card, "LoginCard"); fields.Children.Add(AccountFormElements.Logo());
+        var login = new TextBox(); fields.Children.Add(AccountFormElements.Field("아이디", login));
+        var password = embeddedPassword = new PasswordBox(); fields.Children.Add(AccountFormElements.Field("비밀번호", password));
+        var error = new TextBlock { Text = initialMessage ?? "" }; AccountFormElements.StyleFeedback(error); fields.Children.Add(error);
+        var submit = AccountFormElements.ActionButton("로그인", true); submit.IsDefault = true; submit.Margin = new(0,16,0,0); fields.Children.Add(submit);
         var remember = new CheckBox { Content = "로그인 상태 유지", IsChecked = credentials is not null, IsEnabled = credentials is not null,
-            Height = 20, Margin = new(59, 0, 59, 0), FontSize = 12, VerticalContentAlignment = VerticalAlignment.Center, Style = RememberStyle() };
-        AutomationProperties.SetName(remember, "로그인 상태 유지"); Place(remember, 16, false);
+            Margin = new(0,16,0,0), Style = AccountFormElements.CheckStyle() };
+        AutomationProperties.SetName(remember, "로그인 상태 유지"); fields.Children.Add(remember);
         if (credentials is null) remember.ToolTip = "이 창에서는 로그인 정보를 저장하지 않습니다.";
-        var legalLinks = new Grid { Height = 20, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 8, 0, 0) };
-        Button LegalLink(string title, LegalDocumentKind kind, double left)
+        var legalLinks = new Grid { Height = 20, Margin = new(0,16,0,0) };
+        void LegalLink(string title, LegalDocumentKind kind, bool right)
         {
-            var button = new Button
-            {
-                Content = new TextBlock { Text = title, TextDecorations = TextDecorations.Underline, FontSize = 12, Foreground = Brushes.Black },
-                Height = 20, MinHeight = 0, MinWidth = 0, Padding = new(0), Margin = new(left, 0, 0, 0),
-                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
-                Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, Style = (Style)FindResource("ToolButton")
-            };
+            var button = new Button { Content = title, FontSize = right ? 14 : 12, FontWeight = right ? FontWeights.SemiBold : FontWeights.Normal,
+                Height = right ? 20 : 16, MinHeight = 0, MinWidth = 0, Padding = new(0), Margin = new(0),
+                HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, Template = FigmaDialogElements.SurfaceTemplate(0) };
             AutomationProperties.SetName(button, title); AutomationProperties.SetAutomationId(button, "LoginLegal" + kind);
             button.Click += (_, _) =>
             {
                 try { new LegalDocumentDialog(kind) { Owner = Window.GetWindow(screen) ?? this }.ShowDialog(); }
                 finally { button.Focus(); }
             };
-            return button;
+            legalLinks.Children.Add(button);
         }
-        legalLinks.Children.Add(LegalLink("이용약관", LegalDocumentKind.Terms, 88));
-        legalLinks.Children.Add(LegalLink("개인정보 처리방침", LegalDocumentKind.Privacy, 257));
-        Place(legalLinks, 17, false);
-        var links = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new(0, 40, 0, 0) };
-        Button Link(string label, string icon, Action action)
-        {
-            var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            content.Children.Add(DesignIcon(icon, 16)); content.Children.Add(new TextBlock { Text = label, FontSize = 14, Margin = new(8, 0, 0, 0) });
-            var button = new Button { Content = content, Width = 180, Height = 40, MinHeight = 40, Background = Brushes.White,
-                BorderBrush = Brush("#EAEAEA"), Style = RoundedButtonStyle() };
-            AutomationProperties.SetName(button, label); button.Click += (_, _) => action(); return button;
-        }
+        LegalLink("이용약관", LegalDocumentKind.Terms, false); LegalLink("개인정보 처리방침", LegalDocumentKind.Privacy, true);
+        fields.Children.Add(legalLinks);
         Window ActiveOwner() => Window.GetWindow(screen) ?? this;
-        links.Children.Add(Link("공지사항", "login-bell.svg", () => host.ShowNotices(ActiveOwner(), api)));
-        var inquiry = Link("문의하기", "login-mail.svg", () => host.ShowInquiry(ActiveOwner(), api)); inquiry.Margin = new(16, 0, 0, 0);
-        links.Children.Add(inquiry); group.Children.Add(links);
+        void OpenEmailForm(bool signup)
+        {
+            password.Clear();
+            scroll.ScrollToTop();
+            scroll.Content = new EmailAccountForm(api, signup, login.Text, (signedIn, address, message) =>
+            {
+                if (signedIn)
+                {
+                    if (embeddedResult is { } result) result.TrySetResult(true); else DialogResult = true;
+                }
+                else
+                {
+                    scroll.Content = group; scroll.ScrollToTop(); login.Text = address; AccountFormElements.SetFeedback(error, message ?? "", information: message is not null);
+                    var next = address.Length == 0 ? (Control)login : password;
+                    Dispatcher.InvokeAsync(() => { if (next.IsVisible) next.Focus(); }, System.Windows.Threading.DispatcherPriority.Input);
+                }
+            });
+        }
+        MenuItem Command(string title, Action action)
+        {
+            var command = new MenuItem { Header = title }; command.Click += (_, _) => action(); menu.Items.Add(command); return command;
+        }
+        var backToLogin = Command("로그인으로 돌아가기", () => (scroll.Content as EmailAccountForm)?.GoBack());
+        var signUp = Command("회원가입", () => OpenEmailForm(true));
+        var reset = Command("비밀번호 찾기", () => OpenEmailForm(false));
+        var announcements = Command("공지사항", () => host.ShowNotices(ActiveOwner(), api)); announcements.Icon = DesignIcon("login-bell.svg", 16);
+        menu.Opened += (_, _) =>
+        {
+            var onLogin = ReferenceEquals(scroll.Content, group);
+            signUp.Visibility = reset.Visibility = onLogin ? Visibility.Visible : Visibility.Collapsed;
+            backToLogin.Visibility = onLogin ? Visibility.Collapsed : Visibility.Visible;
+            signUp.IsEnabled = reset.IsEnabled = submit.IsEnabled;
+        };
+        void NavigationKeys(object sender, KeyEventArgs e)
+        {
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (key == Key.F10 && Keyboard.Modifiers == ModifierKeys.None) { e.Handled = true; navigation.Focus(); menu.IsOpen = true; }
+            else if (scroll.Content is EmailAccountForm form && (key == Key.Escape || key == Key.Left && Keyboard.Modifiers == ModifierKeys.Alt))
+            { e.Handled = true; form.GoBack(); }
+        }
+        screen.PreviewKeyDown += NavigationKeys; heading.PreviewKeyDown += NavigationKeys;
+        var inquiryLabel = new StackPanel { Orientation = Orientation.Horizontal };
+        inquiryLabel.Children.Add(DesignIcon("login-mail.svg", 16)); inquiryLabel.Children.Add(new TextBlock { Text = "문의하기", Margin = new(8,0,0,0), FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+        var inquiry = AccountFormElements.ActionButton(inquiryLabel, false); inquiry.Width = 100; inquiry.Margin = new(0,16,0,0);
+        AutomationProperties.SetName(inquiry, "문의하기"); inquiry.Click += (_, _) => host.ShowInquiry(ActiveOwner(), api);
+        group.Children.Add(inquiry);
         var version = new TextBlock { Text = "V" + host.Version.ToString(3), FontSize = 12, Foreground = Brush("#8A8A8A"),
-            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new(0, 0, 40, 20), IsHitTestVisible = false };
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new(0, 0, 40, 16), IsHitTestVisible = false };
         screen.Children.Add(version);
         var lifetime = new CancellationTokenSource(); embeddedLifetime = lifetime;
         Closed += (_, _) => { lifetime.Cancel(); password.Clear(); };
         submit.Click += async (_, _) =>
         {
             var keepSignedIn = remember.IsChecked == true;
+            AccountFormElements.SetFeedback(error, "");
             if (login.Text.Trim().Length == 0 || password.Password.Length == 0)
             { error.Text = "아이디와 비밀번호를 입력해 주세요."; (login.Text.Trim().Length == 0 ? (Control)login : password).Focus(); return; }
             submit.IsEnabled = false; remember.IsEnabled = false; error.Text = "";
@@ -183,8 +199,8 @@ public sealed class AccountDialog : Window
                 if (ex.Code is "AUTH4001" or "AUTH4006")
                 {
                     var rejected = host.LoginRejected(ex); rejected.Owner = ActiveOwner(); rejected.ShowDialog();
-                    if (rejected.Choice == 1) host.ShowInquiry(ActiveOwner(), api);
-                    password.Focus(); password.SelectAll();
+                    if (rejected.Choice == 1) OpenEmailForm(false);
+                    else { password.Focus(); password.SelectAll(); }
                     return;
                 }
                 error.Text = ex.Message;
@@ -220,7 +236,8 @@ public sealed class AccountDialog : Window
         }
         void OwnerClosed(object? _, EventArgs __) => completion.TrySetResult(false);
         owner.Closed += OwnerClosed;
-        try { return await host.ShowScreenAsync(screen, "누리닷 로그인", completion.Task); }
+        if (authCaption.Parent is Border standaloneBar) standaloneBar.Child = null;
+        try { return await host.ShowScreenAsync(screen, "누리닷 로그인", completion.Task, authCaption); }
         finally
         {
             owner.Closed -= OwnerClosed;
@@ -233,48 +250,4 @@ public sealed class AccountDialog : Window
     private static Brush Brush(string value) => (Brush)new BrushConverter().ConvertFromString(value)!;
     private static SvgViewbox DesignIcon(string name, double size) => new() { Source = new Uri($"pack://application:,,,/Semojum.Feature.Account.Wpf;component/Assets/Figma/{name}"),
         Width = size, Height = size, Stretch = Stretch.None, IsHitTestVisible = false };
-    private static Border InputField(Control input)
-    {
-        var grid = new Grid(); grid.Children.Add(input);
-        var underline = new Border { Height = 1, Background = Brush("#D1D1D1"), VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
-        grid.Children.Add(underline);
-        input.GotKeyboardFocus += (_, _) => { underline.Height = 2; underline.Background = Brush("#005FB8"); };
-        input.LostKeyboardFocus += (_, _) => { underline.Height = 1; underline.Background = Brush("#D1D1D1"); };
-        return new Border { Background = Brush("#FBFBFB"), BorderBrush = Brush("#EAEAEA"), BorderThickness = new(1), CornerRadius = new(4), Child = grid };
-    }
-
-    private static Style RoundedButtonStyle()
-    {
-        var style = new Style(typeof(Button), Application.Current.FindResource(typeof(Button)) as Style);
-        var template = new ControlTemplate(typeof(Button));
-        var border = new FrameworkElementFactory(typeof(Border), "Surface");
-        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
-        border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
-        border.SetValue(Border.BorderThicknessProperty, new Thickness(1)); border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
-        var presenter = new FrameworkElementFactory(typeof(ContentPresenter)); presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center); border.AppendChild(presenter); template.VisualTree = border;
-        var focus = new Trigger { Property = IsKeyboardFocusedProperty, Value = true }; focus.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#1C5AA8"), "Surface")); template.Triggers.Add(focus);
-        var disabled = new Trigger { Property = IsEnabledProperty, Value = false }; disabled.Setters.Add(new Setter(OpacityProperty, 0.45)); template.Triggers.Add(disabled);
-        style.Setters.Add(new Setter(Control.TemplateProperty, template)); return style;
-    }
-
-    private static Style RememberStyle()
-    {
-        var style = new Style(typeof(CheckBox), Application.Current.FindResource(typeof(CheckBox)) as Style);
-        var template = new ControlTemplate(typeof(CheckBox));
-        var panel = new FrameworkElementFactory(typeof(StackPanel)); panel.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
-        var square = new FrameworkElementFactory(typeof(Border), "Square"); square.SetValue(WidthProperty, 20d); square.SetValue(HeightProperty, 20d);
-        square.SetValue(Border.CornerRadiusProperty, new CornerRadius(4)); square.SetValue(Border.BorderThicknessProperty, new Thickness(1));
-        square.SetValue(Border.BorderBrushProperty, Brush("#A0A0A0")); square.SetValue(Border.BackgroundProperty, Brushes.White);
-        var icon = new FrameworkElementFactory(typeof(SvgViewbox), "Tick"); icon.SetValue(SvgViewbox.SourceProperty, new Uri("pack://application:,,,/Semojum.Feature.Account.Wpf;component/Assets/Figma/login-check.svg"));
-        icon.SetValue(WidthProperty, 16d); icon.SetValue(HeightProperty, 16d); icon.SetValue(VisibilityProperty, Visibility.Collapsed); square.AppendChild(icon); panel.AppendChild(square);
-        var content = new FrameworkElementFactory(typeof(ContentPresenter)); content.SetValue(MarginProperty, new Thickness(8, 0, 0, 0)); content.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center); panel.AppendChild(content);
-        template.VisualTree = panel;
-        var selected = new Trigger { Property = CheckBox.IsCheckedProperty, Value = true };
-        selected.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#005FB8"), "Square")); selected.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#005FB8"), "Square"));
-        selected.Setters.Add(new Setter(VisibilityProperty, Visibility.Visible, "Tick")); template.Triggers.Add(selected);
-        var focus = new Trigger { Property = IsKeyboardFocusedProperty, Value = true }; focus.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(2), "Square")); template.Triggers.Add(focus);
-        var disabled = new Trigger { Property = IsEnabledProperty, Value = false }; disabled.Setters.Add(new Setter(OpacityProperty, 0.45)); template.Triggers.Add(disabled);
-        style.Setters.Add(new Setter(Control.TemplateProperty, template)); return style;
-    }
 }

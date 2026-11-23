@@ -20,9 +20,9 @@ internal static class WindowsQa4Checks
         void Stage(string name) => File.AppendAllText(Path.Combine(directory, "qa-progress.txt"), name + Environment.NewLine);
         await WindowsSearchSafetyChecks.RunAsync(check);
         await WindowsDraftSafetyChecks.RunAsync(check, directory);
-        await WindowsNotificationChecks.RunAsync(check);
+        await WindowsNotificationChecks.RunAsync(check, directory);
         await WindowsPublicInquiryFieldsChecks.RunAsync(check);
-        await WindowsPublicDesignChecks.RunAsync(check);
+        await WindowsPublicDesignChecks.RunAsync(check, directory);
         WindowsGridIsolationChecks.Run(check);
         await WindowsBoardDesignChecks.RunAsync(check);
         await WindowsUsageDesignChecks.RunAsync(check);
@@ -40,32 +40,39 @@ internal static class WindowsQa4Checks
         await WindowsConversionOutcomeChecks.RunAsync(check);
         await WindowsUpdateDocumentSafetyChecks.RunAsync(check);
         await WindowsAppearanceDefaultChecks.RunAsync(check);
-        await WindowsRuleDesignChecks.RunAsync(check);
+        await WindowsRuleDesignChecks.RunAsync(check, directory);
         await WindowsSettingsHelpDesignChecks.RunAsync(owner, check);
         await WindowsHelpFontChecks.RunAsync(directory, check);
         await WindowsMenuDesignChecks.RunAsync(directory, check);
-        WindowsEditorDialogDesignChecks.Run(owner, check);
+        await WindowsPanelContextChecks.RunAsync(directory, check);
+
         await WindowsPanelDesignChecks.RunAsync(directory, check);
         await WindowsOriginalWheelChecks.RunAsync(check);
         await WindowsMathTemplateChecks.RunAsync(check);
         await WindowsPanelPositionChecks.RunAsync(check);
         await WindowsStatusZoomChecks.RunAsync(directory, check);
-        await WindowsToolbarAccountChecks.RunAsync(check);
-        await WindowsFormDesignChecks.RunAsync(check);
+        await WindowsToolbarAccountChecks.RunAsync(check, directory);
+        await WindowsFormDesignChecks.RunAsync(directory, check);
         WindowsFooterFormulaDesignChecks.Run(owner, check);
-        WindowsVisualDescriptionDesignChecks.Run(owner, check);
+        await WindowsFooterChecks.RunAsync(directory, check);
+        await WindowsAppearanceFrameChecks.RunAsync(directory, check);
+        await WindowsVisualDescriptionDesignChecks.RunAsync(directory, check);
         WindowsLineTranslationDesignChecks.Run(owner, check);
         await WindowsEditorHighlightChecks.RunAsync(check);
         await WindowsCreditRecoveryChecks.RunAsync(check, directory);
         await WindowsUncertainRestartChecks.RunAsync(check, directory);
-        WindowsSixDotChecks.Run(owner, check, Stage);
-        WindowsImageOrderChecks.Run(owner, check);
+        await WindowsSixDotChecks.RunAsync(directory, check);
+        await WindowsConversionFormChecks.RunAsync(directory, check);
+        await WindowsImageOrderChecks.RunAsync(directory, check);
+        await WindowsPrintPreviewFrameChecks.RunAsync(directory, check);
+        await WindowsEditorToolChecks.RunAsync(directory, check);
         await WindowsFileOpenChecks.RunAsync(directory, check);
         await WindowsFileEdgeChecks.RunAsync(directory, check);
-        await WindowsRangeDesignChecks.RunAsync(check);
+        await WindowsRangeDesignChecks.RunAsync(check, directory);
         WindowsFileDialogDesignChecks.Run(check);
         WindowsCaseDesignChecks.Run(check);
         await WindowsNoticeDesignChecks.RunAsync(directory, check);
+        await WindowsLayoutDialogChecks.RunAsync(directory, check);
         await WindowsDraftChecks.RunAsync(owner, check);
         await WindowsDraftApplyChecks.RunAsync(directory, check);
         await WindowsDraftDockChecks.RunAsync(check);
@@ -81,7 +88,8 @@ internal static class WindowsQa4Checks
         await WindowsSourceMapChecks.RunAsync(check);
         await WindowsTabPanelChecks.RunAsync(directory, check);
         await WindowsTabProgressChecks.RunAsync(check);
-        await WindowsGoToDesignChecks.RunAsync(check);
+        await WindowsNavigationDialogChecks.RunAsync(directory, check);
+        await WindowsAboutDesignChecks.RunAsync(directory, check);
         await WindowsUploadLimitChecks.RunAsync(directory, check);
         await WindowsUploadSafetyChecks.RunAsync(directory, check);
         await WindowsPdfPasswordChecks.RunAsync(check);
@@ -93,6 +101,7 @@ internal static class WindowsQa4Checks
         await WindowsEmbeddedScreenChecks.RunAsync(check);
         await WindowsLongDocumentChecks.RunAsync(directory, check);
         await WindowsMemoDeleteChecks.RunAsync(directory, check);
+        await WindowsMemoFrameChecks.RunAsync(directory, check);
         await WindowsMemoRestoreChecks.RunAsync(directory, check);
         await WindowsMemoHoverChecks.RunAsync(check);
         await WindowsBoardLatencyChecks.RunAsync(check);
@@ -252,6 +261,9 @@ internal static class WindowsQa4Checks
         await render(owner, Path.Combine(directory, "66-credit-state-full.png"));
         owner.Session.CreditNotice = "";
         var menuIndex = 72;
+        var previousCommands = owner.AdditionalCommands.IsChecked;
+        owner.AdditionalCommands.IsChecked = true;
+        owner.UpdateLayout();
         foreach (var menuItem in owner.ApplicationMenu.Items.OfType<MenuItem>())
         {
             menuItem.IsSubmenuOpen = true;
@@ -263,6 +275,7 @@ internal static class WindowsQa4Checks
             }
             finally { menuItem.IsSubmenuOpen = false; }
         }
+        owner.AdditionalCommands.IsChecked = previousCommands;
         await Capture(new VisualDescriptionDialog(VisualDescriptions.Defaults()), "35-visual-types.png", () =>
             check(VisualDescriptions.Defaults().Count == 5, "QA4 visual types retain all five supported type policies"));
         var rules = new RuleDialog(api, [], "", "", "음악");
@@ -292,19 +305,19 @@ internal static class WindowsQa4Checks
         });
         check(UsageDialog.StatusLabel("COMPLETED", false) == "완료" && UsageDialog.StatusLabel("COMPLETED", true) == "일부 쪽 실패" && UsageDialog.StatusLabel("FAILED", true) == "변환 실패", "QA4 job statuses use user-facing labels");
         var footer = new FooterDialog(owner.Session);
-        await Capture(footer, "38-footers.png", () => check(Children(footer).OfType<DataGrid>().Single().Columns.Count == 4, "Footer manager includes start, alignment, content and deletion columns"));
+        await Capture(footer, "38-footers.png", () => check(Children(footer).OfType<DataGrid>().Single().Columns.Count == 5, "Footer manager includes start, end, content, alignment and deletion columns"));
         var footerFixture = new DocumentSession { FooterRanges = [new(1, 12, "Ⅰ 01 사회·문화 현상", "center"), new(13, 28, "Ⅰ 02 사회·문화 현상의 탐구", "center"), new(29, 44, "Ⅱ 01 개인과 사회 구조", "center"), new(45, 60, "Ⅱ 02 일탈 행동", "right")] };
         await Capture(new FooterDialog(footerFixture), "44-footers-populated.png");
         await Capture(new FooterInputDialog(), "45-footer-input.png");
         var memoInput = new MemoInputDialog("김점역"); memoInput.Input.Text = "원문이 「작다」인데 그래프를 보면";
-        await Capture(memoInput, "46-memo-input-populated.png", () => check(Children(memoInput).OfType<SharpVectors.Converters.SvgViewbox>().All(i => i.Drawings is { Bounds.IsEmpty: false }), "Memo author avatar renders the downloaded Figma SVG resource"));
+        await Capture(memoInput, "46-memo-input-populated.png", () => check(Children(memoInput).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "김점역" && t.FontWeight == FontWeights.SemiBold),
+            "The memo input identifies its author in the Figma semibold heading"));
         var board = new BoardClient(api);
         await Capture(new BoardDialog(board, "로컬 화면 검증용"), "47-board-list.png");
         await Capture(BoardDialog.Writing(board, "로컬 화면 검증용"), "48-board-write.png");
         var samplePost = new BoardPost(126, "크레딧 추가 요청드립니다", "이번 달 분량이 모자랍니다. 300쪽 추가 부탁드립니다.\n세금계산서는 기관 명의로 발행해 주시면 됩니다.", "test***", true, true, false, "2026. 10. 06. 14:21", "", 4, [new(1, "사업자등록증.pdf", 204800, "https://example.invalid/qa-attachment.pdf")], [new(1, "300쪽 반영했습니다. 마이페이지에서 남은 쪽 확인해 주세요.\n세금계산서는 담당자가 따로 연락드립니다.", false, "2026. 10. 06. 17:40", "")]);
         await Capture(BoardDialog.Reading(board, samplePost, "로컬 화면 검증용"), "49-board-post.png");
         await Capture(new NotificationsDialog(board, "로컬 화면 검증용"), "50-notifications.png");
-        await Capture(new SaveAsDialog("2026_수능특강_사회문화.smj", null), "53-save-as.png");
         await Capture(new DeleteFormDialog("중학 수학 (28줄)"), "54-form-delete.png");
         await Capture(FileNotices.UnsupportedFormat(), "60-unsupported-file.png");
         await Capture(FileNotices.OversizedFile(), "61-oversized-file.png");
@@ -330,8 +343,9 @@ internal static class WindowsQa4Checks
         check(UnreadableText.Count(unreadableModel) == 2 && UnreadableText.First(unreadableModel) is { Block.Id: 2, Offset: 5 },
             "Figma 4844 unreadable spots count ■ markers outside blocked blocks and locate the first one");
         var unreadable = FileNotices.UnreadableCharacters(2);
-        await Capture(unreadable, "86-unreadable-characters.png", () => check(unreadable.ActionButtons[0].IsDefault && Math.Abs(unreadable.ActionButtons[0].ActualWidth - unreadable.ActionButtons[1].ActualWidth) <= 2,
-            "Unreadable-character notice defaults to the location action with equal Figma button widths"));
+        await Capture(unreadable, "86-unreadable-characters.png", () => check(unreadable.ActionButtons[0].IsDefault &&
+            Math.Abs(unreadable.ActionButtons[0].ActualWidth - 111) <= 1 && Math.Abs(unreadable.ActionButtons[1].ActualWidth - 88) <= 1,
+            "Unreadable-character notice defaults to the 111px location action beside the 88px confirmation"));
         var cancelMerge = new MergeBlocksDialog(1);
         check(cancelMerge.DetailText == "직접 고친 점자 1군데가 사라집니다."
             && Modal(cancelMerge, () => Key(cancelMerge, cancelMerge, System.Windows.Input.Key.Escape)) != true && cancelMerge.Decision == ManualEditDecision.Cancel,
@@ -354,10 +368,11 @@ internal static class WindowsQa4Checks
         var failedSave = FileNotices.SaveFailed("fixture");
         check(Modal(failedSave, () => Key(failedSave, failedSave, System.Windows.Input.Key.Escape)) != true && failedSave.Choice == -1,
             "Save failure Escape preserves the unsaved document without triggering another save");
-        var rejected = FileNotices.LoginRejected(new(System.Net.HttpStatusCode.Unauthorized, "AUTH4001", "아이디 또는 비밀번호가 맞지 않습니다.", System.Text.Json.JsonSerializer.SerializeToElement(new { remainingAttempts = 2 })));
-        await Capture(rejected, "71-login-rejected.png", () => check(rejected.DetailText == "남은 횟수 2회입니다. 5회 실패하면 10분 동안 잠깁니다." && Math.Abs(rejected.ActionButtons[0].ActualWidth - rejected.ActionButtons[1].ActualWidth) <= 2,
-            "Login rejection states the lock policy with equal Figma button widths"));
-        await Capture(new NoticeDialog("변경 내용을 저장하시겠습니까?", "저장하지 않으면 지금까지 고친 것이 사라집니다. 중간 저장은 하지 않습니다.", ["저장", "저장 안 함", "취소"], width: 591), "55-unsaved-confirmation.png");
+        var rejected = FileNotices.LoginRejected(new(System.Net.HttpStatusCode.Unauthorized, "AUTH4001", "아이디 또는 비밀번호가 맞지 않습니다.", System.Text.Json.JsonSerializer.SerializeToElement(new { remainingAttempts = 2, maxAttempts = 5, lockMinutes = 10 })));
+        await Capture(rejected, "71-login-rejected.png", () => check(rejected.DetailText == "남은 횟수 2회입니다. 5회 실패하면 10분 동안 잠깁니다." &&
+            Math.Abs(rejected.ActionButtons[0].ActualWidth - 88) <= 1 && Math.Abs(rejected.ActionButtons[1].ActualWidth - 100) <= 1,
+            "Login rejection states the lock policy with the 88px retry and 100px password recovery actions"));
+        await Capture(new NoticeDialog("변경 내용을 저장하시겠습니까?", "저장하지 않으면 고친 것이 사라집니다. 중간 저장은 하지 않습니다.", ["저장", "저장 안 함", "취소"], width: 520, height: 178), "55-unsaved-confirmation.png");
         await Capture(new AppliedRulesDialog(api, [new("( 여는 괄호", "⠦", "제23항", "문장부호", "소괄호표는 여는 때 ⠦, 닫는 때 ⠴로 적는다.", "한국 점자 규정", "symbol"), new("~ 물결표", "⠤", "제38항", "문장부호", "물결표는 ⠤로 적고 앞말과 뒷말에 붙여 쓴다.", "한국 점자 규정", "symbol")], false, "(가)~(라)", "⠦⠫⠴⠭⠦⠐⠣⠴", "7줄 3~12칸"), "51-applied-rules.png");
         var blockEvidence = new AppliedRulesDialog(api,
             [new("원본 자료 (원문)", "", "제1항", "원본 근거", "원본 변환의 근거", "규정", "fixture", true)],
@@ -369,7 +384,7 @@ internal static class WindowsQa4Checks
         var expandedRules = new RuleDialog(api, [], "", "", "음악") { Owner = owner }; expandedRules.Show();
         try { await render(expandedRules, Path.Combine(directory, "52-rules-expanded.png")); ((Expander)expandedRules.RuleResults.Children[0]).IsExpanded = true; await render(expandedRules, Path.Combine(directory, "52-rules-expanded.png")); } finally { expandedRules.Close(); }
         var keys = new SixDotDialog("F D S J K L", true, true);
-        keys.Loaded += (_, _) => Children(keys).OfType<Semojum.Desktop.Controls.SegmentedChoice>().Single().SelectedIndex = 3;
+        keys.Loaded += (_, _) => Children(keys).OfType<RadioButton>().Last().IsChecked = true;
         await Capture(keys, "39-six-keys.png", () => check(keys.KeyFields.Length == 6 && keys.KeyFields.All(k => k.IsVisible && k.MaxLength == 1 && !k.IsReadOnly), "QA4 six-dot custom mode exposes six individual editable keys like the final Figma"));
         var help = new HelpWindow("점자 직접 고치기");
         await Capture(help, "40-help-tree.png", () => check(Children(help).OfType<TabItem>().Select(t => t.Tag as string).SequenceEqual(["separator", "separator", null])
@@ -515,6 +530,10 @@ internal static class WindowsQa4Checks
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath; Paths.Add(path);
+            if (path == "/api/rules/toc")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound) {
+                    Content = new StringContent("{\"isSuccess\":false,\"code\":\"COMMON404\",\"message\":\"이전 서버에는 목차가 없습니다.\"}", Encoding.UTF8, "application/json")
+                });
             object Form(string id, bool builtin, string? name = null) => new { formId = id, name = name ?? (builtin ? "시험지" : "사용자 검수 양식"), builtin, baseFormId = builtin ? null : "builtin:EXAM", layoutOptions = JobClient.LayoutBody(new()), brailleOptions = JobClient.OptionsBody(new()) };
             object result = path switch
             {

@@ -20,6 +20,7 @@ public partial class MainWindow
         public string? Path;
         public WorkFileLease? Lease;
         public CancellationTokenSource JobLifetime { get; } = new();
+        public (long Version, int Face, int? Printed)? LastPreview;
         public bool ShowOriginal;
         public bool ShowSource = true;
         public bool ShowBraille = true;
@@ -28,9 +29,11 @@ public partial class MainWindow
         public long PlaceholderVersion;
         public int PageSyncInProgress;
         public bool ServerSaveInProgress;
+        public bool CancelInProgress;
         public bool OriginalKindKnown;
         public string[]? UploadPaths;
         public Dictionary<EditorBlock, int> Translated = [];
+        public Dictionary<string, int> TagSelections { get; } = new(StringComparer.Ordinal);
         public TabItem Tab { get; } = new();
         public PropertyChangedEventHandler? LabelListener;
         public TabConversionProgress? ProgressIndicator;
@@ -99,29 +102,32 @@ public partial class MainWindow
         if (existing is not null) return existing;
         var context = new OpenDocument(model, new()) { Path = path, ShowOriginal = showOriginal, ShowUpload = showUpload };
         var header = new StackPanel { Orientation = Orientation.Horizontal };
-        var label = new TextBlock { Margin = new(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+        var label = new TextBlock { MaxWidth = 192, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         var closeIcon = new SvgViewbox { Width = 16, Height = 16, Stretch = Stretch.None, IsHitTestVisible = false };
         var close = new Button
         {
             Style = (Style)FindResource("PanelButton"), MinHeight = 20, MinWidth = 20, Height = 20, Width = 20,
-            Padding = new(0), Margin = new(2, 0, 0, 0), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent,
+            Padding = new(0), Margin = new(8, 0, 0, 0), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent,
             ToolTip = "문서 탭 닫기", Content = closeIcon
         };
         AutomationProperties.SetAutomationId(close, "DocumentTabClose");
         void UpdateLabel()
         {
-            label.Text = (model.IsReadOnly ? "[읽기 전용] " : "") + model.Title;
+            label.Text = (model.IsDirty ? "*" : "") + (model.IsReadOnly ? "[읽기 전용] " : "") + model.Title;
             context.Tab.ToolTip = (context.Path ?? model.Title) + (model.IsDirty ? " · 저장되지 않음" : "");
             AutomationProperties.SetName(context.Tab, model.Title + (model.IsDirty ? " · 저장되지 않음" : "") + (model.IsReadOnly ? " · 읽기 전용" : ""));
             AutomationProperties.SetName(close, $"{model.Title} 탭 닫기");
         }
         context.ProgressIndicator = new TabConversionProgress(model, () => CancelTabJobAsync(context));
+        void FitTabLabel() => label.MaxWidth = model.Progress is null ? 192 : 168;
+        FitTabLabel();
         context.LabelListener = (_, e) =>
         {
             if (e.PropertyName is nameof(DocumentSession.Title) or nameof(DocumentSession.IsDirty) or nameof(DocumentSession.IsReadOnly)) UpdateLabel();
-            if (e.PropertyName is nameof(DocumentSession.Title) or nameof(DocumentSession.Progress)) context.ProgressIndicator.Refresh();
+            if (e.PropertyName is nameof(DocumentSession.Title) or nameof(DocumentSession.Progress)) { FitTabLabel(); context.ProgressIndicator.Refresh(); }
         };
         model.PropertyChanged += context.LabelListener;
+        System.Windows.Controls.Primitives.Selector.AddSelectedHandler(context.Tab, (_, _) => context.Tab.BringIntoView());
         close.Click += async (_, e) => { e.Handled = true; await CloseDocumentAsync(context); };
         header.Children.Add(label); header.Children.Add(context.ProgressIndicator); header.Children.Add(close); context.Tab.Header = header; context.Tab.Tag = context; UpdateLabel();
         tabSwitching = true;
@@ -137,10 +143,43 @@ public partial class MainWindow
         return context;
     }
 
+    private void ConversionStatus_Click(object sender, RoutedEventArgs e)
+    {
+        if (openDocument is not { } context || context.Model.Progress is null) return;
+        if (ConversionStatus.ContextMenu is { IsOpen: true }) return;
+        var menu = new ContextMenu
+        {
+            Style = (Style)FindResource("FinalContextMenu"), Width = 200, Tag = context.Model,
+            PlacementTarget = ConversionStatus, Placement = System.Windows.Controls.Primitives.PlacementMode.Top,
+            HorizontalOffset = ConversionStatus.ActualWidth - 200
+        };
+        var cancel = new MenuItem
+        {
+            Header = "변환 취소", Style = (Style)FindResource("FinalContextItem"), Padding = new Thickness(12, 0, 12, 0),
+            Icon = new SvgViewbox { Source = new Uri("pack://application:,,,/Semojum.Mockup;component/Assets/Figma/status-cancel.svg"), Width = 16, Height = 16, Stretch = Stretch.None },
+            IsEnabled = context.Model.JobId is not null && !context.CancelInProgress && !context.Model.CancellationRequested
+        };
+        menu.Closed += (_, _) =>
+        {
+            if (ConversionStatus.ContextMenu != menu) return;
+            ConversionStatus.ContextMenu = null;
+            ConversionStatus.Tag = null;
+        };
+        cancel.Click += async (_, _) =>
+        {
+            if (context == openDocument) await CancelTabJobAsync(context);
+        };
+        menu.Items.Add(cancel);
+        ConversionStatus.ContextMenu = menu;
+        ConversionStatus.Tag = "cancel-menu";
+        menu.IsOpen = true;
+    }
+
     private async Task CancelTabJobAsync(OpenDocument context)
     {
         var model = context.Model;
-        if (model.JobId is not { } id || model.Progress is null) return;
+        if (model.JobId is not { } id || model.Progress is null || context.CancelInProgress || model.CancellationRequested) return;
+        context.CancelInProgress = true;
         try
         {
             var cancellation = await jobs.CancelAsync(id, context.JobLifetime.Token);
@@ -151,6 +190,7 @@ public partial class MainWindow
         }
         catch (OperationCanceledException) when (context.JobLifetime.IsCancellationRequested) { }
         catch (Exception ex) { model.ErrorNotice = model.Status = "변환 중단 요청을 확인하지 못했습니다. 기존 작업은 유지됩니다: " + ex.Message; }
+        finally { context.CancelInProgress = false; }
     }
 
     private void DocumentTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -15,12 +15,6 @@ public sealed partial class MathDialog
     private FrameworkElement BuildToolbox()
     {
         var panel = new StackPanel();
-        var border = new Border
-        {
-            Background = EditorModalDesign.Color("#F9F9F9"), BorderBrush = EditorModalDesign.Color("#D1D1D1"),
-            BorderThickness = new(1), Margin = new(0, 0, 0, 8), Padding = new(6), Child = panel
-        };
-        SymbolButtons.Margin = new(0, 0, 0, 5);
         panel.Children.Add(SymbolButtons);
         var all = MathTemplates.Groups.SelectMany(group => group.Templates).ToArray();
         foreach (var (icon, label) in new[] {
@@ -29,29 +23,36 @@ public sealed partial class MathDialog
             ("( )", "소괄호"), ("[ ]", "대괄호"), ("{ }", "중괄호"), ("▦", "2×2 소괄호 행렬"),
             ("±", "플러스마이너스"), ("≤", "작거나 같음"), ("∈", "원소"), ("→", "오른쪽 화살표"),
             ("α", "알파"), ("sin", "사인"), ("∠", "각"), ("v⃗", "벡터"),
-            ("⋯", "줄임표"), ("㎡", "제곱미터"), ("H₂O", "화학식") })
+            ("⋯", "줄임표"), ("m²", "제곱미터") })
         {
             var template = all.Single(item => item.Label == label);
             var button = new Button
             {
-                Content = icon, Width = 36, Height = 32, MinWidth = 0, MinHeight = 0, Margin = new(0, 0, 3, 4),
-                Padding = new(0), ToolTip = label, Background = Brushes.White, BorderBrush = EditorModalDesign.Color("#D1D1D1")
+                Content = new TextBlock { Text = icon, Margin = new(8, 0, 8, 0) }, MinWidth = 32, Height = 28, MinHeight = 0, Margin = new(0, 0, 4, 0),
+                FontFamily = (FontFamily)FindResource("InterfaceFont"), FontSize = 12, Foreground = EditorModalDesign.Color("#003E92"),
+                Template = EditorModalDesign.ButtonTemplate(typeof(Button)),
+                Padding = new(8, 0, 8, 0), ToolTip = label, Background = Brushes.White, BorderBrush = EditorModalDesign.Color("#D1D1D1")
             };
             if (label == "벡터") button.FontFamily = new("Cambria Math");
             AutomationProperties.SetName(button, label);
             button.Click += (_, _) => { HighlightSymbol(button); InsertTemplate(template); };
             SymbolButtons.Children.Add(button);
         }
-        panel.Children.Add(new Border { BorderBrush = EditorModalDesign.Color("#D1D1D1"), BorderThickness = new(0, 1, 0, 0), Margin = new(0, 0, 0, 5) });
+        TemplateButtons.Margin = new(0, 16, 0, 0);
         panel.Children.Add(TemplateButtons);
         foreach (var group in MathTemplates.Groups)
         {
             var content = new StackPanel();
-            content.Children.Add(new TextBlock { Text = group.Icon, FontFamily = new("Cambria Math"), FontSize = 24, HorizontalAlignment = HorizontalAlignment.Center });
-            content.Children.Add(new TextBlock { Text = group.Label + " ▾", FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center });
+            content.Children.Add(new TextBlock { Text = group.Icon, FontSize = 14, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
+            var name = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new(0, 2, 0, 0) };
+            name.Children.Add(new TextBlock { Text = group.Label.Replace("·", " · "), FontSize = 12, Foreground = EditorModalDesign.Color("#5F5F5F") });
+            var chevron = EditorModalDesign.Icon("math-template-chevron", 10, 10, "Semojum.Feature.Editor.Wpf");
+            chevron.Margin = new(2, 0, 0, 0); name.Children.Add(chevron); content.Children.Add(name);
+            content.Margin = new(4, 0, 4, 0);
             var button = new Button
             {
-                Content = content, Width = 74, Height = 60, MinWidth = 0, MinHeight = 0, Padding = new(2), Margin = new(0, 0, 2, 4),
+                Content = content, MinWidth = 56, Height = 56, MinHeight = 0, Padding = new(0), Margin = new(0, 0, 4, 0),
+                Template = EditorModalDesign.ButtonTemplate(typeof(Button)),
                 Background = Brushes.White, BorderBrush = EditorModalDesign.Color("#D1D1D1"), ToolTip = group.Label + " 수식 틀 선택"
             };
             AutomationProperties.SetName(button, group.Label + " 수식 틀");
@@ -95,12 +96,7 @@ public sealed partial class MathDialog
             };
             TemplateButtons.Children.Add(button);
         }
-        panel.Children.Add(new TextBlock
-        {
-            Text = "종류별 버튼에서 수식 틀을 선택하세요. 선택한 내용은 첫 항목에 들어가며, 다음 항목을 바로 수정할 수 있습니다.",
-            Foreground = (Brush)FindResource("Muted"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new(2, 3, 2, 2)
-        });
-        return border;
+        return panel;
     }
 
     private void HighlightSymbol(Button? selected)

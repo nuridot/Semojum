@@ -17,6 +17,7 @@ public sealed class FormulaPreview : UserControl
     public string Formula { get => (string)GetValue(FormulaProperty); set => SetValue(FormulaProperty, value); }
     public FontFamily TextFontFamily { get => (FontFamily?)GetValue(TextFontFamilyProperty) ?? (FontFamily)FindResource("InterfaceFont"); set => SetValue(TextFontFamilyProperty, value); }
     public double Scale { get => (double)GetValue(ScaleProperty); set => SetValue(ScaleProperty, value); }
+    public string? FractionSlash { get; init; }
     public bool HasError { get; private set; }
     internal DrawingImage? Drawing => image.Source as DrawingImage;
 
@@ -31,7 +32,7 @@ public sealed class FormulaPreview : UserControl
     private void Render()
     {
         if (image is null) return;
-        image.Source = null; HasError = false;
+        Content = image; image.Source = null; HasError = false;
         if (string.IsNullOrWhiteSpace(Formula)) return;
         try
         {
@@ -48,6 +49,8 @@ public sealed class FormulaPreview : UserControl
             using (var context = visual.RenderOpen())
                 WpfTeXFormulaParser.Instance.Parse(Formula).RenderTo(context, environment, scale);
             image.Source = new DrawingImage(visual.Drawing);
+            if (FractionSlash is { } slash && FormulaLine.Format(Formula, slash) is { } line)
+                Content = new TextBlock { Text = line, FontSize = scale, FontFamily = TextFontFamily, FontWeight = FontWeight };
         }
         catch (Exception)
         {

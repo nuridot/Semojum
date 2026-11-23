@@ -159,7 +159,7 @@ internal static class WindowsManualReviewChecks
                 var list = Descendants(dialog).OfType<ListBox>().Single(); list.SelectedIndex = 0;
                 check(list.Items.Cast<object>().Any(item => item.ToString()!.Contains("다시 확인 필요")), "Review list labels stale marks explicitly");
                 first.Source = "ybcd";
-                Descendants(dialog).OfType<Button>().Single(b => Equals(b.Content, "다시 지정")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                list.ContextMenu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "다시 지정")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 check(first.ReviewMarks.Single(m => m.Id == mark.Id).IsStale && first.ReviewMarks.Count == 1,
                     "A document change while the review list is open cannot confirm a different selection");
             }
@@ -170,7 +170,7 @@ internal static class WindowsManualReviewChecks
             {
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                 var list = Descendants(reassign).OfType<ListBox>().Single(); list.SelectedIndex = 0;
-                Descendants(reassign).OfType<Button>().Single(b => Equals(b.Content, "다시 지정")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                list.ContextMenu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "다시 지정")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 check(first.ReviewMarks is [{ Kind: ReviewKind.HumanConfirmed, IsStale: false, OriginalText: "y" }],
                     "A stale mark can be explicitly assigned to the newly selected text");
             }

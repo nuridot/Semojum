@@ -6,6 +6,7 @@ using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Editing;
 using ICSharpCode.AvalonEdit.Rendering;
 using Semojum.Core;
+using Semojum.Desktop.Controls;
 
 namespace Semojum.Desktop.Services;
 
@@ -122,9 +123,11 @@ public sealed class SourceTextInset : AbstractMargin
                 dc.DrawRectangle(TextView.CurrentLineBackground, null, new Rect(0, line.VisualTop - TextView.VerticalOffset, 12, line.Height));
                 var top = TextView.GetVisualPosition(editor.TextArea.Caret.Position, VisualYPosition.LineTop).Y - TextView.VerticalOffset;
                 var bottom = TextView.GetVisualPosition(editor.TextArea.Caret.Position, VisualYPosition.LineBottom).Y - TextView.VerticalOffset;
-                marker = new Rect(0, top, 2, Math.Max(0, bottom - top));
+                marker = new Rect(1, top, 2, Math.Max(0, bottom - top));
             }
         }
+        if (TextView is { } view)
+            view.BackgroundRenderers.OfType<RegionHighlight>().FirstOrDefault()?.DrawRows(view, dc, ActualWidth);
         dc.DrawLine(new Pen(LineBrush, 1), new Point(.5, 0), new Point(.5, ActualHeight));
         if (marker is { } rect) dc.DrawRectangle(CurrentLineMarkerBrush, null, rect);
     }

@@ -186,6 +186,11 @@ internal static class Qa4Checks
         var points = FooterRange.ChangePoints(legacy, "기본", "center");
         string At(IEnumerable<FooterRange> ranges, int page) => ranges.FirstOrDefault(r => r.Start <= page && (r.End is null || r.End >= page))?.Text ?? "기본";
         for (var page = 1; page <= 20; page++) Check(At(points, page) == At(legacy, page));
+        var sparse = Enumerable.Range(1, 1000).Select(i => new FooterRange(2*i, 2*i, "단원 " + i, "right")).ToArray();
+        var expanded = FooterRange.ChangePoints(sparse, "기본", "left");
+        Check(expanded.Length == 2001);
+        var restorations = expanded.Where(r => r.Start % 2 != 0).Select(r => r.Start).ToHashSet();
+        Check(FooterRange.Continue(expanded, restorations).SequenceEqual(sparse));
         var continued = FooterRange.Continue(points.Where(p => p.Start != 6).ToArray());
         Check(At(continued, 7) == "장 제목" && At(continued, 9) == "다음 장");
         try { FooterRange.Continue([new(3, null, "a"), new(3, null, "b")]); throw new Exception("Duplicate start accepted"); } catch (ArgumentException) { }

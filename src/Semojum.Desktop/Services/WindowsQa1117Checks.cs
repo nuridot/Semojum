@@ -37,18 +37,21 @@ internal static class WindowsQa1117Checks
         window.Show();
         try
         {
-            await window.ExecuteAsync("new"); await Idle(window);
-            check(window.OriginalUpload.IsVisible, "New document displays the original upload component");
+            await Idle(window);
+            check(window.OriginalUpload.IsVisible, "The empty startup tab displays the original upload component");
             var upload = window.OriginalUpload.UploadArea;
-            check(upload.ActualHeight >= window.OriginalUpload.ActualHeight - 65 && upload.ActualWidth >= window.OriginalUpload.ActualWidth - 33,
+            check(Math.Abs(window.OriginalUpload.ActualHeight - upload.ActualHeight - 42) <= 1
+                && Math.Abs(window.OriginalUpload.ActualWidth - upload.ActualWidth - 34) <= 1,
                 $"Upload target fills original panel (target={upload.ActualWidth}x{upload.ActualHeight}, panel={window.OriginalUpload.ActualWidth}x{window.OriginalUpload.ActualHeight})");
             window.Height = 700; await Idle(window);
-            check(upload.ActualHeight >= window.OriginalUpload.ActualHeight - 65, "Upload target follows resized panel height");
+            check(Math.Abs(window.OriginalUpload.ActualHeight - upload.ActualHeight - 42) <= 1, "Upload target retains the design's 21 DIP top and bottom insets on resize");
+            await window.ExecuteAsync("new"); await Idle(window);
+            check(!window.OriginalPanel.IsVisible && window.SourcePanel.IsVisible && window.BrailleContainer.IsVisible, "Explicit new text document opens the source and braille panels");
             await WindowsSmoke.RenderElementAsync(window, Path.Combine(directory, "new-document.png"));
 
             var memo = new MemoInputDialog("작성자") { Owner = window }; memo.Show(); await Idle(memo);
             var height = memo.Input.ActualHeight;
-            memo.Input.Text = "첫째 줄\n둘째 줄\n셋째 줄\n넷째 줄"; await Idle(memo);
+            memo.Input.Text = "첫째 줄\n둘째 줄\n셋째 줄\n넷째 줄\n다섯째 줄"; await Idle(memo);
             check(memo.Input.ActualHeight > height + 20, "New memo field grows with multiline input");
             check(memo.Input.GetRectFromCharacterIndex(memo.Input.Text.Length).Bottom <= memo.Input.ActualHeight, "Memo last line remains inside the growing field");
             await WindowsSmoke.RenderElementAsync(memo, Path.Combine(directory, "memo-input.png")); memo.Close();
@@ -67,7 +70,7 @@ internal static class WindowsQa1117Checks
             window.DraftDockTitle.Text = "대체 초안";
             window.DraftDock.Visibility = Visibility.Visible; await Idle(window);
             var thumbBorder = Descendants(window.DraftDockResize).OfType<Border>().Single();
-            check(thumbBorder.Background is SolidColorBrush { Color.A: 0 } && thumbBorder.BorderThickness == new Thickness(0), "Draft resize handle paints no dark line above the title");
+            check(thumbBorder.Background is SolidColorBrush { Color: var handleColor } && handleColor == Color.FromRgb(209, 209, 209) && thumbBorder.Width == 32 && thumbBorder.Height == 4, "Draft resize handle shows the 32×4 Figma grip");
             await WindowsSmoke.RenderElementAsync(window.DraftDock, Path.Combine(directory, "draft-header.png"));
         }
         finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }

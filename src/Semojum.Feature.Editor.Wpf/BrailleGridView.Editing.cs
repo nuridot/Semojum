@@ -31,12 +31,15 @@ public sealed partial class BrailleGridView
     internal IReadOnlyList<EditorBlock> LinkedBlocks { get; private set; } = [];
     private IReadOnlyList<BlockSpan> linkedRanges = [];
     internal bool IsLinkedCell(GridCell cell) => CoordinatesCurrent && !cell.IsInsertion && linkedRanges.Any(s => s.Block == cell.Block && cell.Offset >= s.Start && cell.Offset < s.Start + s.Length);
+    private bool highlightWholeBlocks;
     internal void SetLinkedBlocks(IReadOnlyList<EditorBlock> blocks)
-        => SetLinkedRanges(blocks.Select(b => new BlockSpan(b, 0, b.Braille.Length)).ToArray());
-    internal void SetLinkedRanges(IReadOnlyList<BlockSpan> ranges)
+        => SetLinkedRanges(blocks.Select(b => new BlockSpan(b, 0, b.Braille.Length)).ToArray(), wholeBlocks: true);
+    internal void SetLinkedRanges(IReadOnlyList<BlockSpan> ranges, bool wholeBlocks = false)
     {
         if (!CoordinatesCurrent) ranges = [];
-        if (linkedRanges.SequenceEqual(ranges)) return;
+        wholeBlocks = wholeBlocks && ranges.Count > 0;
+        if (highlightWholeBlocks == wholeBlocks && linkedRanges.SequenceEqual(ranges)) return;
+        highlightWholeBlocks = wholeBlocks;
         foreach (var block in LinkedBlocks) block.PropertyChanged -= LinkedBlockChanged;
         linkedRanges = ranges.ToArray(); LinkedBlocks = ranges.Select(r => r.Block).Distinct().ToArray();
         foreach (var block in LinkedBlocks) block.PropertyChanged += LinkedBlockChanged;

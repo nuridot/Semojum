@@ -23,12 +23,19 @@ internal static class WindowsFileDialogDesignChecks
         try { open.SetPaths(["document.docx"]); check(false, "The upload picker rejects DOCX"); }
         catch (ArgumentException) { check(true, "The upload picker rejects DOCX"); }
         var unsupported = FileNotices.UnsupportedFormat(); var named = unsupported.DetailText.Split(" 만 ")[0].Split(" · "); unsupported.Close();
-        var panelText = LogicalDescendants(new Controls.OriginalUploadView()).OfType<TextBlock>().Single(t => t.Text.StartsWith("업로드 가능한 형식:", StringComparison.Ordinal)).Text;
-        var listed = panelText["업로드 가능한 형식:".Length..].Split([',', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var uploadPanel = new Controls.OriginalUploadView();
+        var panelText = LogicalDescendants(uploadPanel).OfType<TextBlock>().Single(t => t.Text.StartsWith("PDF · ", StringComparison.Ordinal)).Text;
+        var listed = AutomationProperties.GetHelpText(uploadPanel.UploadArea).Split(" · ");
         var accepted = named.All(format => { try { open.SetPaths(["document." + format.ToLowerInvariant()]); return true; } catch (ArgumentException) { return false; } });
-        check(accepted && named.Order().SequenceEqual(listed.Order()) && !named.Contains("DOCX"),
+        check(accepted && named.Order().SequenceEqual(listed.Order()) && panelText.Split(" · ").SequenceEqual(listed.Where(f => f != "JPEG")) && !named.Contains("DOCX"),
             "Case 1, the upload panel and the file picker name the same supported formats, without DOCX");
         var decomposed = "가나다.txt".Normalize(System.Text.NormalizationForm.FormD);
+        try
+        {
+            open.SetPaths([Path.Combine("a", "가.png"), Path.Combine("b", "가.png".Normalize(System.Text.NormalizationForm.FormD))]);
+            check(false, "Images with the same normalized upload name are rejected");
+        }
+        catch (ArgumentException ex) { check(ex.Message.Contains("이름이 같은"), "Images with the same normalized upload name are rejected"); }
         open.SetPaths([decomposed]);
         check(open.FileNames.Text == "가나다.txt" && open.Paths.Single() == decomposed,
             "The selected filename displays composed Korean while retaining the original path");
@@ -37,7 +44,7 @@ internal static class WindowsFileDialogDesignChecks
         try
         {
             var imageList = Descendants(imageOrder).OfType<ListBox>().Single(l => AutomationProperties.GetName(l) == "이미지 순서");
-            check(imageList.Items.Cast<string>().Single() == imagePath && Descendants(imageList).OfType<TextBlock>().Any(t => t.Text.Contains("가.png", StringComparison.Ordinal)),
+            check(imageList.Items.Cast<ImageUploadBrowser.FileRow>().Any(r => r.Path == imagePath && r.Rank == 1) && Descendants(imageList).OfType<TextBlock>().Any(t => t.Text.Contains("가.png", StringComparison.Ordinal)),
                 "Image ordering displays composed Korean without changing the selected file path");
         }
         finally { imageOrder.Close(); }
@@ -47,28 +54,27 @@ internal static class WindowsFileDialogDesignChecks
         {
             open.UpdateLayout();
             Capture(open, "open-document.png");
-            var korean = Descendants(open).OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "한글");
-            check(Equals(korean.SelectedItem, "약자(2급)") && !open.Settings.Options.KoreanGrade1
+            var korean = Descendants(open).OfType<RadioButton>().Single(c => AutomationProperties.GetName(c) == "한글 정자(1급)");
+            check(korean.IsChecked == false && !open.Settings.Options.KoreanGrade1
                 && open.Settings.Options.EnglishGrade1 && Equals(JobClient.OptionsBody(open.Settings.Options)["hangulGrade"], "grade2"),
                 "QA1110: upload initially selects and submits Korean contracted braille despite legacy grade1 defaults");
-            korean.SelectedIndex = 0;
+            korean.IsChecked = true;
             check(open.Settings.Options.KoreanGrade1 && Equals(JobClient.OptionsBody(open.Settings.Options)["hangulGrade"], "grade1"),
                 "QA1110: an explicit grade1 selection is still submitted");
             open.Forms.SelectedItem = general; open.Forms.SelectedItem = saved;
             check(open.Settings.Options.KoreanGrade1, "QA1110: explicitly selecting a custom form applies its Korean grade");
-            check(open.Width == 560 && open.Height == 392 && Descendants(open).OfType<TextBlock>().Any(t => t.Text == "점역 설정" && t.IsVisible),
-                "File options use the final Figma size and show the settings section");
+            check(open.Width == 600 && open.Height == 714 && Descendants(open).OfType<TextBlock>().Any(t => t.Text == "교열 모델" && t.IsVisible),
+                "File options show the proof models in the 600 by 714 conversion frame");
             check(open.FileNames.Text == missingName && open.Forms.IsEnabled,
                 "File options retain the selected filename and editable format settings");
-            check(open.FileNames.ActualWidth > 490,
-                "Selected file names fill the file field and align from its left edge");
-            check(open.FileNames is { IsReadOnly: true, IsHitTestVisible: false } && open.FileNames.Parent is Border { Height: 32 } && !Descendants(open).OfType<Button>().Any(b => b.Content == open.FileNames),
-                "The file field is a read-only name box without a browse button, matching the final Figma");
+            check(Math.Abs(open.FileNames.ActualWidth - 356) <= 1, "Filename fits the 356 DIP conversion form field");
+            check(open.FileNames is { IsReadOnly: true, IsHitTestVisible: false, Height: 32 } && !Descendants(open).OfType<Button>().Any(b => b.Content == open.FileNames),
+                "The file field displays the name without a second browse button");
             check(open.FormId == saved.FormId && open.Forms.Items.Contains(general) && open.Forms.Items.Contains(saved),
                 "File options select the saved default and retain individual custom forms");
-            var icons = Descendants(open).OfType<SvgViewbox>().Where(i => i.IsVisible && (i.Source?.ToString().EndsWith("open-options-close.svg", StringComparison.Ordinal) == true || i.Source?.ToString().EndsWith("open-options-chevron.svg", StringComparison.Ordinal) == true)).ToArray();
-            check(icons.Length == 5 && icons.All(i => i.Source is not null && i.Drawings is { Bounds.IsEmpty: false }),
-                "File options render the final Figma close and four dropdown icons");
+            var icons = Descendants(open).OfType<SvgViewbox>().Where(i => i.IsVisible).ToArray();
+            check(new[] { "form-close.svg", "conversion-chevron.svg" }.All(asset => icons.Any(i => i.Source?.ToString().EndsWith(asset, StringComparison.Ordinal) == true && i.Drawings is { Bounds.IsEmpty: false })),
+                "File options render the Figma close and form selector icons");
             var start = Descendants(open).OfType<Button>().Single(b => Equals(b.Content, "변환 시작"));
             start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             check(Descendants(open).OfType<TextBlock>().Any(t => t.IsVisible && t.Foreground == System.Windows.Media.Brushes.Firebrick && t.Text.Length > 0),
@@ -85,27 +91,11 @@ internal static class WindowsFileDialogDesignChecks
                 "An existing local work file remains openable when server settings are unavailable");
         }
         finally { offline.Close(); }
-        var save = new SaveAsDialog("문서.smj", null); save.Show();
-        try
-        {
-            save.UpdateLayout();
-            Capture(save, "save-as.png");
-            check(save.Width == 520 && save.Height == 284 && Descendants(save).OfType<TextBlock>().Any(t => t.Text == "저장 설정" && t.IsVisible),
-                "Save as uses the final Figma size and displays its format settings");
-            var icons = Descendants(save).OfType<SvgViewbox>().Where(i => i.IsVisible && (i.Source?.ToString().EndsWith("save-as-close.svg", StringComparison.Ordinal) == true || i.Source?.ToString().EndsWith("save-as-chevron.svg", StringComparison.Ordinal) == true)).ToArray();
-            check(icons.Length == 2 && icons.All(i => i.Source is not null && i.Drawings is { Bounds.IsEmpty: false }),
-                "Save as renders the final Figma close and dropdown icons");
-            var name = Descendants(save).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "파일 이름");
-            check(name.Text == "문서", "Save as retains the proposed document name");
-            var format = Descendants(save).OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "파일 형식");
-            check(save.Format == 1 && Equals(format.SelectedItem, "점자 파일 (*.brf)") && format.Items.Count == 3,
-                "Save as defaults to the final Figma braille file format while keeping the work file choice");
-            check(name.Template.FindName("PART_ContentHost", name) is ScrollViewer && name.Template.FindName("FocusLine", name) is Border,
-                "Save as keeps an editable text host and the Figma focus underline");
-            name.SelectAll(); name.SelectedText = "새 이름";
-            check(name.Text == "새 이름", "The redesigned filename field remains editable");
-        }
-        finally { save.Close(); }
+        var save = MainWindow.WorkFilePicker("문서.smj", true);
+        check(save.FileName == "문서" && save.FilterIndex == 1 && save.DefaultExt.TrimStart('.') == "smj" && save.AddExtension && save.OverwritePrompt,
+            "The Windows Save As picker proposes the document name with SMJ and confirms replacements");
+        check(save.ClientGuid.HasValue && save.Filter.Split('|').Where((_, i) => i % 2 == 1).SequenceEqual(["*.smj", "*.brf", "*.txt"]),
+            "The Windows Save As picker remembers its own folder and offers SMJ, BRF and TXT");
     }
 
     private static void CheckUploadPerFileNotice(BrailleForm general, Action<bool, string> check)

@@ -33,22 +33,22 @@ internal static class WindowsPanelPositionChecks
             window.PageEditor.FollowActive(3);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Refresh();
             check(window.OriginalPosition.Text == "3쪽", "A contiguous partial page list does not invent an original total");
-            check(window.SourcePosition.Text == "3쪽 2줄 2칸", $"Source position uses current page caret (actual {window.SourcePosition.Text})");
-            check(window.StatusPage.Text == "쪽 3" && Equals(window.StatusPage.ToolTip, "원본 3쪽 (전체 쪽수 미확인)"),
+            check(window.SourcePosition.Text == "3쪽 · 2줄 · 2칸", $"Source position uses current page caret (actual {window.SourcePosition.Text})");
+            check(window.StatusPage.Text == "묵자 패널" && Equals(window.StatusPage.ToolTip, "원본 3쪽 (전체 쪽수 미확인)"),
                 "A partial original list does not invent a status-bar total or tooltip");
 
             model.PageStatuses.Remove(2); Refresh();
             check(window.OriginalPosition.Text == "3쪽", "Sparse page numbers do not invent an original total");
-            check(window.StatusPage.Text == "쪽 3" && Equals(window.StatusPage.ToolTip, "원본 3쪽 (전체 쪽수 미확인)"),
+            check(window.StatusPage.Text == "묵자 패널" && Equals(window.StatusPage.ToolTip, "원본 3쪽 (전체 쪽수 미확인)"),
                 "Sparse original pages do not claim the count is a known total");
             model.JobStatus = "IN_PROGRESS";
             check(model.TryApplyServerOriginalPageTotal("position-job", 128, [1, 3]), "A matching partial server response preserves its explicit original total");
             Refresh();
             check(window.OriginalPosition.Text == "3 / 128쪽", "A sparse in-progress response displays only the confirmed server total");
-            check(window.StatusPage.Text == "쪽 3 / 128" && Equals(window.StatusPage.ToolTip, "원본 3쪽 (총 128쪽)"),
+            check(window.StatusPage.Text == "묵자 패널" && Equals(window.StatusPage.ToolTip, "원본 3쪽 (총 128쪽)"),
                 "A partially received job uses the confirmed total in the status bar");
             model.OriginalPages.Remove(3); Refresh();
-            check(window.StatusPage.Text == "쪽 3 / 128" && Equals(window.StatusPage.ToolTip, "작업 3쪽 (총 128쪽 · 원본 미수신)"),
+            check(window.StatusPage.Text == "묵자 패널" && Equals(window.StatusPage.ToolTip, "작업 3쪽 (총 128쪽 · 원본 미수신)"),
                 "A known total remains accurate before the current original page is received");
             model.OriginalPages[3] = new OriginalPage("text", null, ["셋째 쪽"]); Refresh();
             check(!model.TryApplyServerOriginalPageTotal("old-job", 4, [1, 3]) && model.TotalOriginalPages == 128,
@@ -58,7 +58,7 @@ internal static class WindowsPanelPositionChecks
             model.TotalOriginalPages = 128;
             model.IsTextJob = true; Refresh();
             check(window.OriginalPosition.Text == "", "TXT documents do not show server job pages as original-page positions");
-            check(window.StatusPage.Text == "쪽 3" && Equals(window.StatusPage.ToolTip, "텍스트 3쪽"),
+            check(window.StatusPage.Text == "묵자 패널" && Equals(window.StatusPage.ToolTip, "텍스트 3쪽"),
                 "TXT status is labelled as text without using an original-page total");
             model.TotalOriginalPages = null; model.IsTextJob = false; Refresh();
 
@@ -76,17 +76,17 @@ internal static class WindowsPanelPositionChecks
             await WaitUntilAsync(() => grid.CoordinatesCurrent && grid.CaretCoordinates is { Face: 2 }
                 && window.Braille.LayoutLabel.Text.StartsWith("2면 "));
             var p = grid.CaretCoordinates;
-            check(p is { Face: 2 } && window.Braille.LayoutLabel.Text == $"{p.Value.Face}면 {p.Value.Line}줄 {p.Value.Cell}칸",
+            check(p is { Face: 2 } && window.Braille.LayoutLabel.Text == $"{p.Value.Face}면 · {p.Value.Line}줄 · {p.Value.Cell}칸",
                 $"Braille header uses the current composed face, line and cell (actual {window.Braille.LayoutLabel.Text})");
             window.Braille.RefreshAppearance();
-            check(window.Braille.LayoutLabel.Text == $"{p?.Face}면 {p?.Line}줄 {p?.Cell}칸",
+            check(window.Braille.LayoutLabel.Text == $"{p?.Face}면 · {p?.Line}줄 · {p?.Cell}칸",
                 "Refreshing appearance does not replace grid position with the hidden editor's dimensions");
 
             window.ToggleDetached(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             var detached = window.DetachedPane;
             await WaitUntilAsync(() => detached is not null && detached.GridView.CoordinatesCurrent && detached.GridView.CaretCoordinates is not null);
             var dp = detached!.GridView.CaretCoordinates;
-            check(dp is not null && detached.LayoutLabel.Text == $"{dp.Value.Face}면 {dp.Value.Line}줄 {dp.Value.Cell}칸",
+            check(dp is not null && detached.LayoutLabel.Text == $"{dp.Value.Face}면 · {dp.Value.Line}줄 · {dp.Value.Cell}칸",
                 "Detached braille pane tracks its own current grid position");
             window.ToggleDetached(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             check(window.DetachedPane is null && grid.CoordinatesCurrent, "Returning the detached panel keeps the current main grid");
@@ -94,15 +94,15 @@ internal static class WindowsPanelPositionChecks
             foreach (var width in new[] { 960d, 480d })
             {
                 window.Width = width; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
-                check(LabelFits(window.OriginalPosition, window.OriginalHeader) && LabelFits(window.SourcePosition, window.SourceHeader)
-                    && LabelFits(window.Braille.LayoutLabel, window.Braille.Header),
-                    $"The panel location labels remain inside their headers at {width:0}px");
+                check(LabelFits(window.SourcePosition, window.SourcePanel)
+                    && LabelFits(window.Braille.LayoutLabel, window.Braille),
+                    $"The panel location labels remain inside their editing panels at {width:0}px");
             }
             model.OriginalPages.Clear(); Refresh();
             check(window.OriginalPosition.Text == "", "An original-free document does not retain an old original position");
             typeof(MainWindow).GetMethod("SetActiveEditor", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [window.PageEditor.Editor]);
             Refresh();
-            check(window.StatusPage.Text == "쪽 3" && Equals(window.StatusPage.ToolTip, "작업 3쪽 (원본 없음)"),
+            check(window.StatusPage.Text == "묵자 패널" && Equals(window.StatusPage.ToolTip, "작업 3쪽 (원본 없음)"),
                 "An original-free document does not describe its working page as an original");
 
             var lines = window.AllTagsMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "점자 줄"));
@@ -128,7 +128,7 @@ internal static class WindowsPanelPositionChecks
     private static bool LabelFits(TextBlock label, FrameworkElement header)
     {
         var bounds = label.TransformToAncestor(header).TransformBounds(new Rect(0, 0, label.ActualWidth, label.ActualHeight));
-        return bounds.Left >= -1 && bounds.Right <= header.ActualWidth + 1;
+        return bounds.Left >= -1 && bounds.Right <= header.ActualWidth + 1 && bounds.Top >= 36 && bounds.Bottom <= header.ActualHeight;
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)

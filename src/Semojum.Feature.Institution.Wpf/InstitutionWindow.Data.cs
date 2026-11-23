@@ -8,17 +8,17 @@ namespace Semojum.Desktop.Dialogs;
 
 public sealed partial class InstitutionWindow
 {
-    private InstitutionClient Client => new(api);
+    private InstitutionClient Client => new(api, institutionSessionMarker);
     private bool refreshing;
     internal bool Refreshing => refreshing;
     private string? receiptEmail;
     private void ClearInstitutionData()
     {
         AccountRequest.IsEnabled = CreditRequest.IsEnabled = false;
-        Identity.Text = "정보 없음"; Allocated.Text = Balance.Text = Contract.Text = "—"; CreditDetail.Text = "사용량 정보 없음"; UsagePercent.Text = "정보 없음";
-        ContractDetail.Text = "계약 정보 없음"; ContractRemaining.Text = "정보 없음"; StatusSummary.Text = "기관 정보 없음"; UsageBar.Value = 0; UsageBar.Visibility = Visibility.Collapsed;
+        Identity.Text = "정보 없음"; Identity.ToolTip = null; Allocated.Text = Balance.Text = Contract.Text = "—"; CreditDetail.Text = "사용량 정보 없음"; UsagePercent.Text = "정보 없음";
+        ContractRemaining.Text = "정보 없음"; UsageBar.Value = 0; UsageBar.Visibility = Visibility.Collapsed;
+        RenderLayoutUsage(null); RenderAccountUsage(null);
         RenderMonthlyUsage([]); Accounts.ItemsSource = Notices.ItemsSource = Orders.ItemsSource = null; PendingRequests.Text = ""; ReceiptAddress.IsEnabled = false; receiptEmail = null; ReceiptAddress.Text = ""; ReceiptHint.Visibility = Visibility.Collapsed;
-        SessionIdentity.Text = api.Account?.LoginId ?? "로그인 정보 없음";
     }
     private async Task RefreshAsync()
     {
@@ -37,27 +37,23 @@ public sealed partial class InstitutionWindow
             await Load("기관 정보", async () =>
             {
                 var value = await Client.DashboardAsync(Lifetime.Token);
-                Identity.Text = value.OrgName + " · " + value.OrgCode;
-                Allocated.Text = value.CreditAllocated.ToString("N0"); Balance.Text = value.CreditRemaining.ToString("N0");
-                CreditDetail.Text = $"{value.CreditUsed:N0} / {value.CreditAllocated:N0} 크레딧";
-                UsagePercent.Text = InstitutionUsage.UsageRatio(value.CreditAllocated, value.CreditUsed);
-                UsageBar.Visibility = UsagePercent.Text == "정보 없음" ? Visibility.Collapsed : Visibility.Visible;
+                Identity.Text = value.OrgName + " · " + api.Account?.LoginId; Identity.ToolTip = value.OrgCode;
+                Allocated.Text = $"{value.CreditUsed:N0} / {value.CreditAllocated:N0}"; Balance.Text = value.CreditRemaining.ToString("N0");
+                CreditDetail.Text = Forecast(value);
+                var usage = InstitutionUsage.UsageRatio(value.CreditAllocated, value.CreditUsed);
+                UsagePercent.Text = "사용률 " + usage; UsageBar.Visibility = usage == "정보 없음" ? Visibility.Collapsed : Visibility.Visible;
                 UsageBar.Value = value.CreditAllocated > 0 && value.CreditUsed >= 0 ? Math.Clamp(100d * value.CreditUsed / value.CreditAllocated, 0, 100) : 0;
-                Contract.Text = ValidDate(value.ContractExpiresAt) ? value.ContractExpiresAt! : "정보 없음";
-                ContractDetail.Text = ValidDate(value.ContractStartedAt) ? "시작 " + value.ContractStartedAt : "시작일 정보 없음";
-                ContractRemaining.Text = InstitutionUsage.RemainingDays(value.ContractExpiresAt, TodayInKorea());
-                var expiry = ContractRemaining.Text switch { var t when t.EndsWith(" 남음", StringComparison.Ordinal) => t[..^3] + " 전", "오늘 만료" => "오늘", var t => t };
-                StatusSummary.Inlines.Clear();
-                foreach (var part in new[] { "기관 " + value.OrgName, $"남은 크레딧 {value.CreditRemaining:N0}", "계약 만료 " + expiry })
-                {
-                    StatusSummary.Inlines.Add(new System.Windows.Documents.Run(part));
-                    StatusSummary.Inlines.Add(new System.Windows.Documents.InlineUIContainer(new Border { Width = 1, Height = 16, Margin = new(12, 0, 12, 0), Background = FigmaDialogElements.Brush("#EAEAEA") }) { BaselineAlignment = BaselineAlignment.Center });
-                }
-                RenderMonthlyUsage(value.MonthlyUsage);
+                Contract.Text = (ValidDate(value.ContractStartedAt) ? value.ContractStartedAt : "—") + " ~ " + (ValidDate(value.ContractExpiresAt) ? value.ContractExpiresAt : "—");
+                var remaining = InstitutionUsage.RemainingDays(value.ContractExpiresAt, TodayInKorea());
+                ContractRemaining.Text = remaining.EndsWith(" 남음", StringComparison.Ordinal) ? "남은 기간 " + remaining[..^3] : remaining;
+                RenderMonthlyUsage(value.MonthlyUsage); RenderLayoutUsage(value.LayoutUsage);
                 AccountRequest.IsEnabled = CreditRequest.IsEnabled = true; AccountRequest.ToolTip = CreditRequest.ToolTip = "운영자에게 요청을 보냅니다.";
             });
             InstitutionAccountRow[] members = [];
-            await Load("소속 계정", async () => Accounts.ItemsSource = members = (await Client.AccountsAsync(Lifetime.Token)).Items.Select(a => InstitutionAccountRow.Of(a)).ToArray());
+            await Load("소속 계정", async () =>
+            {
+                Accounts.ItemsSource = members = (await Client.AccountsAsync(Lifetime.Token)).Items.Select(a => InstitutionAccountRow.Of(a)).ToArray(); RenderAccountUsage(members);
+            });
             // Open account-issue requests are lines of the account table; there is no separate request history.
             await Load("발급 요청", async () =>
             {
@@ -72,7 +68,7 @@ public sealed partial class InstitutionWindow
             });
             if (api.Account?.Role != "ROLE_ORG_ADMIN")
             {
-                ClearInstitutionData(); SessionIdentity.Text = "로그인 정보 없음";
+                ClearInstitutionData();
                 ErrorText.Text = "기관 관리자 권한을 다시 확인해야 합니다. 로그아웃 후 다시 로그인해 주세요.";
             }
             else if (errors.Count > 0) ErrorText.Text = string.Join("\n", errors);
@@ -89,25 +85,25 @@ public sealed partial class InstitutionWindow
         var average = InstitutionUsage.SixMonthAverage(months);
         ChartAverage.Text = average.HasValue ? $"6개월 평균 {average.Value:N0}" : "6개월 평균 정보 없음";
         ChartAverage.ToolTip = ChartAverage.Text;
-        if (!usable) { ChartMaximum.Text = ChartMiddle.Text = ChartLower.Text = ""; return; }
-        var maximum = months.Max(m => m.Credits);
-        ChartMaximum.Text = maximum.ToString("N0");
-        ChartMiddle.Text = decimal.Round((decimal)maximum * 2m / 3m, 0, MidpointRounding.AwayFromZero).ToString("N0");
-        ChartLower.Text = decimal.Round((decimal)maximum / 3m, 0, MidpointRounding.AwayFromZero).ToString("N0");
-        ChartMaximum.ToolTip = ChartMaximum.Text; ChartMiddle.ToolTip = ChartMiddle.Text; ChartLower.ToolTip = ChartLower.Text;
+        if (!usable) { foreach (var tick in ChartTicks) tick.Text = ""; return; }
+        var peak = months.Max(m => m.Credits);
+        decimal magnitude = 1;
+        while (magnitude * 10 < (decimal)peak / 5) magnitude *= 10;
+        var interval = new decimal[] { 1, 2, 5, 10 }.First(x => x * magnitude >= (decimal)peak / 5) * magnitude;
+        var maximum = interval * 5;
+        for (int i = 0; i < ChartTicks.Length; i++) { ChartTicks[i].Text = ((5 - i) * interval).ToString("N0"); ChartTicks[i].ToolTip = ChartTicks[i].Text; }
         foreach (var month in months.OrderBy(m => m.Month, StringComparer.Ordinal))
         {
-            var column = new Grid { Width = 72, Height = 152, Margin = new(0, 0, 4, 0) };
-            column.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) }); column.RowDefinitions.Add(new() { Height = new(22) });
-            var bar = new Border { Height = maximum > 0 ? Math.Clamp(110d * month.Credits / maximum, 0, 110) : 0, Background = ChartBarBrush(), CornerRadius = new(3), Margin = new(5, 0, 5, 0), VerticalAlignment = VerticalAlignment.Bottom, ToolTip = month.Month + " · " + month.Credits.ToString("N0") };
+            var column = new Grid { Width = 52, Height = 140 };
+            column.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) }); column.RowDefinitions.Add(new() { Height = new(20) });
+            var bar = new Border { Width = 24, Height = (double)(104m * month.Credits / maximum), CornerRadius = new(3,3,0,0), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, ToolTip = month.Month + " · " + month.Credits.ToString("N0") };
             System.Windows.Automation.AutomationProperties.SetName(bar, month.Month + " 사용 크레딧 " + month.Credits.ToString("N0")); column.Children.Add(bar);
-            var amount = new TextBlock { Text = month.Credits.ToString("N0"), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = month.Credits.ToString("N0"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new(0, 0, 0, bar.Height + 2) }; column.Children.Add(amount);
+            var amount = new TextBlock { Text = month.Credits.ToString("N0"), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = month.Credits.ToString("N0"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new(0, 0, 0, bar.Height + 4) }; column.Children.Add(amount);
             var monthLabel = DateTime.TryParseExact(month.Month + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date.Month + "월" : month.Month;
-            var label = new TextBlock { Text = monthLabel, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = month.Month, HorizontalAlignment = HorizontalAlignment.Center }; Grid.SetRow(label, 1); column.Children.Add(label); Chart.Children.Add(column);
+            var label = new TextBlock { Text = monthLabel, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = month.Month, Margin = new(0,4,0,0), HorizontalAlignment = HorizontalAlignment.Center }; Grid.SetRow(label, 1); column.Children.Add(label); Chart.Children.Add(column);
         }
         SizeChartColumns(); ApplyChartContrast(chartHighContrast);
     }
-    private System.Windows.Media.Brush ChartBarBrush() => chartHighContrast ? SystemColors.HighlightBrush : FigmaDialogElements.Brush("#5B8DEF");
     internal void ApplyChartContrast(bool highContrast)
     {
         chartHighContrast = highContrast;
@@ -115,18 +111,17 @@ public sealed partial class InstitutionWindow
         {
             chartCard.Background = highContrast ? SystemColors.WindowBrush : System.Windows.Media.Brushes.White;
             chartCard.BorderBrush = highContrast ? SystemColors.WindowTextBrush : FigmaDialogElements.Brush("#EAEAEA");
-            if (chartCard.Child is StackPanel { Children.Count: > 0 } panel && panel.Children[0] is TextBlock title)
-                title.Foreground = highContrast ? SystemColors.WindowTextBrush : FigmaDialogElements.Brush("#1A1A1A");
+            if (chartCard.Child is StackPanel panel && panel.Children[0] is DockPanel header)
+                foreach (var title in header.Children.OfType<TextBlock>()) title.Foreground = highContrast ? SystemColors.WindowTextBrush : FigmaDialogElements.Brush("#1A1A1A");
         }
         var text = highContrast ? SystemColors.WindowTextBrush : FigmaDialogElements.Brush("#5F5F5F");
         var axis = highContrast ? SystemColors.WindowTextBrush : FigmaDialogElements.Brush("#8A8A8A");
-        ChartMaximum.Foreground = ChartMiddle.Foreground = ChartLower.Foreground = axis;
-        ChartAverage.Foreground = ChartEmpty.Foreground = chartLegendText.Foreground = text;
-        chartLegendDot.Background = ChartBarBrush();
+        foreach (var tick in ChartTicks) tick.Foreground = axis;
+        ChartAverage.Foreground = ChartEmpty.Foreground = text;
         foreach (var column in Chart.Children.OfType<Grid>())
         foreach (var child in column.Children)
         {
-            if (child is Border bar) bar.Background = ChartBarBrush();
+            if (child is Border bar) bar.Background = highContrast ? SystemColors.HighlightBrush : FigmaDialogElements.Brush(column == Chart.Children[Chart.Children.Count - 1] ? "#005FB8" : "#B9D3EE");
             else if (child is TextBlock label) label.Foreground = text;
         }
     }
@@ -134,7 +129,7 @@ public sealed partial class InstitutionWindow
     {
         if (Chart.Children.Count == 0) return;
         var available = ChartScroll.ActualWidth > 0 ? ChartScroll.ActualWidth : ChartScroll.ViewportWidth;
-        var width = Math.Clamp(available / Chart.Children.Count - 4, 60, 100);
+        var width = Math.Max(42, Math.Floor(available / Chart.Children.Count));
         foreach (var column in Chart.Children.OfType<FrameworkElement>()) column.Width = width;
     }
     private static bool ValidDate(string? date) => DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
@@ -156,19 +151,16 @@ public sealed partial class InstitutionWindow
             catch (Exception ex) { ErrorText.Text = "요청을 취소하지 못했습니다. " + ex.Message; }
             return;
         }
-        if (row.Account is not { Self: false, Status: "ACTIVE" or "INACTIVE" } account) return;
-        var unlock = account.Status == "INACTIVE";
-        var message = unlock ? "이 계정의 잠금을 해제하시겠습니까?" : "계정을 잠그면 로그인 세션이 종료되고 진행 중인 작업이 취소될 수 있습니다. 계속하시겠습니까?";
-        if (NoticeDialog.Choose(ModalOwner, message, "변경은 서버에 즉시 적용됩니다.", ["계속", "취소"], error: !unlock) != 0) return;
-        try { await Client.SetLockAsync(account.LoginId, !unlock, Lifetime.Token); await RefreshAsync(); }
-        catch (Exception ex) { ErrorText.Text = "계정 상태를 바꾸지 못했습니다. " + ex.Message; }
+        if (row.Account is { } account) await OpenAccountAsync(account);
     }
     private async Task OpenAccountAsync(InstitutionAccount account)
     {
         try
         {
             var jobs = await Client.AccountJobsAsync(account.LoginId, ct: Lifetime.Token);
-            var detail = new InstitutionAccountDetailDialog(account, jobs, async locked => { await Client.SetLockAsync(account.LoginId, locked, Lifetime.Token); }) { Owner = ModalOwner };
+            var detail = new InstitutionAccountDetailDialog(account, jobs,
+                locked => Client.SetLockAsync(account.LoginId, locked, Lifetime.Token),
+                (alias, email, limit) => Client.UpdateAccountAsync(account.LoginId, alias, email, limit, Lifetime.Token)) { Owner = ModalOwner };
             if (detail.ShowDialog() == true) await RefreshAsync();
         }
         catch (Exception ex) { ErrorText.Text = "계정 정보를 불러오지 못했습니다. " + ex.Message; }

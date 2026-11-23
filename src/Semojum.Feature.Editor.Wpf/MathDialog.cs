@@ -8,10 +8,10 @@ using WpfMath.Parsers;
 
 namespace Semojum.Desktop.Dialogs;
 
-public sealed partial class MathDialog : CompactDialog
+public sealed partial class MathDialog : FormDialogBase
 {
-    internal TextBox Input { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 80, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-    internal TextBox BrailleInput { get; } = new() { FontSize = 22, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 90, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    internal TextBox Input { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    internal TextBox BrailleInput { get; } = new() { FontSize = 22, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     internal WrapPanel SymbolButtons { get; } = new();
     public string Latex => Input.Text.Trim();
     public BrailleTranslation? Translation { get; private set; }
@@ -21,18 +21,19 @@ public sealed partial class MathDialog : CompactDialog
     private int revision;
     private bool manuallyEdited, settingBraille;
     private readonly bool inlinePreview;
-    public MathDialog(Func<string, CancellationToken, Task<BrailleTranslation>> translate, string? latex = null, string? manualBraille = null, bool inlinePreview = false) : base("수식 편집기", 980, 600)
+    public MathDialog(Func<string, CancellationToken, Task<BrailleTranslation>> translate, string? latex = null, string? manualBraille = null, bool inlinePreview = false) : base("수식 편집기", 900, 558)
     {
         this.translate = translate; this.inlinePreview = inlinePreview;
-        Input.FontFamily = (FontFamily)FindResource("MonoFont"); BrailleInput.FontFamily = (FontFamily)FindResource("BrailleFont");
-        var body = new DockPanel { Margin = new(8, 8, 8, 0) };
-        Body(new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
-        var toolbox = BuildToolbox();
-        DockPanel.SetDock(toolbox, Dock.Top); body.Children.Add(toolbox);
-        var panes = new Grid(); panes.ColumnDefinitions.Add(new() { Width = new(2, GridUnitType.Star) }); panes.ColumnDefinitions.Add(new() { Width = new(8) }); panes.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-        body.Children.Add(panes); var left = new StackPanel(); panes.Children.Add(left);
-        var preview = new FormulaControl { FontSize = 28, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        var formula = new Grid(); formula.Children.Add(preview);
+        UseControlBorder();
+        Fields.Children.Add(BuildToolbox());
+        var panes = new Grid { Margin = new(0, 16, 0, 0) };
+        panes.ColumnDefinitions.Add(new());
+        panes.ColumnDefinitions.Add(new() { Width = new(16) });
+        panes.ColumnDefinitions.Add(new());
+        Fields.Children.Add(panes);
+        var preview = new FormulaControl { Scale = 18, FractionSlash = "⁄" };
+        var formula = new Grid();
+        formula.Children.Add(new Viewbox { Child = preview, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Left });
         var previewError = new TextBlock { Text = "수식 미리보기를 표시할 수 없습니다. LaTeX 원문을 확인해 주세요.", Foreground = Brushes.Firebrick, TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
         System.Windows.Automation.AutomationProperties.SetAutomationId(previewError, "MathPreviewError");
         System.Windows.Automation.AutomationProperties.SetLiveSetting(previewError, System.Windows.Automation.AutomationLiveSetting.Polite); formula.Children.Add(previewError);
@@ -51,16 +52,18 @@ public sealed partial class MathDialog : CompactDialog
                 preview.Formula = ""; preview.Visibility = Visibility.Collapsed; previewError.Visibility = Visibility.Visible;
             }
         }
-        formula.Children.Add(new TextBlock { Text = "묵자 수식", Foreground = (Brush)FindResource("Muted"), Margin = new(7, 3, 0, 0), VerticalAlignment = VerticalAlignment.Top });
-        left.Children.Add(new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(209, 209, 209)), BorderThickness = new(1), Height = 160, Child = formula });
-        Input.Height = 92; Input.Padding = new(7, 20, 7, 7); Input.FontSize = 12; Input.VerticalContentAlignment = VerticalAlignment.Top; EditorModalDesign.Input(Input);
-        var latexHost = new Grid { Margin = new(0, 8, 0, 0) }; latexHost.Children.Add(Input);
-        latexHost.Children.Add(new TextBlock { Text = "LaTeX", Foreground = (Brush)FindResource("Muted"), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new(7, 4, 0, 0), IsHitTestVisible = false });
-        left.Children.Add(latexHost);
-        BrailleInput.Height = 252; BrailleInput.Padding = new(6, 20, 6, 6); BrailleInput.VerticalContentAlignment = VerticalAlignment.Top; BrailleInput.BorderThickness = new(2); BrailleInput.BorderBrush = new SolidColorBrush(Color.FromRgb(0, 95, 184));
-        var brailleHost = new Grid { VerticalAlignment = VerticalAlignment.Top }; brailleHost.Children.Add(BrailleInput);
-        brailleHost.Children.Add(new TextBlock { Text = inlinePreview ? "점자 수식 미리보기 (읽기 전용)" : "점자 수식", Foreground = (Brush)FindResource("Muted"), Margin = new(8, 4, 0, 0), VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false });
-        Grid.SetColumn(brailleHost, 2); panes.Children.Add(brailleHost);
+        panes.Children.Add(FormulaField("묵자 수식", formula, 160));
+        BrailleInput.FontFamily = (FontFamily)FindResource("BraillePlainFont");
+        ConfigureInput(BrailleInput, VerticalAlignment.Center);
+        BrailleInput.FontSize = 22;
+        var brailleField = FormulaField(inlinePreview ? "점자 수식 미리보기 (읽기 전용)" : "점자 수식", BrailleInput, 160, accent: true);
+        Grid.SetColumn(brailleField, 2);
+        panes.Children.Add(brailleField);
+        Input.SetResourceReference(Control.FontFamilyProperty, "MonoFont");
+        ConfigureInput(Input, VerticalAlignment.Top);
+        var latexField = FormulaField("LaTeX", Input, 120);
+        latexField.Margin = new(0, 16, 0, 0);
+        Fields.Children.Add(latexField);
         System.Windows.Automation.AutomationProperties.SetName(Input, "LaTeX 수식");
         System.Windows.Automation.AutomationProperties.SetName(BrailleInput, "점자 수식");
         if (manualBraille is not null) { BrailleInput.Text = manualBraille; manuallyEdited = true; }
@@ -90,8 +93,8 @@ public sealed partial class MathDialog : CompactDialog
             UpdatePreview();
             await RefreshAsync(true);
         };
-        Action("취소", () => DialogResult = false);
-        Action("넣기", async () =>
+        CancelButton();
+        FooterButton("넣기", async () =>
         {
             if (Latex.Length == 0) throw new ArgumentException("수식을 입력해 주세요.");
             if (translatedFor != Latex) await RefreshAsync();
@@ -99,10 +102,30 @@ public sealed partial class MathDialog : CompactDialog
             if (!DocumentSearch.IsBrailleText(BrailleInput.Text) || string.IsNullOrWhiteSpace(BrailleInput.Text)) throw new ArgumentException("점자 수식에는 점자와 공백만 입력할 수 있습니다.");
             DialogResult = true;
         }, true);
-        EditorModalDesign.Frame(this, Root, Actions);
-        if (Root.Children.OfType<Border>().FirstOrDefault() is { } footer) { footer.BorderThickness = new Thickness(0, 1, 0, 0); footer.BorderBrush = EditorModalDesign.Color("#EAEAEA"); }
         Loaded += async (_, _) => { UpdatePreview(); await RefreshAsync(); };
     }
+    private static void ConfigureInput(TextBox box, VerticalAlignment alignment)
+    {
+        EditorModalDesign.Input(box);
+        box.BorderThickness = new(0); box.Background = Brushes.Transparent;
+        box.VerticalContentAlignment = alignment; box.Padding = new(0);
+    }
+
+    private FrameworkElement FormulaField(string title, FrameworkElement content, double height, bool accent = false)
+    {
+        var group = new Grid();
+        var frame = new Border { Height = height, Margin = new(0, 8, 0, 0), Padding = new(16),
+            CornerRadius = new(8), BorderThickness = new(accent ? 2 : 1),
+            BorderBrush = EditorModalDesign.Color(accent ? "#005FB8" : "#D1D1D1"), Child = content };
+        group.Children.Add(frame);
+        var label = new TextBlock { Text = title, FontSize = 12, Foreground = EditorModalDesign.Color("#5F5F5F"),
+            VerticalAlignment = VerticalAlignment.Center };
+        group.Children.Add(new Border { Child = label, Height = 16, Padding = new(4, 0, 4, 0), Margin = new(12, 0, 0, 0),
+            IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+            Background = Background });
+        return group;
+    }
+
     internal async Task RefreshAsync(bool delay = false)
     {
         var generation = ++revision; var latex = Latex; Translation = null; translatedFor = null;

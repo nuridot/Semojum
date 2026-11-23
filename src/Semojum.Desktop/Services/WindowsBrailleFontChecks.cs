@@ -30,7 +30,7 @@ internal static class WindowsBrailleFontChecks
 
         var block = new EditorBlock { Id = 1, Source = "점자", Braille = SixDots };
         var face = new BrailleGridFace(1, [SixDots[..32].Select((c, i) => (GridCell?)new GridCell(block, i, c)).ToArray(), SixDots[32..].Select((c, i) => (GridCell?)new GridCell(block, 32 + i, c)).ToArray()]);
-        var grid = new BrailleGridView { ItemsSource = new[] { face }, Blocks = [block] };
+        var grid = new BrailleGridView { ShowFormattingMarks = true, ItemsSource = new[] { face }, Blocks = [block] };
         var strip = new LineTranslation(); strip.SetPreview(1, SixDots);
         var host = new Window { Width = 760, Height = 260, ShowInTaskbar = false, Content = new DockPanel { Children = { strip, grid } } };
         DockPanel.SetDock(strip, Dock.Bottom); host.Show();
@@ -45,7 +45,11 @@ internal static class WindowsBrailleFontChecks
                 var ink = r.ComputeInkBoundingBox(); ink.Offset((Vector)r.BaselineOrigin); var column = (r.BaselineOrigin.X - left) / 16; var row = Math.Floor(r.BaselineOrigin.Y / 28);
                 return Math.Abs(column - Math.Round(column)) < .01 && ink.Left >= r.BaselineOrigin.X && ink.Right <= r.BaselineOrigin.X + 16 && ink.Top >= row * 28 && ink.Bottom <= row * 28 + 28;
             }) && cells.Select(r => r.BaselineOrigin.X).Distinct().Count() == 32, "Each Nuridot Braille cell stays inside its 16 by 28 grid box, so cell, selection and review geometry is unchanged");
-            check(DrawsBrailleFont(strip.Cells), "Line translation draws its cells from Nuridot Braille");
+            grid.ShowFormattingMarks = false; grid.InvalidateFaces();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); host.UpdateLayout();
+            check(DrawsPlainBrailleFont(grid) && Runs(grid).Where(r => r.Characters?.Any(IsSixDot) == true).All(r => r.GlyphTypeface.FamilyNames.Values.Contains("Nuridot Braille Plain")),
+                "Turning off formatting marks renders the document with raised dots only");
+            check(DrawsPlainBrailleFont(strip.Cells), "Line translation uses only raised dots from the embedded preview face");
         }
         finally { host.Close(); }
 
@@ -55,7 +59,12 @@ internal static class WindowsBrailleFontChecks
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); preview.UpdateLayout();
             var editor = Descendants(preview).OfType<TextEditor>().Single(); var view = editor.TextArea.TextView; view.EnsureVisualLines();
-            check(DrawsBrailleFont(view), "Braille page preview draws its cells from Nuridot Braille");
+            var previewRuns = Runs(view).Where(r => r.Characters?.Any(IsSixDot) == true).ToArray();
+            check(previewRuns.Length > 0 && previewRuns.All(r => r.GlyphTypeface.FamilyNames.Values.Contains("Nuridot Braille Plain")),
+                "The print preview renders only raised dots from the bundled braille face");
+            var guides = editor.ContextMenu.Items.OfType<MenuItem>().Single(m => m.IsCheckable); guides.IsChecked = true;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); preview.UpdateLayout(); view.EnsureVisualLines();
+            check(DrawsBrailleFont(view), "Inspection guides display the bundled braille face with unraised dot positions");
             var numbers = editor.TextArea.LeftMargins.OfType<LineNumberMargin>().Single();
             check(Runs(numbers).Length > 0 && Runs(numbers).All(r => IsInterfaceFont(r.GlyphTypeface)), "Braille page preview line numbers stay digits rather than Braille ASCII cells");
             var ruler = view.BackgroundRenderers.OfType<BraillePreviewDialog.CellRuler>().Single();
@@ -77,18 +86,18 @@ internal static class WindowsBrailleFontChecks
         finally { range.Close(); }
 
         var math = new MathDialog((_, _) => Task.FromResult(BrailleTranslation.Plain("⠁")), "x", "⠿⠁") { ShowInTaskbar = false }; math.Show();
-        try { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); math.UpdateLayout(); check(DrawsBrailleFont(math.BrailleInput), "Math braille input draws its cells from Nuridot Braille"); }
+        try { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); math.UpdateLayout(); check(DrawsPlainBrailleFont(math.BrailleInput), "The formula dialog draws editable braille with the bundled raised-dot face"); }
         finally { math.Close(); }
 
         var symbols = new SymbolDialog([new("→", "⠒⠕", "화살표")]) { ShowInTaskbar = false }; symbols.Show();
-        try { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); symbols.UpdateLayout(); check(DrawsBrailleFont(symbols), "Special symbol list draws each symbol's cells from Nuridot Braille"); }
+        try { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); symbols.UpdateLayout(); check(DrawsPlainBraille(symbols), "Special symbol preview draws selected cells from the bundled raised-dot font"); }
         finally { symbols.Close(); }
 
         var snippets = new SnippetDialog(new(BrailleSnippets: Enumerable.Repeat("⠿⠁", 10).ToArray())) { ShowInTaskbar = false }; snippets.Show();
         try
         {
-            Descendants(snippets).OfType<TabControl>().Single().SelectedIndex = 1; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); snippets.UpdateLayout();
-            check(DrawsBrailleFont(snippets), "Braille snippet fields draw their cells from Nuridot Braille");
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); snippets.UpdateLayout();
+            check(DrawsPlainBraille(snippets), "Braille snippet fields draw their cells from the bundled raised-dot font");
         }
         finally { snippets.Close(); }
 
@@ -97,7 +106,9 @@ internal static class WindowsBrailleFontChecks
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); find.UpdateLayout();
             var query = Descendants(find).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "찾을 내용");
-            check(DrawsBrailleFont(query), "Braille find input draws its cells from Nuridot Braille");
+            var runs = Runs(query).Where(r => r.Characters?.Any(IsSixDot) == true).ToArray();
+            check(runs.Length > 0 && runs.All(r => r.GlyphTypeface.FamilyNames.Values.Contains("Nuridot Braille Plain")
+                && SixDots.All(c => r.GlyphTypeface.CharacterToGlyphMap.ContainsKey(c))), "Braille find input draws all six-dot combinations from the bundled raised-dot font");
             Descendants(find).OfType<ToggleButton>().Single(t => AutomationProperties.GetName(t) == "점자 입력").IsChecked = false;
             check(query.ReadLocalValue(Control.FontFamilyProperty) == DependencyProperty.UnsetValue, "Text find input returns to the dialog font");
         }
@@ -107,14 +118,24 @@ internal static class WindowsBrailleFontChecks
         try
         {
             window.ApplyAppearance(new());
-            check(ReferenceEquals(window.DraftBraillePreview.FontFamily, BundledFonts.Braille) && Faces(window.DraftBraillePreview.FontFamily, SixDots) is [var draft] && HasSixDots(draft),
-                "The draft dock braille preview uses Nuridot Braille");
+            check(Faces(window.DraftBraillePreview.FontFamily, SixDots) is [var draft] && draft.FamilyNames.Values.Contains("Nuridot Braille Plain") && SixDots.All(c => draft.CharacterToGlyphMap.ContainsKey(c)),
+                "The draft preview uses the complete raised-dot face");
             check(Faces(window.Braille.Editor.FontFamily, SixDots) is [var spaced] && HasSixDots(spaced) && Faces(window.Braille.Editor.FontFamily, "123") is [var digits] && IsInterfaceFont(digits),
                 "Account line spacing keeps Nuridot Braille for braille cells and Pretendard for other text");
         }
         finally { window.PrepareSmokeShutdown(); window.Close(); }
     }
 
+    private static bool DrawsPlainBraille(Visual root)
+    {
+        var runs = Runs(root).Where(r => r.Characters?.Any(IsSixDot) == true).ToArray();
+        return runs.Length > 0 && runs.All(r => r.GlyphTypeface.FamilyNames.Values.Contains("Nuridot Braille Plain"));
+    }
+    internal static bool DrawsPlainBrailleFont(Visual root)
+    {
+        var runs = Runs(root).Where(r => r.Characters?.Any(IsSixDot) == true).ToArray();
+        return runs.Length > 0 && runs.All(r => r.GlyphTypeface.FamilyNames.Values.Contains("Nuridot Braille Plain"));
+    }
     internal static bool DrawsBrailleFont(Visual root)
     {
         var runs = Runs(root).Where(r => r.Characters?.Any(IsSixDot) == true).ToArray();

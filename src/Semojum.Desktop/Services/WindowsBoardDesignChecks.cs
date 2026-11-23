@@ -55,25 +55,32 @@ internal static class WindowsBoardDesignChecks
                 "Retrying the list switch commits the successfully loaded all-posts view");
             check(HasIcon(board, "board-caption-close.svg") && HasIcon(board, "board-chevron-down.svg"), "Board title bar and search use the final Figma SVGs");
             check(HasIcon(board, "board-chevron-left.svg") && HasIcon(board, "board-chevron-right.svg"), "Board pagination renders both Figma arrow icons");
-            check(Descendants(board).OfType<Button>().Any(b => Equals(b.Content, "알림")), "Board retains access to notifications");
-            var statusBar = Descendants(board).OfType<Border>().Single(b => AutomationProperties.GetAutomationId(b) == "BoardStatusBar");
-            check(statusBar.Child is TextBlock { Text: "fixture", HorizontalAlignment: HorizontalAlignment.Right }, "Board status bar shows the signed-in account on the right");
-            check(!Descendants(board).OfType<Button>().Any(b => Equals(b.Content, "내 글 보기")) && Descendants(board).OfType<TextBlock>().Any(t => t.Text == "전체 글" && t.FontSize == 20 && t.FontWeight == FontWeights.Bold),
-                "Board heading uses the final 20px bold title without a separate my-posts button");
+            check(Descendants(board).OfType<Button>().Any(b => AutomationProperties.GetName(b) == "알림" && b.IsVisible), "Board retains access to notifications");
+            var workspace = Descendants(board).OfType<BoardWorkspace>().Single();
+            check(workspace.LoginName is { IsVisible: true, Text: "fixture" } && workspace.Account.IsVisible, "Board header shows the signed-in account in its account menu");
+            check(!Descendants(board).OfType<Button>().Any(b => Equals(b.Content, "내 글 보기")) && Descendants(board).OfType<TextBlock>().Any(t => t.Text == "게시판" && t.FontSize == 28 && t.FontWeight == FontWeights.SemiBold),
+                "Board heading uses the G1 28px semibold title without a separate my-posts button");
+            void Jump() => Descendants(board).OfType<DataGrid>().Single().ContextMenu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, "쪽 번호로 이동")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Jump();
             var pageInput = Descendants(board).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "게시판 쪽 번호");
             check(pageInput.Text == "1" && Descendants(board).OfType<TextBlock>().Any(t => t.Text == "/ 3"), "Board shows the current and total pages from the actual response");
+            void HideJump() => pageInput.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(board)!, 0, Key.Escape) { RoutedEvent = Keyboard.KeyDownEvent });
+            HideJump();
             var second = Descendants(board).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "게시판 2쪽");
             second.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(() => fixture.RequestedPages.Contains(2) && pageInput.Text == "2");
             check(Descendants(board).OfType<Button>().Any(b => AutomationProperties.GetName(b) == "이전 쪽" && b.IsEnabled), "Selecting a page requests that page and enables the previous action");
+            Jump();
             pageInput.Text = "3";
             pageInput.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(board)!, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
             await WaitAsync(() => fixture.RequestedPages.Contains(3) && pageInput.Text == "3");
             var requests = fixture.RequestedPages.Count;
+            Jump();
             pageInput.Text = "4";
             pageInput.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(board)!, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             check(fixture.RequestedPages.Count == requests && pageInput.Text == "3", "An out-of-range page cannot trigger a server request or replace the current page");
+            HideJump();
             fixture.FailPage = 2;
             var failedPage = Descendants(board).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "게시판 2쪽");
             failedPage.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -82,13 +89,14 @@ internal static class WindowsBoardDesignChecks
                 "A failed page request preserves the last loaded page and reports the error");
             if (Environment.GetEnvironmentVariable("BOARD_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(board, capture);
             var footer = Descendants(board).OfType<ScrollViewer>().Single(s => AutomationProperties.GetName(s) == "게시판 검색 및 쪽 이동");
+            Jump();
             board.Width = 960; board.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            var inputRect = pageInput.TransformToAncestor(footer).TransformBounds(new Rect(0, 0, pageInput.ActualWidth, pageInput.ActualHeight));
-            check(inputRect.Left >= 0 && inputRect.Right <= footer.ViewportWidth + 1, "Board page input remains visible at 960px width");
+            var inputRect = pageInput.TransformToAncestor(workspace.PageScroll).TransformBounds(new Rect(0, 0, pageInput.ActualWidth, pageInput.ActualHeight));
+            check(inputRect.Left >= 0 && inputRect.Right <= workspace.PageScroll.ViewportWidth + 1, "Board page input remains visible at 960px width");
             board.Width = 480; board.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             footer.ScrollToRightEnd(); board.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            inputRect = pageInput.TransformToAncestor(footer).TransformBounds(new Rect(0, 0, pageInput.ActualWidth, pageInput.ActualHeight));
-            check(footer.ScrollableWidth > 0 && inputRect.Left >= 0 && inputRect.Right <= footer.ViewportWidth + 1, "Narrow board footer scrolls to keep page input accessible");
+            inputRect = pageInput.TransformToAncestor(workspace.PageScroll).TransformBounds(new Rect(0, 0, pageInput.ActualWidth, pageInput.ActualHeight));
+            check(footer.ScrollableWidth > 0 && inputRect.Left >= 0 && inputRect.Right <= workspace.PageScroll.ViewportWidth + 1, "Narrow board search footer scrolls independently of the visible page input");
         }
         finally { board.Close(); fixture.FailPage = null; }
         fixture.IncludeNotice = true;
@@ -100,16 +108,16 @@ internal static class WindowsBoardDesignChecks
             noticeBoard.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             var noticeRow = noticeGrid.Items.Cast<BoardRow>().Single(row => row.NoticeId is not null);
             var postRow = noticeGrid.Items.Cast<BoardRow>().Single(row => row.NoticeId is null);
-            var noticeNumber = (TextBlock)noticeGrid.Columns[0].GetCellContent(noticeRow);
+            var noticeNumber = Descendants(noticeGrid.Columns[0].GetCellContent(noticeRow)).OfType<TextBlock>().Single();
             var noticeTitle = (TextBlock)noticeGrid.Columns[1].GetCellContent(noticeRow);
             var noticeAuthor = (TextBlock)noticeGrid.Columns[2].GetCellContent(noticeRow);
-            var postNumber = (TextBlock)noticeGrid.Columns[0].GetCellContent(postRow);
+            var postNumber = Descendants(noticeGrid.Columns[0].GetCellContent(postRow)).OfType<TextBlock>().Single();
             var postTitle = (TextBlock)noticeGrid.Columns[1].GetCellContent(postRow);
-            check(noticeNumber.Text == "공지" && noticeNumber.FontSize == 14 && noticeNumber.FontWeight == FontWeights.Bold
-                && noticeTitle.Text == "서버 점검 안내" && noticeTitle.FontSize == 14 && noticeTitle.FontWeight == FontWeights.Bold
+            check(noticeNumber.Text == "공지" && noticeNumber.FontSize == 12 && noticeNumber.Foreground is SolidColorBrush { Color: var badgeText } && badgeText == Colors.White
+                && noticeTitle.Text == "서버 점검 안내" && noticeTitle.FontSize == 14 && noticeTitle.FontWeight == FontWeights.SemiBold
                 && noticeAuthor.FontWeight != FontWeights.Bold && postNumber.FontSize == 12 && postNumber.FontWeight == FontWeights.Normal
-                && postTitle.FontSize == 12 && postTitle.FontWeight == FontWeights.Normal,
-                "Board notice number and title use Figma bold typography without changing ordinary posts or notice authors");
+                && postTitle.FontSize == 14 && postTitle.FontWeight == FontWeights.Normal,
+                "Board notices use a white badge label and semibold title; ordinary titles use the regular 14px face");
             noticeGrid.SelectedItem = noticeRow; var noticeScrolls = false;
             var opened = await AnswerAsync(noticeBoard, 0, () => noticeGrid.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(noticeBoard)!, 0, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent }),
                 notice => noticeScrolls = Descendants(notice).OfType<ScrollViewer>().Any(s => s.ScrollableHeight > 0));
@@ -151,7 +159,7 @@ internal static class WindowsBoardDesignChecks
             var noticeRows = listGrid.Items.Cast<BoardRow>().ToArray();
             check(noticeRows.Length == 1 && noticeRows[0] is { NoticeId: "notice-1", Number: "공지", Title: "서버 점검 안내" }
                 && fixture.RequestedPages.Skip(requested).SequenceEqual([1]) && !fixture.RequestedModes[^1]
-                && Descendants(lists).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "공지" && t.FontSize == 20) && Descendants(lists).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "1건"),
+                && Descendants(lists).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "공지 1건"),
                 "「공지」 shows only the notices of the first board list page, numbered 「공지」 under the 「공지」 heading");
             requested = fixture.RequestedPages.Count;
             answeredNav.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -161,8 +169,8 @@ internal static class WindowsBoardDesignChecks
             check(answeredRows.Select(r => r.PostId).SequenceEqual(Enumerable.Range(111, 10).Reverse().Select(id => (long)id)) && answeredRows.All(r => r.NoticeId is null)
                 && fixture.RequestedPages.Skip(requested).SequenceEqual([1]) && fixture.RequestedAnswered.Skip(requested).SequenceEqual([true]) && !fixture.RequestedModes[^1]
                 && AutomationProperties.GetItemStatus(noticeNav) == "선택 안 됨"
-                && Descendants(lists).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "답변 받은 글" && t.FontSize == 20) && Descendants(lists).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "13건")
-                && Descendants(lists).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "/ 2"),
+                && Descendants(lists).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "답변 받은 글 13건")
+                && Descendants(lists).OfType<Button>().Any(b => b.IsVisible && AutomationProperties.GetName(b) == "게시판 2쪽"),
                 "「답변 받은 글」 asks the server once for answered=true and shows its first page and total without notices");
             requested = fixture.RequestedPages.Count;
             Descendants(lists).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "게시판 2쪽").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -184,8 +192,8 @@ internal static class WindowsBoardDesignChecks
             var draft = Descendants(drafting).OfType<PostEditorView>().Single();
             Descendants(draft).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "게시글 제목").Text = "쓰던 제목";
             var listed = fixture.RequestedPages.Count; var saves = fixture.SaveRequests;
-            var mineNav = Descendants(drafting).OfType<Button>().Single(b => Equals(b.Content, "내 글"));
-            var kept = await AnswerAsync(drafting, 0, () => mineNav.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)));
+            var mineNav = Descendants(drafting).OfType<BoardWorkspace>().Single().Back.ContextMenu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, "내 글"));
+            var kept = await AnswerAsync(drafting, 0, () => mineNav.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)));
             check(kept is { MessageText: "작성 중인 글을 닫으시겠습니까?" } && kept.ActionButtons.Select(b => b.Content).SequenceEqual(new object[] { "계속 작성", "닫기" })
                 && draft.IsVisible && fixture.RequestedPages.Count == listed,
                 "Choosing another list while writing asks first, and 「계속 작성」 keeps the draft in the board body");
@@ -213,7 +221,7 @@ internal static class WindowsBoardDesignChecks
             var titleHint = Descendants(editor).OfType<TextBlock>().Single(t => AutomationProperties.GetAutomationId(t) == "BoardTitlePlaceholder");
             var bodyHint = Descendants(editor).OfType<TextBlock>().Single(t => AutomationProperties.GetAutomationId(t) == "BoardContentPlaceholder");
             check(titleInput.Text == "" && contentInput.Text == "" && titleHint.IsVisible && bodyHint.IsVisible
-                && !titleHint.IsHitTestVisible && !bodyHint.IsHitTestVisible && titleHint.FontSize == 12 && bodyHint.FontSize == 12
+                && !titleHint.IsHitTestVisible && !bodyHint.IsHitTestVisible && titleHint.FontSize == 14 && bodyHint.FontSize == 14
                 && titleHint.Foreground is SolidColorBrush { Color: var hc } && hc == Color.FromRgb(138, 138, 138),
                 "Empty post inputs show non-intercepting Figma hints without changing submitted values");
             titleInput.Focus(); titleInput.Text = "실제 제목"; contentInput.Text = "실제 본문";
@@ -226,11 +234,12 @@ internal static class WindowsBoardDesignChecks
             Descendants(editor).OfType<Button>().Single(b => Equals(b.Content, "등록")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             check(fixture.SaveRequests == beforeSave, "Placeholder text cannot make an empty post valid or reach the server");
-            var categoryBox = Descendants(editor).OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "게시글 분류");
-            check(categoryBox.IsEnabled && categoryBox.ToolTip is null && string.IsNullOrEmpty(AutomationProperties.GetHelpText(categoryBox))
-                && categoryBox.Items.Cast<string>().SequenceEqual(["계정 · 발급", "점역 결과", "크레딧 · 결제", "사용법"]) && Equals(categoryBox.SelectedItem, "점역 결과"),
+            var choices = Descendants(editor).OfType<RadioButton>().ToArray();
+            check(choices.All(c => c.IsEnabled && c.IsVisible)
+                && choices.Select(c => c.Content).SequenceEqual(new[] { "계정 · 발급", "점역 결과", "크레딧 · 결제", "사용법" })
+                && Equals(choices.Single(c => c.IsChecked == true).Content, "점역 결과"),
                 "The post category is enabled with the four Figma categories and starts at 「점역 결과」");
-            check(Descendants(editor).OfType<TextBox>().Any(t => t.AcceptsReturn && t.Height == 220), "Post editor offers the final Figma multiline field");
+            check(Descendants(editor).OfType<TextBox>().Any(t => t.AcceptsReturn && t.Height == 240), "Post editor offers the final Figma multiline field");
             check(Descendants(editor).OfType<CheckBox>().Any(c => Equals(c.Content, "현재 작업 정보 첨부") && c.IsChecked == true), "New post retains optional current-work attachment");
             check(HasIcon(editor, "board-check.svg"), "The checked work-information option renders the Figma check icon");
             var workOption = Descendants(editor).OfType<CheckBox>().Single(c => Equals(c.Content, "현재 작업 정보 첨부"));
@@ -243,10 +252,10 @@ internal static class WindowsBoardDesignChecks
                 "The work-information preview opens in the app message window with the exact text that will be attached");
             check(Descendants(editor).OfType<Button>().Where(b => Equals(b.Content, "취소") || Equals(b.Content, "등록")).Select(b => b.Content).SequenceEqual(new object[] { "취소", "등록" }), "Cancel precedes registration in the post editor");
             var choose = Descendants(editor).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "파일 첨부");
-            check(choose.Width == 110 && choose.Height == 32 && choose.IsEnabled, "Post editor retains an enabled 110x32 Figma file picker");
+            check(choose.Width == 88 && choose.Height == 32 && choose.IsEnabled, "Post editor retains an enabled 88x32 Figma file picker");
             if (Environment.GetEnvironmentVariable("BOARD_EDITOR_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(editor, capture);
             editor.Width = 480; editor.Height = 400; editor.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            var editScroll = Descendants(Descendants(editor).OfType<PostEditorView>().Single()).OfType<ScrollViewer>().First(s => s.Content is StackPanel);
+            var editScroll = Descendants(editor).OfType<BoardWorkspace>().Single().PageScroll;
             editScroll.ScrollToBottom(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); editor.UpdateLayout();
             var chooseRect = choose.TransformToAncestor(editScroll).TransformBounds(new Rect(0, 0, choose.ActualWidth, choose.ActualHeight));
             check(editScroll.ScrollableHeight > 0 && chooseRect.Top >= -1 && chooseRect.Bottom <= editScroll.ViewportHeight + 2 && choose.IsEnabled,
@@ -268,7 +277,7 @@ internal static class WindowsBoardDesignChecks
                 && Descendants(editing).OfType<TextBox>().Any(t => AutomationProperties.GetName(t) == "게시글 제목" && t.Text == "기존 제목")
                 && Descendants(editing).OfType<TextBox>().Any(t => AutomationProperties.GetName(t) == "게시글 본문" && t.Text == "기존 본문"),
                 "Editing existing post content replaces the post in the board body and never overlays placeholder text");
-            check(Equals(Descendants(editing).OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "게시글 분류").SelectedItem, "크레딧 · 결제"),
+            check(Equals(Descendants(editing).OfType<RadioButton>().Single(c => c.IsChecked == true).Content, "크레딧 · 결제"),
                 "Editing a post shows its own category instead of the new-post default");
             Descendants(editing).OfType<Button>().Single(b => Equals(b.Content, "취소")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(() => !Descendants(editing).OfType<PostEditorView>().Any());
@@ -284,9 +293,9 @@ internal static class WindowsBoardDesignChecks
             Descendants(recategorized).OfType<Button>().Single(b => Equals(b.Content, "수정")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(() => Descendants(recategorized).OfType<PostEditorView>().Any(v => v.IsVisible));
             recategorized.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            var legacyCategory = Descendants(recategorized).OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "게시글 분류");
-            check(legacyCategory.SelectedItem is null && legacyCategory.IsEnabled, "Editing a post without a category shows no category rather than inventing one");
-            legacyCategory.SelectedItem = "사용법"; var saves = fixture.SaveRequests;
+            var legacyCategory = Descendants(recategorized).OfType<RadioButton>().ToArray();
+            check(legacyCategory.Length == 4 && legacyCategory.All(c => c.IsEnabled && c.IsChecked == false), "Editing a post without a category shows no category rather than inventing one");
+            legacyCategory.Single(c => Equals(c.Content, "사용법")).IsChecked = true; var saves = fixture.SaveRequests;
             Descendants(recategorized).OfType<Button>().Single(b => Equals(b.Content, "저장")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(() => fixture.SaveRequests > saves && !Descendants(recategorized).OfType<PostEditorView>().Any());
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -296,7 +305,7 @@ internal static class WindowsBoardDesignChecks
         finally
         {
             // An unsaved choice would otherwise ask before closing; this post started without a category.
-            foreach (var box in Descendants(recategorized).OfType<ComboBox>().Where(c => AutomationProperties.GetName(c) == "게시글 분류")) box.SelectedItem = null;
+            foreach (var choice in Descendants(recategorized).OfType<RadioButton>()) choice.IsChecked = false;
             CloseDiscarding(recategorized);
         }
         var submitted = BoardDialog.Writing(client, "검수"); submitted.Show();
@@ -330,21 +339,21 @@ internal static class WindowsBoardDesignChecks
                 && !Descendants(detail).OfType<TextBlock>().Any(t => t.Text.Contains("글쓴이와 운영자만 열람", StringComparison.Ordinal)),
                 "Public post details do not claim that the post is restricted");
             check(Descendants(detail).OfType<TextBlock>().Any(t => t.Text == "운영자 답변 내용"), "Post detail retains the actual operator answer");
-            check(Descendants(detail).OfType<TextBlock>().Any(t => t.Text == "운영자 답변" && t.FontSize == 14 && t.FontWeight == FontWeights.Bold)
-                && Descendants(detail).OfType<TextBlock>().Any(t => t.Text == "첨부.pdf  1KB"), "Post detail uses the final answer heading and attachment size label");
-            check(HasIcon(detail, "board-export.svg"), "Post attachments render the Figma download icon");
+            check(Descendants(detail).OfType<TextBlock>().Any(t => t.Text == "운영자 답변 · 2026-10-22" && t.FontSize == 14 && t.FontWeight == FontWeights.SemiBold)
+                && Descendants(detail).OfType<TextBlock>().Any(t => t.Text == "첨부.pdf (1KB)"), "Post detail uses the final answer heading and attachment size label");
+            check(HasIcon(detail, "board-attach.svg"), "Post attachments render the Figma download icon");
             var attachment = Descendants(detail).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "첨부.pdf 다운로드");
-            check(attachment.ActualHeight == 32 && Math.Abs(attachment.ActualWidth - 268) < 2 && Equals(attachment.ToolTip, "첨부.pdf"),
-                "Post attachment uses the Figma 268x32 surface and retains its filename for accessibility");
-            var detailScroll = Descendants(detailView).OfType<ScrollViewer>().First(s => s.Content is StackPanel);
+            check(attachment.ActualHeight == 40 && Math.Abs(attachment.ActualWidth - detailView.ActualWidth) < 2 && Equals(attachment.ToolTip, "첨부.pdf"),
+                "Post attachment uses the full-width 40px G1-2 surface and retains its filename for accessibility");
+            var detailScroll = detailView;
             var attachmentLeft = attachment.TransformToAncestor(detailScroll).Transform(new Point()).X;
             check(attachmentLeft >= -1 && attachmentLeft <= 2, $"Post attachment aligns with the left edge of the actual content (left={attachmentLeft:F1})");
-            var answer = Descendants(detail).OfType<Border>().Single(b => b.Child is StackPanel p && Descendants(p).OfType<TextBlock>().Any(t => t.Text == "운영자 답변 내용"));
-            check(answer.CornerRadius == new CornerRadius(6) && answer.Background is SolidColorBrush { Color: var c } && c == Color.FromRgb(249, 249, 249),
-                "The actual operator answer uses the Figma rounded neutral card");
+            var answer = Descendants(detail).OfType<Border>().Single(b => b.Child is StackPanel p && p.Children.OfType<TextBlock>().Any(t => t.Text == "운영자 답변 내용"));
+            check(answer.CornerRadius == new CornerRadius(8) && answer.Background is SolidColorBrush { Color: var c } && c == Color.FromRgb(239, 246, 252),
+                "The actual operator answer uses the G1-2 rounded blue reply card");
             if (Environment.GetEnvironmentVariable("BOARD_DETAIL_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(detail, capture);
             detail.Width = 480; detail.Height = 400; detail.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            var postScroll = Descendants(detailView).OfType<ScrollViewer>().First(s => s.Content is StackPanel);
+            var postScroll = Descendants(detail).OfType<BoardWorkspace>().Single().PageScroll;
             var attachmentRect = attachment.TransformToAncestor(postScroll).TransformBounds(new Rect(0, 0, attachment.ActualWidth, attachment.ActualHeight));
             check(attachmentRect.Left >= -1 && attachmentRect.Right <= postScroll.ViewportWidth + 2 && attachment.IsEnabled,
                 "The attachment download stays within a 480px detail window and remains enabled");
@@ -387,7 +396,7 @@ internal static class WindowsBoardDesignChecks
                 longDetail.Width = width; longDetail.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                 var button = Descendants(longDetail).OfType<Button>().Single(b => AutomationProperties.GetName(b) == longName + " 다운로드");
                 var text = Descendants(button).OfType<TextBlock>().Single(t => t.Text.StartsWith(longName, StringComparison.Ordinal));
-                var icon = Descendants(button).OfType<SvgViewbox>().Single(i => i.Source?.ToString().EndsWith("board-export.svg", StringComparison.Ordinal) == true);
+                var icon = Descendants(button).OfType<SvgViewbox>().Single(i => i.Source?.ToString().EndsWith("board-attach.svg", StringComparison.Ordinal) == true);
                 var textBounds = text.TransformToAncestor(button).TransformBounds(new Rect(0, 0, text.ActualWidth, text.ActualHeight));
                 var iconBounds = icon.TransformToAncestor(button).TransformBounds(new Rect(0, 0, icon.ActualWidth, icon.ActualHeight));
                 check(text.TextTrimming == TextTrimming.CharacterEllipsis && textBounds.Left >= 0 && textBounds.Right <= button.ActualWidth + 1
@@ -401,7 +410,7 @@ internal static class WindowsBoardDesignChecks
         {
             await WaitAsync(() => Descendants(alerts).OfType<TextBlock>().Any(t => t.Text.Contains("문의 제목", StringComparison.Ordinal)));
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            check(alerts.Width == 400 && alerts.Height == 278 && HasIcon(alerts, "board-notification-close.svg") && HasIcon(alerts, "board-note.svg"), "Notifications match Figma geometry and original icons");
+            check(alerts.Width == 400 && alerts.Height == 354 && Descendants(alerts).OfType<Button>().Any(b => Equals(b.Content, "공지 전체 보기")), "Notifications show the Figma list frame and notices footer");
             if (Environment.GetEnvironmentVariable("BOARD_ALERT_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(alerts, capture);
         }
         finally { alerts.Close(); }
@@ -424,14 +433,12 @@ internal static class WindowsBoardDesignChecks
               $"(window={window.Width:F1}x{window.Height:F1}, work={workWidth}x{workHeight}px, scale={scale:F2}, " +
               $"bounds={actual.Left},{actual.Top},{actual.Right},{actual.Bottom})");
     }
-    // Figma D8 §8-2 · D8-2 §8-3: only the body changes; the board title, four sidebar items and status bar stay and the list is hidden.
     private static void CheckBodyOnly(BoardDialog board, string name, Action<bool, string> check)
     {
-        var navigation = new[] { "전체 글", "공지", "내 글", "답변 받은 글" };
-        check(board.Title == "게시판 - 누리닷" && navigation.All(label => Descendants(board).OfType<Button>().Count(b => Equals(b.Content, label) && b.IsVisible) == 1)
-            && Descendants(board).OfType<Border>().Single(b => AutomationProperties.GetAutomationId(b) == "BoardStatusBar").IsVisible
+        var header = Descendants(board).OfType<BoardWorkspace>().Single();
+        check(board.Title == "게시판 - 누리닷" && header.Back.IsVisible && header.Account.IsVisible && header.Notifications.IsVisible
             && !Descendants(board).OfType<DataGrid>().Single().IsVisible && Descendants(board).OfType<BoardBodyView>().Count(v => v.IsVisible) == 1,
-            $"{name} replaces only the board body, keeping 「게시판 - 누리닷」, the four sidebar items and the status bar");
+            $"{name} replaces the list below the G1 header and keeps the account, notification and return actions");
     }
     // A failed step must not leave a draft whose close confirmation would wait for an answer.
     private static void CloseDiscarding(BoardDialog board)

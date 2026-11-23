@@ -8,6 +8,7 @@ internal static class AuthRestoreChecks
     public static IEnumerable<(string Name, Func<Task> Run)> Tests()
     {
         yield return ("Remembered login uses refreshed server identity and rejects a different account", RestoreIdentity);
+        yield return ("Personal email restore accepts existing credentials with different letter case", RestorePersonalEmail);
         yield return ("Old refresh responses require manual login without creating a session", LegacyRefresh);
         yield return ("Offline restore does not create a session or erase the remembered credential", OfflineRestore);
         yield return ("Token refresh updates the current server identity and preserves a legacy response", RefreshUpdatesIdentity);
@@ -18,6 +19,15 @@ internal static class AuthRestoreChecks
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => send(request); }
     private static HttpResponseMessage Ok(object result) => new(HttpStatusCode.OK)
     { Content = new StringContent(JsonSerializer.Serialize(new { isSuccess = true, result }), Encoding.UTF8, "application/json") };
+    private static async Task RestorePersonalEmail()
+    {
+        using var http = new HttpClient(new Handler(_ => Task.FromResult(Ok(new { accessToken = "new", loginId = "member@example.org", role = "ROLE_USER", memberType = "PERSONAL" }))));
+        var api = new SemojumApiClient(http);
+        var saved = new SessionCredential("Member@Example.org", "refresh");
+        var account = await api.RestoreSessionAsync(saved);
+        if (account?.LoginId != "member@example.org") throw new Exception("Mixed-case email was not restored");
+    }
+
     private static async Task RestoreIdentity()
     {
         using var http = new HttpClient(new Handler(req => Task.FromResult(Ok(new { accessToken = "new", loginId = "alice", role = "ROLE_USER", alias = "새 별칭" }))));

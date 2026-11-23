@@ -21,7 +21,7 @@ internal static class WindowsQa1110DraftChecks
             var choices = window.DraftChoiceGrid.Children.OfType<RadioButton>().ToArray();
             check(choices.Length == 6 && choices.Select(c => Math.Round(c.TransformToAncestor(window.DraftChoiceGrid).Transform(new Point()).Y, 1)).Distinct().Count() == 1,
                 "QA1110: six draft choices stay on a single row");
-            check(window.DraftDock.ActualHeight >= 320, $"QA1110: draft preview opens taller than 212px (actual={window.DraftDock.ActualHeight})");
+            check(Math.Abs(window.DraftDock.ActualHeight - 219) < 1, $"QA1110: draft preview starts at the current design height (actual={window.DraftDock.ActualHeight})");
             var last = choices[^1].TransformToAncestor(window.DraftChoiceScroll).TransformBounds(new Rect(choices[^1].RenderSize));
             check(last.Left >= -1 && last.Right <= window.DraftChoiceScroll.ViewportWidth + 1 && window.DraftChoiceScroll.ScrollableHeight == 0,
                 "QA1110: selected later draft is horizontally revealed without vertical wrapping");
@@ -34,7 +34,7 @@ internal static class WindowsQa1110DraftChecks
                 window.UpdateLayout();
                 check(window.DraftDock.ActualHeight >= before + 75, "QA1110: dragging draft top edge upward grows preview");
                 handle.RaiseEvent(new DragDeltaEventArgs(0, 5000) { RoutedEvent = Thumb.DragDeltaEvent }); window.UpdateLayout();
-                check(window.DraftDock.ActualHeight >= 240 && window.DraftDock.ActualHeight <= window.PanelGrid.ActualHeight,
+                check(window.DraftDock.ActualHeight >= 159.5 && window.DraftDock.ActualHeight <= window.PanelGrid.ActualHeight,
                     "QA1110: draft resizing preserves minimum content and stays inside editor");
             }
         }

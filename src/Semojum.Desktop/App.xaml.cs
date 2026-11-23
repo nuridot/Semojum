@@ -27,6 +27,8 @@ public partial class App : Application
         if (focused || (e.Args.Length == 2 && e.Args[0] == "--smoke-test"))
         {
             var output = focused ? e.Args[2] : e.Args[1];
+            if (Environment.GetEnvironmentVariable("NURIDOT_QA_NOTICE_AUDIT") == "1")
+                WindowsNoticeCapture.Register(output);
             window.ContentRendered += async (_, _) =>
             {
                 try

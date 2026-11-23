@@ -26,11 +26,11 @@ internal static class WindowsSettingsHelpDesignChecks
         {
             await WaitAsync(() => Descendants(defaults).OfType<ComboBox>().Any(c => c.SelectedItem is BrailleForm)); defaults.UpdateLayout();
             var groups = Descendants(defaults).OfType<TextBlock>().Select(t => t.Text).ToArray();
-            check(defaults.Width == 560 && defaults.Height == 608 && new[] { "글과 규정", "줄과 빈칸", "내보낼 꼴" }.All(groups.Contains), "Default options use the three final Figma groups");
-            check(Descendants(defaults).OfType<SegmentedChoice>().Count() == 6 && Descendants(defaults).OfType<ComboBox>().Count() == 3, "Default option choices and form selector remain available");
+            check(defaults.Width == 560 && defaults.Height == 670 && new[] { "점역", "조판", "내보낼 꼴" }.All(groups.Contains), "Default options use the three final Figma groups");
+            check(Descendants(defaults).OfType<RadioButton>().Count() == 16 && Descendants(defaults).OfType<ComboBox>().Count() == 3, "Default option choices and form selector remain available");
             CheckIcons(defaults, check);
             var restore = Descendants(defaults).OfType<Button>().Single(b => Equals(b.Content, "기본값 복원")); restore.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            check(fixture.PutCount == 0 && Descendants(defaults).OfType<SegmentedChoice>().First().SelectedIndex == 1, "Restoring defaults changes the dialog without saving early");
+            check(fixture.PutCount == 0 && Radio(defaults, "한글 약자(2급)").IsChecked == true && Radio(defaults, "페이지 번호 표시줄 면 홀수").IsChecked == true, "Restoring defaults changes the dialog without saving early");
         }
         finally { defaults.Close(); }
 
@@ -38,14 +38,14 @@ internal static class WindowsSettingsHelpDesignChecks
         timer.Tick += (_, _) =>
         {
             var form = Descendants(save).OfType<ComboBox>().FirstOrDefault(c => c.SelectedItem is BrailleForm);
-            if (form is not null && save.IsEnabled && Descendants(save).OfType<SegmentedChoice>().Count() == 6)
+            if (form is not null && save.IsEnabled && Descendants(save).OfType<RadioButton>().Count() == 16)
             {
-                timer.Stop(); Descendants(save).OfType<SegmentedChoice>().First().SelectedIndex = 1;
+                timer.Stop(); Radio(save, "한글 약자(2급)").IsChecked = true;
                 Descendants(save).OfType<Button>().Single(b => Equals(b.Content, "확인")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
             else if (DateTime.UtcNow >= deadline) { timer.Stop(); save.Close(); }
         };
-        try { timer.Start(); var result = save.ShowDialog(); check(result == true && fixture.PutCount == 1 && fixture.Saved is { } body && body.GetProperty("hangulGrade").GetString() == "grade2" && body.GetProperty("englishGrade").GetString() == "grade1" && body.GetProperty("pageNumberLine").GetString() == "even", "Saving defaults preserves hidden English grade and page number settings"); }
+        try { timer.Start(); var result = save.ShowDialog(); check(result == true && fixture.PutCount == 1 && fixture.Saved is { } body && body.GetProperty("hangulGrade").GetString() == "grade2" && body.GetProperty("englishGrade").GetString() == "grade1" && body.GetProperty("pageNumberLine").GetString() == "even", "Saving a changed Korean grade retains the English grade and the unrecognized legacy page number setting"); }
         finally { timer.Stop(); }
 
         var about = new AboutDialog("1.2.3", () => Task.FromResult("0.0.42")) { Owner = owner }; about.Show();
@@ -53,7 +53,7 @@ internal static class WindowsSettingsHelpDesignChecks
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); about.UpdateLayout();
             var labels = Descendants(about).OfType<TextBlock>().Select(t => t.Text).ToArray();
-            check(about.Width == 440 && about.Height == 278 && labels.Contains("V1.2.3") && about.EngineVersion.Text == "0.0.42" && labels.Contains("contact@nuridot.com"), "About screen shows actual product, engine and contact information"); CheckIcons(about, check);
+            check(about.Width == 440 && about.Height == 302 && labels.Contains("V1.2.3") && about.EngineVersion.Text == "0.0.42" && labels.Contains("contact@nuridot.com"), "About screen shows actual product, engine and contact information"); CheckIcons(about, check);
         }
         finally { about.Close(); }
 
@@ -67,29 +67,25 @@ internal static class WindowsSettingsHelpDesignChecks
             var search = Descendants(help).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "도움말 검색");
             WindowsDialogBoundsChecks.CheckFitted(help, 1100, 700, "Help window", check);
             check(tabs.Items.Count == 3 && reader.IsVisible && new TextRange(reader.Document.ContentStart, reader.Document.ContentEnd).Text.Contains("점자 직접 고치기"), "Fitted help opens the requested article and retains its navigation tabs"); CheckIcons(help, check);
-            var noteCard = reader.Document.Blocks.OfType<BlockUIContainer>().Select(block => block.Child).OfType<Border>()
-                .FirstOrDefault(border => border.Child is Border { Child: StackPanel });
-            check(noteCard is { CornerRadius.TopLeft: 6, BorderThickness: var noteThickness, BorderBrush: SolidColorBrush noteStroke, Child: Border noteAccent } &&
-                noteThickness == new Thickness(1) && noteStroke.Color == Color.FromRgb(234, 234, 234) &&
-                noteAccent.BorderThickness == new Thickness(3, 0, 0, 0) && noteAccent.BorderBrush is SolidColorBrush accent && accent.Color == Color.FromRgb(0, 95, 184),
-                "Help information card retains the Figma rounded outline and blue accent");
-            var feedback = reader.Document.Blocks.OfType<BlockUIContainer>().Select(b => b.Child).OfType<StackPanel>()
-                .SelectMany(p => p.Children.OfType<StackPanel>()).FirstOrDefault(p => p.Children.OfType<TextBlock>().Any(t => t.Text == "이 도움말이 도움이 되었나요?"));
-            var feedbackButtons = feedback?.Children.OfType<Button>().ToArray() ?? [];
-            check(feedbackButtons.Length == 2 && feedbackButtons.All(b => !b.IsEnabled && AutomationProperties.GetHelpText(b).Contains("사용할 수 없습니다")) && feedbackButtons[0].Width == 60 && feedbackButtons[1].Width == 72,
-                "Help feedback controls are visible but do not pretend unsupported feedback can be submitted");
+            var paragraphs = reader.Document.Blocks.OfType<Paragraph>().ToArray();
+            var steps = paragraphs.Skip(2).ToArray();
+            check(paragraphs.Length == 6 && paragraphs[1].FontSize == 28 && paragraphs[1].FontWeight == FontWeights.SemiBold &&
+                steps.Select((p, i) => p.Inlines.OfType<InlineUIContainer>().SingleOrDefault()?.Child
+                    is Border { Width: 20, Height: 20, Child: TextBlock label } && label.Text == (i + 1).ToString()).All(ok => ok),
+                "The current G5 article shows its title and four numbered steps");
+            var article = new TextRange(reader.Document.ContentStart, reader.Document.ContentEnd).Text;
+            check(article.Contains("리본 › 점역 › 6점자 키설정") && article.Contains("#B22222") && article.Contains("직접 고친 점자 되돌리기"),
+                "The selectable help text describes the current ribbon command, manual dot color and undo action");
             var tree = Descendants(help).OfType<TreeView>().Single();
             check(tree.SelectedItem is TreeViewItem { Header: "점자 직접 고치기" }, "Help highlights the currently opened article in the navigation tree");
             check(tree.Items.OfType<TreeViewItem>().Select(b => b.Header as string).SequenceEqual(["시작하기", "문서 변환하기", "결과 편집하기", "메뉴별 기능", "양식과 꼬리말", "마이페이지와 크레딧", "문제 해결", "단축키 한눈에"]),
                 "Help contents follow the final Figma table of contents");
-            check(Descendants(help).OfType<SharpVectors.Converters.SvgViewbox>().Any(icon =>
-                icon.Source?.ToString().EndsWith("/nuridot-symbol.svg", StringComparison.Ordinal) == true && icon.Drawings is { Bounds.IsEmpty: false }),
-                "Help title bar renders the Nuridot symbol");
+            check(Descendants(help).OfType<Border>().Any(b => b is { Width: 16, Height: 16, Child: TextBlock { Text: "S" } }),
+                "G5 title bar shows the 16px APP_UI mark");
             var selected = (TreeViewItem)tree.SelectedItem;
             check(selected.Template.FindName("TopicSurface", selected) is Border surface && Math.Abs(surface.ActualWidth - tree.ActualWidth) <= 1, "Selected help topic highlight spans the full navigation width");
-            var reviewLink = reader.Document.Blocks.OfType<Paragraph>().SelectMany(p => p.Inlines.OfType<Hyperlink>())
-                .Single(h => new TextRange(h.ContentStart, h.ContentEnd).Text == "검토 표시 읽는 법");
-            reviewLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+            var reviewLink = reader.ContextMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "검토 표시 읽는 법"));
+            reviewLink.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             check(new TextRange(reader.Document.ContentStart, reader.Document.ContentEnd).Text.Contains("해결되지 않은 메모"), "The related review link opens help describing actual supported indicators");
             Descendants(help).OfType<Button>().Single(b => AutomationProperties.GetName(b) == "이전").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             search.Text = "점자"; var searchTab = (TabItem)tabs.Items[2]; var list = ((DockPanel)searchTab.Content).Children.OfType<ListBox>().Single();
@@ -130,6 +126,8 @@ internal static class WindowsSettingsHelpDesignChecks
         }
         finally { groupChoice.Close(); }
     }
+    internal static RadioButton Radio(Window window, string name) => Descendants(window).OfType<RadioButton>().Single(r => AutomationProperties.GetName(r) == name);
+
     private static void CheckIcons(Window window, Action<bool, string> check)
     {
         var icons = Descendants(window).OfType<SvgViewbox>().Where(icon => icon.IsVisible).ToArray();
@@ -145,7 +143,7 @@ internal static class WindowsSettingsHelpDesignChecks
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         { var child = VisualTreeHelper.GetChild(root, i); yield return child; foreach (var nested in Descendants(child)) yield return nested; }
     }
-    private sealed class Fixture : HttpMessageHandler
+    internal sealed class Fixture : HttpMessageHandler
     {
         internal int PutCount { get; private set; }
         internal JsonElement? Saved { get; private set; }

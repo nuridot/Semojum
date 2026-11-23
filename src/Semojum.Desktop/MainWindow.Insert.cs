@@ -90,6 +90,7 @@ public partial class MainWindow
     private void UpdateDraftAvailability()
     {
         var enabled = CanSelectDraft();
+        if (ribbonDrafts is not null) ribbonDrafts.IsEnabled = enabled;
         DependencyObject? parent = DraftIcon;
         while (parent is not null && parent is not Button) parent = VisualTreeHelper.GetParent(parent);
         if (parent is Button button) button.IsEnabled = enabled;
@@ -127,22 +128,15 @@ public partial class MainWindow
         {
             var index = i; var draft = drafts[i];
             if (!VisualDraftSelection.IsEnabled(block.Metadata, session.Options, draft, table?.Drafts[i].RenderMode)) continue;
-            var normal = DraftIconAsset("draft-dock-radio.svg", 20);
-            var selected = DraftIconAsset("draft-dock-radio-selected.svg", 20);
-            var dot = DraftIconAsset("draft-dock-radio-dot.svg", 8);
-            selected.Visibility = dot.Visibility = Visibility.Collapsed;
-            var icon = new Grid { Width = 20, Height = 20 }; icon.Children.Add(normal); icon.Children.Add(selected); icon.Children.Add(dot);
-            var label = new TextBlock { Text = $"{(i < 20 ? char.ConvertFromUtf32(0x2460 + i) : (i + 1).ToString())} {draft.Label}", FontFamily = (FontFamily)FindResource("InterfaceFont"), FontSize = 14, Margin = new(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            var content = new StackPanel { Orientation = Orientation.Horizontal }; content.Children.Add(icon); content.Children.Add(label);
-            var radio = new RadioButton { Tag = index, GroupName = group, Content = content, MinWidth = 144, Height = 38, Margin = new(15, 0, 0, 0), ToolTip = draft.Reason,
-                Template = new ControlTemplate(typeof(RadioButton)) { VisualTree = new FrameworkElementFactory(typeof(ContentPresenter)) } };
-            System.Windows.Automation.AutomationProperties.SetName(radio, draft.Label);
-            radio.Checked += async (_, _) =>
+            var number = i < 20 ? char.ConvertFromUtf32(0x2460 + i) : (i + 1).ToString();
+            var radio = new RadioButton
             {
-                normal.Visibility = Visibility.Collapsed; selected.Visibility = dot.Visibility = Visibility.Visible; label.FontWeight = FontWeights.Bold;
-                await PreviewDraftAsync(index);
+                Tag = index, GroupName = group, Content = $"{number} {draft.Label}", ToolTip = draft.Reason,
+                Margin = new Thickness(DraftChoiceGrid.Children.Count == 0 ? 0 : 8, 0, 0, 0),
+                Style = (Style)FindResource("DraftChoice")
             };
-            radio.Unchecked += (_, _) => { normal.Visibility = Visibility.Visible; selected.Visibility = dot.Visibility = Visibility.Collapsed; label.FontWeight = FontWeights.Normal; };
+            System.Windows.Automation.AutomationProperties.SetName(radio, draft.Label);
+            radio.Checked += async (_, _) => await PreviewDraftAsync(index);
             DraftChoiceGrid.Children.Add(radio);
         }
         if (DraftChoiceGrid.Children.Count == 0)
@@ -159,7 +153,7 @@ public partial class MainWindow
     private void ResizeDraftDock(double delta)
     {
         var available = Math.Max(1, PanelGrid.ActualHeight);
-        DraftDock.Height = Math.Clamp(DraftDock.ActualHeight + delta, Math.Min(240, available), available);
+        DraftDock.Height = Math.Clamp(DraftDock.ActualHeight + delta, Math.Min(160, available), available);
     }
 
     private void DraftDockResize_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
@@ -172,7 +166,10 @@ public partial class MainWindow
         e.Handled = true;
     }
     private static SvgViewbox DraftIconAsset(string name, double size) => new()
-    { Source = new Uri($"pack://application:,,,/Semojum.Mockup;component/Assets/Figma/{name}"), Width = size, Height = size, Stretch = Stretch.None };
+    {
+        EnsureViewboxSize = true, Width = size, Height = size, Stretch = Stretch.Uniform,
+        Source = new Uri($"pack://application:,,,/Semojum.Mockup;component/Assets/Figma/{name}")
+    };
 
     private async Task PreviewDraftAsync(int index)
     {
@@ -385,13 +382,13 @@ public partial class MainWindow
             foreach (var margin in SearchEditor(panel).TextArea.LeftMargins.Concat(PageEditor.Editor.TextArea.LeftMargins).OfType<Controls.MemoMargin>()) margin.InvalidateVisual();
             if (bubble.Destination is { } destination)
             {
-                try { await NavigateToAsync(destination); ShowLineMemos(destination.Panel, showResolved: bubble.ShowResolved.IsChecked == true); }
+                try { await NavigateToAsync(destination); ShowLineMemos(destination.Panel, showResolved: bubble.ShowResolved.IsChecked == true, selectedMemoId: bubble.DestinationMemoId); }
                 catch (Exception ex) { ShowError(ex); }
             }
         };
         return bubble;
     }
-    private async void ShowLineMemos(SearchPanel panel, int? requestedLine = null, bool showResolved = false)
+    private async void ShowLineMemos(SearchPanel panel, int? requestedLine = null, bool showResolved = false, string? selectedMemoId = null)
     {
         memoHover?.Close();
         if (session.IsReadOnly || session.ActiveBlock is not { } block) return;
@@ -404,33 +401,42 @@ public partial class MainWindow
         var code = panel == SearchPanel.Text ? "TEXT" : "BRAILLE";
         if (!block.Memos.Any(m => m.Panel == code && m.LineIndex == line && (showResolved || !m.Resolved)))
         {
+            var owner = session;
+            var version = owner.ChangeVersion;
             var input = new MemoInputDialog(api.Account?.DisplayName) { Owner = this };
-            if (input.ShowDialog() == true)
+            if (input.ShowDialog() == true && ReferenceEquals(owner, session) && !owner.IsReadOnly &&
+                owner.ChangeVersion == version && owner.Blocks.Contains(block))
                 EditStructure(() => block.Memos.Add(new(Guid.NewGuid().ToString("N"), null, code, line, text[..Math.Min(80, text.Length)], input.Value, DateTimeOffset.Now, Author: api.Account?.DisplayName)));
             foreach (var margin in editor.TextArea.LeftMargins.OfType<Controls.MemoMargin>()) margin.InvalidateVisual();
             foreach (var margin in PageEditor.Editor.TextArea.LeftMargins.OfType<Controls.MemoMargin>()) margin.InvalidateVisual();
             return;
         }
-        var dialog = new MemoThreadDialog(block, panel == SearchPanel.Text ? "TEXT" : "BRAILLE", line, text, EditStructure, session, showResolved, api.Account?.DisplayName) { Owner = this };
+        var dialog = new MemoThreadDialog(block, panel == SearchPanel.Text ? "TEXT" : "BRAILLE", line, text, EditStructure, session, showResolved, api.Account?.DisplayName, selectedMemoId) { Owner = this };
         dialog.ShowDialog();
         foreach (var margin in editor.TextArea.LeftMargins.OfType<Controls.MemoMargin>()) margin.InvalidateVisual();
         foreach (var margin in PageEditor.Editor.TextArea.LeftMargins.OfType<Controls.MemoMargin>()) margin.InvalidateVisual();
         if (dialog.Destination is { } destination)
         {
-            try { await NavigateToAsync(destination); ShowLineMemos(destination.Panel, showResolved: dialog.ShowResolved.IsChecked == true); }
+            try { await NavigateToAsync(destination); ShowLineMemos(destination.Panel, showResolved: dialog.ShowResolved.IsChecked == true, selectedMemoId: dialog.DestinationMemoId); }
             catch (Exception ex) { ShowError(ex); }
         }
     }
     private async Task ShowMemoListAsync()
     {
         var dialog = new MemoListDialog(session) { Owner = this };
-        if (dialog.ShowDialog() == true && dialog.Destination is { } d) { await NavigateToAsync(d); ShowLineMemos(d.Panel, showResolved: dialog.IncludeResolved); }
+        if (dialog.ShowDialog() == true && dialog.Destination is { } d) { await NavigateToAsync(d); ShowLineMemos(d.Panel, showResolved: dialog.IncludeResolved, selectedMemoId: dialog.DestinationMemoId); }
     }
     private void ShowFooterInsert()
     {
-        var dialog = new FooterInputDialog(lastPreviewPage) { Owner = this };
-        if (dialog.ShowDialog() == true && dialog.Result is { } range)
-            session.FooterRanges = FooterRange.Insert(session.FooterRanges, range);
+        var owner = session;
+        var pane = detachedPane ?? Braille;
+        var last = openDocument?.LastPreview;
+        var current = last?.Version == owner.ChangeVersion ? last : null;
+        var face = pane.BrowsedFace ?? current?.Face ?? pane.DisplayedFace ?? 1;
+        var printed = pane.PrintedNumberAt(face) ?? (current?.Face == face ? current?.Printed : null);
+        var dialog = new FooterInputDialog(printed ?? owner.Layout.StartPage) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.Result is { } range && ReferenceEquals(owner, session) && !owner.IsReadOnly)
+            owner.FooterRanges = FooterRange.Insert(owner.FooterRanges, range);
     }
     private void ShowHeaderInsert()
     {
@@ -455,7 +461,7 @@ public partial class MainWindow
         if (source is null) throw new ArgumentException("현재 블록에는 편집할 표 구조가 없습니다.");
         var owner = session; var sourceRevision = block.SourceRevision; var brailleRevision = block.BrailleRevision;
         var metadataRevision = block.MetadataRevision; var manual = block.HasManualBraille; var options = owner.Options;
-        var dialog = new TableDialog(source, block.Metadata, options, local) { Owner = this };
+        var dialog = new TableDialog(source, block.Metadata, options, local, block.Braille) { Owner = this };
         if (dialog.ShowDialog() != true || dialog.Translation is null) return;
         var choice = ChooseTranslation(block); if (choice == ManualEditDecision.Cancel) return;
         if (resourcesReleased || !ReferenceEquals(owner, session) || !ReferenceEquals(owner.ActiveBlock, block) || !owner.Blocks.Contains(block)
@@ -464,7 +470,7 @@ public partial class MainWindow
         { owner.Status = "표 편집 중 문서가 바뀌어 적용하지 않았습니다."; return; }
         EditStructure(() =>
         {
-            block.Metadata = block.Metadata with { Type = "table", TableSource = dialog.SourceText, TableDisplayText = dialog.SourceText, OriginalSource = block.Metadata.OriginalSource ?? block.Source };
+            block.Metadata = block.Metadata with { Type = "table", TableSource = dialog.SourceText, TableHeaderRow = dialog.HasHeaderRow, TableDisplayText = dialog.SourceText, OriginalSource = block.Metadata.OriginalSource ?? block.Source };
             block.Source = dialog.SourceText;
             if (choice == ManualEditDecision.Overwrite) { block.InvalidateBrailleConfirmations(); block.Braille = dialog.Translation.Cells; block.Translation = dialog.Translation; block.HasManualBraille = false; }
         });
@@ -520,7 +526,7 @@ public partial class MainWindow
         if (!CanSelectDraft() || session.ActiveBlock is not { } block) return;
         if (block.Metadata.Alternatives?.Length > 0) OpenDraftDock(block);
         else if (block.Translation?.Drafts.Length > 0) OpenDraftDock(block, CaptureTableDraft(block));
-        else NoticeDialog.Choose(this, "이 블록에는 대체 초안이 없습니다.", "그림·표 등의 초안이 제공된 블록을 선택해 주세요.", ["확인"], width: 440);
+        else FileNotices.MissingDrafts().ChooseFor(this);
         await Task.CompletedTask;
     }
     internal sealed record TableDraftSnapshot(DocumentSession Owner, EditorBlock Block, BrailleTranslation Translation,
@@ -561,32 +567,60 @@ public partial class MainWindow
     private async Task InsertSymbolAsync()
     {
         if (engine is not LocalBrailleEngine local) return;
+        var model = session;
+        var version = model.ChangeVersion;
         var panel = ActiveSearchPanel;
-        var dialog = new SymbolDialog(await local.SymbolsAsync(documentLifetime.Token)) { Owner = this };
-        if (dialog.ShowDialog() != true || dialog.Selected is not { } symbol) return;
-        var editor = SearchEditor(panel);
-        if (!editor.IsReadOnly) { editor.SelectedText = panel == SearchPanel.Text ? symbol.Char : symbol.Cells; editor.Focus(); }
+        var symbols = await local.SymbolsAsync(documentLifetime.Token);
+        if (!ReferenceEquals(model, session) || model.ChangeVersion != version || panel != ActiveSearchPanel) return;
+        var dialog = new SymbolDialog(symbols) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.Selected is { } symbol && ReferenceEquals(model, session) && model.ChangeVersion == version)
+            await InsertPanelValueAsync(panel, panel == SearchPanel.Text ? symbol.Char : symbol.Cells);
     }
     private async Task EditSnippetsAsync()
     {
         var dialog = new SnippetDialog(accountPreferences) { Owner = this };
         if (dialog.ShowDialog() == true) { accountPreferences = dialog.Result; await PersistAccountPreferencesAsync(); }
     }
-    private void InsertSnippet(int slot, SearchPanel panel)
+    private async Task InsertSnippetAsync(int slot, SearchPanel panel)
     {
-        if (ActiveSearchPanel != panel) { session.Status = panel == SearchPanel.Text ? "텍스트 패널에서 Ctrl+숫자를 눌러 주세요." : "점자 패널에서 Alt+숫자를 눌러 주세요."; return; }
+        if (ActiveSearchPanel != panel) { session.Status = panel == SearchPanel.Text ? "묵자 패널에서 Ctrl+숫자를 눌러 주세요." : "점자 패널에서 Alt+숫자를 눌러 주세요."; return; }
         var value = (panel == SearchPanel.Text ? accountPreferences.TextSnippets : accountPreferences.BrailleSnippets)?[slot];
         if (string.IsNullOrEmpty(value)) { session.Status = $"{slot}번 상용구가 비어 있습니다. 설정 → 상용구에서 등록해 주세요."; return; }
-        var editor = SearchEditor(panel); if (!editor.IsReadOnly) { editor.SelectedText = value; editor.Focus(); }
+        try { await InsertPanelValueAsync(panel, value); }
+        catch (Exception ex) { session.Status = ex.Message; }
     }
-    private void ShowRules()
+
+    internal async Task InsertPanelValueAsync(SearchPanel panel, string value)
+    {
+        if (session.IsReadOnly || session.ActiveBlock is not { } block || block.Metadata.IsBlocked) return;
+        if (panel == SearchPanel.Text) { InsertText(value); return; }
+        if (block.IsBrailleLocked) return;
+        if (lastGrid is { } grid && grid.IsVisible)
+        {
+            var owner = session;
+            var version = owner.ChangeVersion;
+            var selected = grid.Selection;
+            if (!await (detachedPane ?? Braille).EnsureCurrentGridAsync(owner) || owner.ChangeVersion != version
+                || lastGrid != grid || !selected.SequenceEqual(grid.Selection))
+            {
+                owner.Status = "점자 범위가 바뀌었습니다. 넣을 위치를 다시 선택해 주세요.";
+                return;
+            }
+            await grid.InsertAsync(value);
+            grid.Focus();
+            return;
+        }
+        var editor = SearchEditor(panel);
+        if (!editor.IsReadOnly) { editor.SelectedText = value; editor.Focus(); }
+    }
+    private void ShowRules(Window? owner = null)
     {
         if (session.ActiveBlock is not { } block) return;
         var editor = SearchEditor(SearchPanel.Braille);
         var rows = AppliedRules.Select(block, editor.SelectionStart, editor.SelectionLength);
         var at = editor.Document.GetLocation(editor.SelectionStart);
         new AppliedRulesDialog(api, rows, block.HasManualBraille || block.Translation?.SourceText is { } source && source != block.Source,
-            block.Source, editor.SelectionLength > 0 ? editor.SelectedText : block.Braille, $"{at.Line}줄 {at.Column}칸") { Owner = this }.ShowDialog();
+            block.Source, editor.SelectionLength > 0 ? editor.SelectedText : block.Braille, $"{at.Line}줄 {at.Column}칸") { Owner = owner ?? this }.ShowDialog();
     }
     private async void RuleSearch_Click(object sender, RoutedEventArgs e)
     {
@@ -595,7 +629,7 @@ public partial class MainWindow
         try
         {
             if (api.Account is { } account && AutomaticLogin.IsEditorAllowed(account) || await EnsureAccountAsync())
-                new RuleDialog(api, [], "", "", "") { Owner = this }.ShowDialog();
+                new RuleDialog(api, [], "", "", "") { Owner = this, OpenAppliedRules = session.ActiveBlock == null ? null : ShowRules }.ShowDialog();
         }
         finally { RuleSearch.IsEnabled = true; }
     }

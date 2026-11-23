@@ -10,12 +10,23 @@ public sealed record PendingUpdate(string Version, Dictionary<string, string> Ha
 public static class PortableUpdate
 {
     private const long MaximumBytes = 1024L * 1024 * 1024;
-    public static async Task<PendingUpdate> StageAsync(string zipPath, string root, Version version, CancellationToken ct = default)
+    public static Task<PendingUpdate> StageAsync(string zipPath, string root, Version version, CancellationToken ct = default) =>
+        StageAsync(zipPath, root, version, null, ct);
+
+    public static async Task<PendingUpdate> StageAsync(string zipPath, string root, Version version, string? checksumSha256, CancellationToken ct)
     {
+        using var package = File.OpenRead(zipPath);
+        if (checksumSha256 is not null)
+        {
+            var actualHash = Convert.ToHexString(await SHA256.HashDataAsync(package, ct));
+            if (!actualHash.Equals(checksumSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("다운로드한 파일의 SHA-256이 배포 정보와 일치하지 않습니다.");
+            package.Position = 0;
+        }
         var staging = Path.Combine(root, ".staging-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(staging);
         try
         {
-            using var zip = ZipFile.OpenRead(zipPath);
+            using var zip = new ZipArchive(package, ZipArchiveMode.Read);
             if (zip.Entries.Count > 20000) throw new InvalidDataException("업데이트 파일 수 제한을 초과했습니다.");
             var hashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase); long total = 0;
             foreach (var entry in zip.Entries)

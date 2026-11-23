@@ -94,8 +94,8 @@ public partial class MainWindow
     private async void ShowOriginal(int page)
     {
         DisplayedOriginalPage = page;
-        if (smoke) return;
         var generation = ++originalGeneration; var owner = session;
+        if (smoke || owner.IsConversionFailed(page)) return;
         OriginalEmpty.Visibility = Visibility.Visible;
         OriginalImage.Source = null; OriginalText.Text = "원본 미리보기 없음";
         OriginalText.Visibility = Visibility.Visible;

@@ -20,7 +20,7 @@ internal static class WindowsMenuDesignChecks
     internal static async Task RunAsync(string directory, Action<bool, string> check)
     {
         var window = new MainWindow(smoke: true, testWithoutAccount: true, startEmpty: true) { Width = 1440, Height = 1000 };
-        window.Show();
+        window.AdditionalCommands.IsChecked = true; window.Show();
         try
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
@@ -52,12 +52,22 @@ internal static class WindowsMenuDesignChecks
             window.MinWidth = 480; window.Width = 480; window.UpdateLayout(); // as WindowBounds.Fit allows on a smaller monitor
             MoveToWorkEdge(window, false);
 
-            menus[2].IsSubmenuOpen = true;
-            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            size.IsSubmenuOpen = true;
-            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            var nestedPopup = size.Template.FindName("PART_Popup", size) as Popup;
-            var nestedBorder = nestedPopup?.Child as Border;
+            async Task<(Popup Popup, Border Surface)> OpenNestedAtEdge()
+            {
+                for (int frame = 0; frame < 60; frame++)
+                {
+                    menus[2].IsSubmenuOpen = true;
+                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                    if (PresentationSource.FromVisual(size) is null) { await Task.Delay(16); continue; }
+                    size.IsSubmenuOpen = true;
+                    await Task.Delay(16);
+                    if (size.Template.FindName("PART_Popup", size) is Popup { IsOpen: true, Child: Border surface } live
+                        && PresentationSource.FromVisual(size) is not null && PresentationSource.FromVisual(surface) is not null)
+                        return (live, surface);
+                }
+                throw new InvalidOperationException("The nested size menu was not attached after the window moved to the monitor edge.");
+            }
+            var (nestedPopup, nestedBorder) = await OpenNestedAtEdge();
             check(nestedBorder is { ActualWidth: 220 } && nestedPopup!.IsOpen, "Font-size submenu opens at Figma's 220-pixel width");
             check(nestedBorder?.Effect is DropShadowEffect { BlurRadius: 16, ShadowDepth: 8, Opacity: 0.14 } && nestedBorder.Margin == new Thickness(20) && nestedPopup is { Placement: PlacementMode.Custom, CustomPopupPlacementCallback: not null },
                 "Nested menu reserves its shadow margin without displacing its content");
@@ -78,12 +88,7 @@ internal static class WindowsMenuDesignChecks
 
             // Exercise WPF's automatic right-edge flip with the real popup HWND.
             MoveToWorkEdge(window, true);
-            menus[2].IsSubmenuOpen = true;
-            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            size.IsSubmenuOpen = true;
-            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            nestedPopup = size.Template.FindName("PART_Popup", size) as Popup;
-            nestedBorder = nestedPopup?.Child as Border;
+            (nestedPopup, nestedBorder) = await OpenNestedAtEdge();
             if (nestedBorder is not null)
             {
                 var start = size.PointToScreen(new Point(0, 0));
@@ -161,11 +166,11 @@ internal static class WindowsMenuDesignChecks
                 memo.Input.Text = "여기 그래프랑 본문이 안 맞는 것 같은데";
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); memo.UpdateLayout();
                 var author = Descendants(memo).OfType<TextBlock>().FirstOrDefault(t => t.Text == "김점역");
-                check(memo.ActualWidth == 300 && memo.ActualHeight >= 150 && memo.SizeToContent == SizeToContent.Height &&
-                    memo.Input.ActualHeight >= 32 && memo.Input.ActualHeight <= 160 && double.IsNaN(memo.Input.Height) &&
-                    author is { FontSize: 14, FontWeight: var weight } && weight == FontWeights.Bold,
-                    "Memo input keeps its compact width and bold author while growing with the text");
-                check(Descendants(memo).OfType<Button>().Any(b => Equals(b.Content, "저장") && b.Width == 56) && Descendants(memo).OfType<Button>().Any(b => Equals(b.Content, "취소") && b.Width == 56),
+                check(memo.ActualWidth == 320 && memo.ActualHeight == 158 && memo.SizeToContent == SizeToContent.Height &&
+                    memo.Input.ActualHeight >= 64 && memo.Input.ActualHeight <= 160 && double.IsNaN(memo.Input.Height) &&
+                    author is { FontSize: 14, FontWeight: var weight } && weight == FontWeights.SemiBold,
+                    "Memo input keeps its 320px width and semibold author while growing with the text");
+                check(Descendants(memo).OfType<Button>().Any(b => Equals(b.Content, "저장") && b.Width == 88) && Descendants(memo).OfType<Button>().Any(b => Equals(b.Content, "취소") && b.Width == 88),
                     "Memo input retains separate save and cancel actions");
                 memo.Input.Focus(); memo.UpdateLayout();
                 var inputSurface = memo.Input.Template.FindName("Surface", memo.Input) as Border;

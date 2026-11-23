@@ -1,178 +1,370 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using Semojum.Core;
 using Semojum.Core.Integration;
-using SharpVectors.Converters;
 
 namespace Semojum.Desktop.Dialogs;
 
 public sealed class RuleDialog : CompactDialog
 {
+    private const int SearchPageSize = 4;
     internal StackPanel RuleResults { get; } = new();
+    public Action<Window>? OpenAppliedRules { get; init; }
+    private readonly RuleClient client;
+    private readonly RuleEvidence[] evidence;
+    private readonly TextBox query = new() { Height = 36, MaxLength = 100, FontSize = 14, Padding = new(40, 0, 8, 0),
+        Background = Brushes.White, BorderBrush = FigmaDialogElements.Brush("#D1D1D1"), VerticalContentAlignment = VerticalAlignment.Center };
+    private readonly TreeView contents = new() { BorderThickness = new(0), Padding = new(4, 8, 4, 8), Background = Brushes.Transparent };
+    private readonly TextBlock count = new() { FontSize = 14, FontWeight = FontWeights.SemiBold };
+    private readonly TextBlock empty = new() { Text = "검색 결과가 없습니다.", FontSize = 14, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly DockPanel pager = new() { Height = 32, Margin = new(0, 12, 0, 0) };
+    private readonly TextBox pageInput = new() { Width = 96, Height = 32, Background = Brushes.White, BorderBrush = FigmaDialogElements.Brush("#D1D1D1"),
+        VerticalContentAlignment = VerticalAlignment.Center, Padding = new(12, 0, 4, 0) };
+    private readonly TextBlock pageTotal = new() { Margin = new(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = FigmaDialogElements.Brush("#5F5F5F") };
+    private readonly WrapPanel filters = new();
+    private readonly Dictionary<string, RuleContentsNode> articles = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> breadcrumbs = new(StringComparer.Ordinal);
+    private readonly ScrollViewer reader = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    private readonly string[] sources = ["전체", "한국 점자 규정", "점자 도서 제작 지침", "점자 자료 제작 지침"];
+    private static readonly string[] Codes = ["", "MCST", "NLD", "NISE"];
+    private IReadOnlyList<RuleContentsNode> documents = [];
+    private int filterIndex, page, totalPages;
+    private string[]? rankedMatches;
+    private readonly Dictionary<string, TreeViewItem> articleItems = new(StringComparer.Ordinal);
+    private string submitted = "";
+    private Button previous = null!, next = null!;
+    private readonly Style branchStyle, cardStyle;
+    private bool updatingTree;
+
     public RuleDialog(SemojumApiClient api, RuleEvidence[] evidence, string selectedSource, string selectedBraille,
-        string? initialQuery = null) : base("점자 규정 찾아보기", 720, 748, popover: true)
+        string? initialQuery = null) : base("점자 규정 찾아보기 - 누리닷", 1100, 760, editor: true)
     {
-        if (Content is Border frame) { frame.CornerRadius = new(8); frame.BorderBrush = FigmaDialogElements.Brush("#EAEAEA"); frame.Background = FigmaDialogElements.Brush("#F3F3F3"); }
-        var layout = new Grid(); layout.RowDefinitions.Add(new() { Height = new(56) }); layout.RowDefinitions.Add(new()); layout.RowDefinitions.Add(new() { Height = new(64) }); Body(layout);
-        var header = new Grid { Margin = new(24, 0, 24, 0) };
-        header.Children.Add(new TextBlock { Text = "점자 규정 찾아보기", FontSize = 16, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
-        var dismiss = new Button { Width = 28, Height = 28, MinWidth = 0, MinHeight = 0, Padding = new(0), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent,
-            HorizontalAlignment = HorizontalAlignment.Right, Content = FigmaDialogElements.DesignIcon("rule-browser-close.svg", 16, 16, "Semojum.Feature.Rules.Wpf"), Template = FigmaDialogElements.SurfaceTemplate(0) };
-        AutomationProperties.SetName(dismiss, "닫기"); dismiss.Click += (_, _) => Close(); header.Children.Add(dismiss); layout.Children.Add(header);
-        var root = new DockPanel { Margin = new(16, 16, 16, 12) }; Grid.SetRow(root, 1); layout.Children.Add(root);
+        this.evidence = evidence;
+        client = new RuleClient(api);
+        var frame = (UIElement)Content;
+        Content = null;
+        Content = new Border { BorderThickness = new(1), BorderBrush = FigmaDialogElements.Brush("#D1D1D1"), CornerRadius = new(8), Child = frame };
+        query.Text = submitted = initialQuery ?? "";
+        filterIndex = string.IsNullOrWhiteSpace(initialQuery) ? 1 : 0;
+        var styles = new ResourceDictionary { Source = new Uri("/Semojum.Feature.Rules.Wpf;component/Styles/RuleContents.xaml", UriKind.Relative) };
+        branchStyle = (Style)styles["RuleBranch"];
+        contents.Template = (ControlTemplate)styles["RuleTree"];
+        reader.Template = (ControlTemplate)styles["RuleScroll"];
+        Resources.MergedDictionaries.Add(new() { Source = new Uri("/Semojum.UI.Common;component/Controls/FormEntry.xaml", UriKind.Relative) });
+        pageInput.Template = query.Template = (ControlTemplate)FindResource("LayoutEntry");
+        cardStyle = (Style)FindResource("RuleCard");
+        var layout = new DockPanel { Background = Brushes.White };
+        Body(layout);
+        var filtersHost = SearchTools();
+        DockPanel.SetDock(filtersHost, Dock.Top); layout.Children.Add(filtersHost);
+        var footer = Footer(); DockPanel.SetDock(footer, Dock.Bottom); layout.Children.Add(footer);
+        var columns = new Grid();
+        var leftWidth = new ColumnDefinition { Width = new(340) };
+        columns.ColumnDefinitions.Add(leftWidth); columns.ColumnDefinitions.Add(new());
+        columns.SizeChanged += (_, _) => leftWidth.Width = new(Math.Min(340, Math.Max(120, columns.ActualWidth * .42)));
+        var left = new Border { Background = FigmaDialogElements.Brush("#F9F9F9"), BorderThickness = new(0, 0, 1, 0), BorderBrush = FigmaDialogElements.Brush("#EAEAEA"), Child = contents };
+        AutomationProperties.SetName(contents, "규정 목차");
+        ScrollViewer.SetHorizontalScrollBarVisibility(contents, ScrollBarVisibility.Disabled);
+        columns.Children.Add(left);
+        var right = new DockPanel { Margin = new(24, 16, 24, 16) };
+        Grid.SetColumn(right, 1); columns.Children.Add(right); layout.Children.Add(columns);
         if (initialQuery is null && (selectedSource.Length > 0 || selectedBraille.Length > 0))
         {
-            var excerpt = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxHeight = 64, Margin = new(0, 0, 0, 10) };
-            excerpt.Inlines.Add(new System.Windows.Documents.Run($"묵자: {selectedSource}\n점자: ")); excerpt.Inlines.Add(new System.Windows.Documents.Run(selectedBraille) { FontFamily = (FontFamily)FindResource("BrailleFont") });
-            DockPanel.SetDock(excerpt, Dock.Top); root.Children.Add(excerpt);
+            var excerpt = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new(0, 0, 0, 8), MaxHeight = 64 };
+            excerpt.Inlines.Add(new System.Windows.Documents.Run($"묵자: {selectedSource}\n점자: "));
+            excerpt.Inlines.Add(new System.Windows.Documents.Run(selectedBraille) { FontFamily = (FontFamily)FindResource("BrailleFont") });
+            DockPanel.SetDock(excerpt, Dock.Top); right.Children.Add(excerpt);
         }
-        var filters = new StackPanel { Margin = new(0, 0, 0, 16) }; DockPanel.SetDock(filters, Dock.Top); root.Children.Add(filters);
-        var query = new TextBox { Text = initialQuery ?? "", MaxLength = 100, Height = 32, Padding = new(31, 0, 7, 0), VerticalContentAlignment = VerticalAlignment.Center };
-        AutomationProperties.SetName(query, "규정 검색어");
-        var document = Choices(["전체 문서", "한국 점자 규정", "점자 도서 제작 지침", "점자 자료 제작 지침"], "전체 문서");
-        AutomationProperties.SetName(document, "규정 문서 필터");
-
-        var pagination = new DockPanel { Height = 32, Margin = new(0, 8, 0, 0) }; DockPanel.SetDock(pagination, Dock.Bottom); root.Children.Add(pagination);
-        var resultCount = new TextBlock { Foreground = FigmaDialogElements.Brush("#5F5F5F"), VerticalAlignment = VerticalAlignment.Center }; DockPanel.SetDock(resultCount, Dock.Left); pagination.Children.Add(resultCount);
-        var pages = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right }; DockPanel.SetDock(pages, Dock.Right); pagination.Children.Add(pages);
-        var page = 0; var totalPages = 1; var pageInput = new TextBox { Text = "1", Width = 44, Height = 24, Padding = new(7, 0, 2, 0), VerticalContentAlignment = VerticalAlignment.Center };
-        var results = RuleResults; var cardStyle = CreateRuleCardStyle();
-        AutomationProperties.SetName(pageInput, "규정 검색 페이지");
-        var pageTotal = new TextBlock { Text = "/ 1", Margin = new(8, 0, 8, 0), Foreground = FigmaDialogElements.Brush("#5F5F5F") };
-        Button previous = null!, next = null!;
-        previous = Button("이전", () => RunAsync(async () => { if (page > 0) { page--; await SearchAsync(); } }));
-        next = Button("다음", () => RunAsync(async () => { if (page + 1 < totalPages) { page++; await SearchAsync(); } }));
-        foreach (var button in new[] { previous, next })
-        { button.Width = 48; button.MinWidth = 0; button.Height = 24; button.MinHeight = 0; button.Padding = new(0); button.Margin = new(0); button.Background = FigmaDialogElements.Brush("#FBFBFB"); button.BorderBrush = FigmaDialogElements.Brush("#EAEAEA"); button.Template = FigmaDialogElements.SurfaceTemplate(4); }
-        AutomationProperties.SetName(previous, "이전 쪽"); AutomationProperties.SetName(next, "다음 쪽");
-        pages.Children.Add(previous); pageInput.Margin = new(8, 0, 0, 0); pages.Children.Add(pageInput); pages.Children.Add(pageTotal); pages.Children.Add(next);
-
-        root.Children.Add(new ScrollViewer { Content = results, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
-        void Display(IEnumerable<BrailleRule> rows)
+        count.Foreground = empty.Foreground = FigmaDialogElements.Brush("#5F5F5F");
+        count.Margin = new(0, 0, 0, 12); DockPanel.SetDock(count, Dock.Top); right.Children.Add(count);
+        PopulatePager(); DockPanel.SetDock(pager, Dock.Bottom); right.Children.Add(pager);
+        reader.Content = RuleResults;
+        var content = new Grid(); content.Children.Add(reader); content.Children.Add(empty); right.Children.Add(content);
+        var context = new ContextMenu(); var applied = new MenuItem { Header = "적용 규정" };
+        applied.Click += (_, _) => OpenEvidence(); context.Items.Add(applied); layout.ContextMenu = context;
+        contents.SelectedItemChanged += async (_, e) =>
         {
-            results.Children.Clear(); Expander? expanded = null;
-            foreach (var row in rows)
+            if (updatingTree || e.NewValue is not TreeViewItem { Tag: RuleContentsNode { RuleId: { } id } node }) return;
+            if (submitted.Length > 0 && ExpandResult(id)) return;
+            var rank = rankedMatches is null ? -1 : Array.IndexOf(rankedMatches, id);
+            if (submitted.Length > 0 && rank >= 0) await RunAsync(() => SearchAsync(rank / SearchPageSize, id));
+            else ShowArticle(node);
+        };
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; Close(); } };
+        ClearReader();
+        Loaded += async (_, _) =>
+        {
+            await RunAsync(async () =>
             {
-                var cardHeader = new StackPanel();
-                cardHeader.Children.Add(new TextBlock { Text = row.Name, FontSize = 14, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new(0, 0, 0, 6) });
-                cardHeader.Children.Add(new TextBlock { Text = row.Contents, MaxHeight = 36, LineHeight = 18, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis });
-                if (row.Supported == false) cardHeader.Children.Add(new TextBlock { Text = row.SupportLabel, Foreground = Brushes.DarkRed });
-                var expandedContent = new StackPanel { Margin = new(9, 5, 9, 8) };
-                expandedContent.Children.Add(new TextBlock { Text = row.HasFullText ? "조항 원문" : "발췌 · 전문 미제공", Foreground = FigmaDialogElements.Brush("#5F5F5F"), Margin = new(0, 0, 0, 4) });
-                expandedContent.Children.Add(new TextBlock { Text = row.ExpandedText, TextWrapping = TextWrapping.Wrap });
-                if (!row.HasFullText && row.RuleId.Length > 0)
-                    expandedContent.Children.Add(Button("규정 전문 찾기", () => RunAsync(async () => { query.Text = row.RuleId; document.SelectedIndex = 0; page = 0; await SearchAsync(); })));
-                var item = new Expander { Header = cardHeader, Content = new Border { Background = Brushes.White, BorderBrush = FigmaDialogElements.Brush("#EAEAEA"), BorderThickness = new(1), Child = expandedContent }, Tag = row.Source + " · " + row.Section, Margin = new(0, 0, 0, 8), Style = cardStyle };
-                AutomationProperties.SetName(item, row.Section + " " + row.Name);
-                item.Expanded += (_, _) => { if (expanded != item) { if (expanded is not null) expanded.IsExpanded = false; expanded = item; } };
-                results.Children.Add(item);
-            }
-            if (results.Children.Count == 0) results.Children.Add(new TextBlock { Text = "검색 결과가 없습니다.", Margin = new(8) });
+                documents = await client.ContentsAsync(Lifetime.Token);
+                foreach (var doc in documents) Index(doc, "");
+                if (submitted.Length > 0) await SearchAsync();
+                else { BuildTree(); if (evidence.Length > 0) ShowEvidence(); }
+            });
+            if (IsVisible && IsActive) query.Focus();
+        };
+    }
 
-        }
-        async Task SearchAsync()
+    private FrameworkElement SearchTools()
+    {
+        var fields = new StackPanel { Margin = new(16, 12, 16, 12) };
+        var host = new Grid(); host.Children.Add(query);
+        AutomationProperties.SetName(query, "규정 검색어");
+        var hint = new TextBlock { Text = "조항 번호 · 낱말 · 점형", FontSize = 14, Margin = new(40, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
+            Foreground = FigmaDialogElements.Brush("#8A8A8A"), IsHitTestVisible = false };
+        AutomationProperties.SetAutomationId(hint, "RuleSearchPlaceholder"); host.Children.Add(hint);
+        var clear = Button("검색어 지우기", async () => { await RunAsync(async () => { query.Clear(); await Submit(); }); query.Focus(); });
+        clear.Width = clear.Height = 24; clear.MinWidth = clear.MinHeight = 0; clear.Padding = new(0); clear.Margin = new(8, 0, 0, 0);
+        clear.HorizontalAlignment = HorizontalAlignment.Left; clear.Background = clear.BorderBrush = Brushes.Transparent; clear.Template = FigmaDialogElements.SurfaceTemplate(4);
+        AutomationProperties.SetName(clear, "검색어 지우기"); AutomationProperties.SetAutomationId(clear, "RuleSearchClear");
+        var find = FigmaDialogElements.DesignIcon("catalog-find.svg", 16, 16, "Semojum.Feature.Rules.Wpf");
+        find.HorizontalAlignment = HorizontalAlignment.Left; find.Margin = new(12, 0, 0, 0); find.IsHitTestVisible = false;
+        clear.Content = FigmaDialogElements.DesignIcon("catalog-clear.svg", 16, 16, "Semojum.Feature.Rules.Wpf");
+        host.Children.Add(find); host.Children.Add(clear);
+        void QueryChanged()
         {
-            var code = document.SelectedIndex switch { 1 => "MCST", 2 => "NLD", 3 => "NISE", _ => "" };
-            var data = await new RuleClient(api).SearchAsync(query.Text, code, page, Lifetime.Token);
-            totalPages = Math.Max(1, data.TotalPages);
-            Display(data.Items);
-            pageInput.IsEnabled = true;
-            previous.IsEnabled = page > 0; next.IsEnabled = page + 1 < totalPages;
-            pageInput.Text = (page + 1).ToString(); pageTotal.Text = "/ " + totalPages;
-            var start = data.TotalElements == 0 ? 0 : page * 20 + 1; var end = Math.Min(data.TotalElements, (page + 1) * 20);
-            resultCount.Text = $"{data.TotalElements}건 중 {start}–{end}";
+            var blank = query.Text.Length == 0;
+            query.BorderBrush = FigmaDialogElements.Brush(blank ? "#D1D1D1" : "#005FB8");
+            hint.Visibility = find.Visibility = blank ? Visibility.Visible : Visibility.Collapsed;
+            clear.Visibility = blank ? Visibility.Collapsed : Visibility.Visible;
         }
+        query.TextChanged += (_, _) => QueryChanged(); QueryChanged();
+        query.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await RunAsync(Submit); query.Focus(); } };
+        fields.Children.Add(host); filters.Margin = new(0, 12, 0, 0); fields.Children.Add(filters);
+        var widths = new[] { 47, 103, 127, 127 };
+        for (var i = 0; i < sources.Length; i++)
+        {
+            var index = i;
+            var button = Button(i == 0 ? sources[i] : $"「{sources[i]}」", () => RunAsync(async () =>
+            {
+                filterIndex = index; PaintFilters(); await Submit();
+                if (submitted.Length == 0 && index > 0)
+                {
+                    var document = contents.Items.Cast<TreeViewItem>().FirstOrDefault(item => ((RuleContentsNode)item.Tag).Title == sources[index]);
+                    if (document != null) { document.IsExpanded = true; document.BringIntoView(); }
+                }
+            }));
+            button.MinWidth = 0; button.Width = widths[i]; button.MinHeight = button.Height = 28; button.Padding = new(0); button.Margin = new(0, 0, 4, 0);
+            button.Template = FigmaDialogElements.SurfaceTemplate(14); AutomationProperties.SetName(button, sources[i]); filters.Children.Add(button);
+        }
+        PaintFilters();
+        return new Border { Background = FigmaDialogElements.Brush("#F3F3F3"), BorderBrush = FigmaDialogElements.Brush("#EAEAEA"), BorderThickness = new(0, 0, 0, 1), Child = fields };
+    }
+    private void PaintFilters()
+    {
+        for (var i = 0; i < filters.Children.Count; i++)
+        {
+            var b = (Button)filters.Children[i]; var active = i == filterIndex;
+            b.Background = FigmaDialogElements.Brush(active ? "#EFF6FC" : "#F3F3F3");
+            b.BorderBrush = FigmaDialogElements.Brush(active ? "#005FB8" : "#EAEAEA"); b.Foreground = FigmaDialogElements.Brush(active ? "#003E92" : "#5F5F5F");
+            AutomationProperties.SetHelpText(b, active ? "선택됨" : "");
+        }
+    }
+
+    private FrameworkElement Footer()
+    {
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new(0, 0, 24, 0) };
+        var close = Button("닫기", () => { Close(); return Task.CompletedTask; });
+        var evidenceButton = Button("적용 규정", () => { OpenEvidence(); return Task.CompletedTask; }, true);
+        // Enter belongs to the query, page number and focused tree control.
+        evidenceButton.IsDefault = false;
+        foreach (var b in new[] { close, evidenceButton }) { b.Width = 88; b.Template = FigmaDialogElements.SurfaceTemplate(4); buttons.Children.Add(b); }
+        return new Border { Height = 64, Background = FigmaDialogElements.Brush("#F3F3F3"), BorderBrush = FigmaDialogElements.Brush("#EAEAEA"), BorderThickness = new(0, 1, 0, 0), Child = buttons };
+    }
+
+    private void PopulatePager()
+    {
+        previous = Button("이전", () => RunAsync(() => MovePage(page - 1)));
+        next = Button("다음", () => RunAsync(() => MovePage(page + 1)));
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        foreach (var b in new[] { previous, next }) { b.Width = 88; b.Margin = new(0); b.Template = FigmaDialogElements.SurfaceTemplate(4); }
+        AutomationProperties.SetName(pageInput, "규정 검색 페이지");
+        var field = FigmaDialogElements.NumberField(pageInput, pageInput, "규정 검색 페이지", delta => _ = RunAsync(() => MovePage(page + delta)));
+        field.Margin = new(8, 0, 0, 0);
+        buttons.Children.Add(previous); buttons.Children.Add(field); buttons.Children.Add(pageTotal); buttons.Children.Add(next); pager.Children.Add(buttons);
         pageInput.KeyDown += async (_, e) =>
         {
             if (e.Key != Key.Enter) return; e.Handled = true;
-            if (!int.TryParse(pageInput.Text, out var target) || target < 1 || target > totalPages)
-            { Status.Text = $"1–{totalPages}쪽을 입력해 주세요."; return; }
-            await RunAsync(async () => { page = target - 1; await SearchAsync(); });
-        };
-        var search = Button("검색어 지우기", () => RunAsync(async () => { query.Clear(); page = 0; await SearchAsync(); query.Focus(); }));
-        var searchHost = new Grid(); searchHost.Children.Add(query);
-        var placeholder = new TextBlock { Text = "점역 규정 검색...", Foreground = FigmaDialogElements.Brush("#8A8A8A"), Margin = new(31, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
-        AutomationProperties.SetAutomationId(placeholder, "RuleSearchPlaceholder");
-        void UpdatePlaceholder() => placeholder.Visibility = query.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        query.TextChanged += (_, _) => UpdatePlaceholder(); UpdatePlaceholder(); searchHost.Children.Add(placeholder);
-        search.MinWidth = search.Width = 24; search.Height = 24; search.MinHeight = 0; search.Margin = new(4, 0, 0, 0); search.HorizontalAlignment = HorizontalAlignment.Left;
-        search.Content = FigmaDialogElements.DesignIcon("rule-browser-book.svg", 16, 16, "Semojum.Feature.Rules.Wpf"); search.Background = Brushes.Transparent; search.BorderBrush = Brushes.Transparent; search.Template = FigmaDialogElements.SurfaceTemplate(0); search.Padding = new(0);
-        AutomationProperties.SetName(search, "규정 검색어 지우기"); AutomationProperties.SetAutomationId(search, "RuleSearchClear"); search.ToolTip = "검색어 지우기"; searchHost.Children.Add(search); filters.Children.Add(searchHost);
-        var chips = new StackPanel { Orientation = Orientation.Horizontal, Margin = new(0, 16, 0, 0) }; filters.Children.Add(chips);
-        var labels = new[] { "전체", "한국 점자 규정", "점자 도서 제작 지침", "점자 자료 제작 지침" };
-        var widths = new[] { 44d, 106, 136, 136 };
-        void PaintChips()
-        {
-            for (var i = 0; i < chips.Children.Count; i++)
-            {
-                var chip = (Button)chips.Children[i]; chip.Background = i == document.SelectedIndex ? FigmaDialogElements.Brush("#EFF6FC") : Brushes.White;
-                chip.BorderBrush = FigmaDialogElements.Brush(i == document.SelectedIndex ? "#005FB8" : "#D1D1D1");
-                AutomationProperties.SetHelpText(chip, i == document.SelectedIndex ? "선택됨" : "");
-            }
-        }
-        for (var i = 0; i < labels.Length; i++)
-        {
-            var selection = i; var chip = Button(labels[i], () => { document.SelectedIndex = selection; PaintChips(); return Task.CompletedTask; });
-            chip.MinWidth = chip.Width = widths[i]; chip.Height = chip.MinHeight = 24; chip.Margin = new(0, 0, 8, 0); chip.Padding = new(0); chips.Children.Add(chip);
-        }
-        PaintChips();
-        query.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await RunAsync(async () => { page = 0; await SearchAsync(); }); } };
-        document.SelectionChanged += async (_, _) => await RunAsync(async () => { page = 0; await SearchAsync(); });
-        void AppliedRules()
-        {
-            Display(evidence.Select(r => new BrailleRule(r.RuleId, r.Source, r.Section, r.Title, r.Excerpt)));
-            previous.IsEnabled = next.IsEnabled = false; pageInput.IsEnabled = false;
-            Status.Text = evidence.Length == 0 ? "이 블록에 전달된 적용 규정이 없습니다." : "원문 수신 당시의 적용 규정입니다. 검색으로 현재 본문을 확인할 수 있습니다.";
-        }
-        var context = new ContextMenu(); var appliedMenu = new MenuItem { Header = "적용 규정" };
-        appliedMenu.Click += (_, _) => AppliedRules(); context.Items.Add(appliedMenu); root.ContextMenu = context;
-        var footer = new Border { BorderBrush = FigmaDialogElements.Brush("#EAEAEA"), BorderThickness = new(0, 1, 0, 0) }; Grid.SetRow(footer, 2); layout.Children.Add(footer);
-        var footerActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 15, 24, 16) }; footer.Child = footerActions;
-        if (evidence.Length > 0)
-        {
-            var applied = Action("적용 규정", AppliedRules); Actions.Children.Remove(applied); applied.Width = 88; applied.MinWidth = 0; applied.Height = 32; applied.MinHeight = 0; applied.Template = FigmaDialogElements.SurfaceTemplate(4); footerActions.Children.Add(applied);
-        }
-        var close = Action("닫기", Close, true); Actions.Children.Remove(close); close.Width = 88; close.MinWidth = 0; close.Height = 32; close.MinHeight = 0; close.Template = FigmaDialogElements.SurfaceTemplate(4); footerActions.Children.Add(close);
-        if (initialQuery is null && evidence.Length > 0) AppliedRules();
-        else Loaded += async (_, _) =>
-        {
-            await RunAsync(SearchAsync);
-            if (IsVisible) query.Focus();
+            if (!int.TryParse(pageInput.Text, out var target) || target < 1 || target > totalPages) { Status.Text = $"1–{totalPages}쪽을 입력해 주세요."; return; }
+            await RunAsync(() => MovePage(target - 1));
         };
     }
 
-    private Style CreateRuleCardStyle()
+    private Task MovePage(int target) => target >= 0 && target < totalPages && target != page ? SearchAsync(target) : Task.CompletedTask;
+
+    private Task Submit()
     {
-        var style = new Style(typeof(Expander), (Style)FindResource("RuleCard"));
-        var border = new FrameworkElementFactory(typeof(Border)); border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
-        border.SetBinding(Border.BackgroundProperty, new Binding(nameof(Background)) { RelativeSource = RelativeSource.TemplatedParent });
-        border.SetBinding(Border.BorderBrushProperty, new Binding(nameof(BorderBrush)) { RelativeSource = RelativeSource.TemplatedParent });
-        var panel = new FrameworkElementFactory(typeof(DockPanel));
-        var toggle = new FrameworkElementFactory(typeof(ToggleButton)); toggle.SetValue(Control.PaddingProperty, new Thickness(0)); toggle.SetValue(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch);
-        toggle.SetValue(DockPanel.DockProperty, Dock.Top);
-        toggle.SetBinding(ToggleButton.IsCheckedProperty, new Binding(nameof(Expander.IsExpanded)) { RelativeSource = RelativeSource.TemplatedParent, Mode = BindingMode.TwoWay });
-        var toggleBorder = new FrameworkElementFactory(typeof(Border)); toggleBorder.SetValue(Border.BackgroundProperty, Brushes.Transparent); toggleBorder.AppendChild(new FrameworkElementFactory(typeof(ContentPresenter)));
-        toggle.SetValue(Control.TemplateProperty, new ControlTemplate(typeof(ToggleButton)) { VisualTree = toggleBorder });
-        var heading = new FrameworkElementFactory(typeof(DockPanel)); heading.SetValue(FrameworkElement.MarginProperty, new Thickness(11, 11, 11, 8)); heading.SetValue(FrameworkElement.MinHeightProperty, 60d);
-        var arrow = new FrameworkElementFactory(typeof(SvgViewbox), "Arrow"); arrow.SetValue(SvgViewbox.SourceProperty, new Uri("pack://application:,,,/Semojum.Feature.Rules.Wpf;component/Assets/Figma/rule-browser-right.svg"));
-        arrow.SetValue(FrameworkElement.WidthProperty, 16d); arrow.SetValue(FrameworkElement.HeightProperty, 16d); arrow.SetValue(Viewbox.StretchProperty, Stretch.None);
-        arrow.SetValue(DockPanel.DockProperty, Dock.Right); arrow.SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0)); arrow.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Top); heading.AppendChild(arrow);
-        var headingContent = new FrameworkElementFactory(typeof(ContentPresenter)); headingContent.SetValue(ContentPresenter.ContentSourceProperty, "Header"); heading.AppendChild(headingContent); toggle.AppendChild(heading); panel.AppendChild(toggle);
-        var provenance = new FrameworkElementFactory(typeof(TextBlock)); provenance.SetValue(DockPanel.DockProperty, Dock.Bottom); provenance.SetBinding(TextBlock.TextProperty, new Binding(nameof(Tag)) { RelativeSource = RelativeSource.TemplatedParent });
-        provenance.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap); provenance.SetValue(TextBlock.ForegroundProperty, FigmaDialogElements.Brush("#8A8A8A")); provenance.SetValue(FrameworkElement.MarginProperty, new Thickness(11, 0, 11, 8)); panel.AppendChild(provenance);
-        var details = new FrameworkElementFactory(typeof(ContentPresenter), "Details"); details.SetValue(ContentPresenter.ContentSourceProperty, "Content"); details.SetValue(FrameworkElement.MarginProperty, new Thickness(11, 0, 11, 4)); details.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed); panel.AppendChild(details); border.AppendChild(panel);
-        var template = new ControlTemplate(typeof(Expander)) { VisualTree = border };
-        var expanded = new Trigger { Property = Expander.IsExpandedProperty, Value = true };
-        expanded.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Visible, "Details"));
-        expanded.Setters.Add(new Setter(SvgViewbox.SourceProperty, new Uri("pack://application:,,,/Semojum.Feature.Rules.Wpf;component/Assets/Figma/rule-browser-down.svg"), "Arrow"));
-        template.Triggers.Add(expanded); style.Setters.Add(new Setter(TemplateProperty, template)); style.Setters.Add(new Setter(BorderBrushProperty, FigmaDialogElements.Brush("#EAEAEA")));
-        var open = new Trigger { Property = Expander.IsExpandedProperty, Value = true };
-        open.Setters.Add(new Setter(BackgroundProperty, FigmaDialogElements.Brush("#EFF6FC"))); open.Setters.Add(new Setter(BorderBrushProperty, FigmaDialogElements.Brush("#005FB8"))); style.Triggers.Add(open);
-        return style;
+        submitted = query.Text.Trim(); page = 0;
+        if (submitted.Length > 0) return SearchAsync();
+        rankedMatches = null; ClearReader(); BuildTree(); return Task.CompletedTask;
     }
+
+    private void ClearReader()
+    {
+        Status.Text = ""; RuleResults.Children.Clear(); count.Visibility = pager.Visibility = empty.Visibility = Visibility.Collapsed;
+        reader.ScrollToTop();
+    }
+
+    private void Index(RuleContentsNode node, string parent)
+    {
+        if (node.RuleId is { } id) { articles[id] = node; breadcrumbs[id] = parent; }
+        var path = parent.Length == 0 ? node.Heading : parent + " › " + node.Heading;
+        foreach (var child in node.Children) Index(child, path);
+    }
+
+    private void BuildTree(IReadOnlySet<string>? hits = null)
+    {
+        updatingTree = true;
+        try
+        {
+            contents.Items.Clear(); articleItems.Clear();
+            foreach (var doc in documents) contents.Items.Add(Branch(doc, hits, 0));
+            if (contents.IsLoaded && contents.Template.FindName("TreeScroll", contents) is ScrollViewer scroll) scroll.ScrollToTop();
+        }
+        finally { updatingTree = false; }
+    }
+
+    private TreeViewItem Branch(RuleContentsNode node, IReadOnlySet<string>? hits, int depth)
+    {
+        var text = new TextBlock { Text = node.TreeLabel, TextTrimming = TextTrimming.CharacterEllipsis,
+            FontSize = node.RuleId is null ? 14 : 12, FontWeight = depth == 0 ? FontWeights.SemiBold : FontWeights.Normal };
+        var row = new DockPanel();
+        var item = new TreeViewItem { Header = row, Tag = node, Style = branchStyle, ToolTip = node.TreeLabel, Padding = new(8 + depth * 16, 0, 8, 0) };
+        if (node.RuleId is { } id && (hits is null || hits.Contains(id))) articleItems[id] = item;
+        AutomationProperties.SetName(item, node.TreeLabel);
+        var found = node.RuleId != null && hits?.Contains(node.RuleId) == true ? 1 : 0;
+        foreach (var child in node.Children)
+        {
+            var nested = Branch(child, hits, depth + 1);
+            found += (int)nested.Resources["MatchCount"];
+            if (hits is null || (int)nested.Resources["MatchCount"] > 0) item.Items.Add(nested);
+        }
+        item.Resources["MatchCount"] = found;
+        if (hits is not null && found > 0)
+        {
+            var number = new TextBlock { Text = found.ToString(), FontSize = 12, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+            var badge = new Border { Height = 18, CornerRadius = new(9), Padding = new(8, 0, 8, 0), Margin = new(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, Background = FigmaDialogElements.Brush("#005FB8"), Child = number };
+            DockPanel.SetDock(badge, Dock.Right); row.Children.Add(badge);
+        }
+        row.Children.Add(text);
+        return item;
+    }
+
+    private void RevealTreeItem(string id, bool select)
+    {
+        if (!articleItems.TryGetValue(id, out var item)) return;
+        updatingTree = true;
+        try
+        {
+            for (var parent = ItemsControl.ItemsControlFromItemContainer(item) as TreeViewItem; parent != null;
+                 parent = ItemsControl.ItemsControlFromItemContainer(parent) as TreeViewItem) parent.IsExpanded = true;
+            if (select) item.IsSelected = true;
+            item.BringIntoView();
+        }
+        finally { updatingTree = false; }
+    }
+
+    private bool ExpandResult(string id)
+    {
+        var item = RuleResults.Children.OfType<Expander>().FirstOrDefault(card => Equals(card.Tag, id));
+        if (item is null) return false;
+        item.IsExpanded = true;
+        reader.UpdateLayout();
+        reader.ScrollToVerticalOffset(item.TranslatePoint(new Point(), RuleResults).Y);
+        return true;
+    }
+
+    private void ShowArticle(RuleContentsNode node)
+    {
+        ClearReader();
+        var path = breadcrumbs.GetValueOrDefault(node.RuleId ?? "", "");
+        RuleResults.Children.Add(new TextBlock { Text = path, FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = FigmaDialogElements.Brush("#8A8A8A") });
+        RuleResults.Children.Add(new TextBlock { Text = node.Heading, FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new(0, 12, 0, 12), TextWrapping = TextWrapping.Wrap });
+        RuleResults.Children.Add(ArticleBody(node, node.Summary ?? ""));
+        if (node.Translatable == false) RuleResults.Children.Add(new TextBlock { Text = "점역 미지원 · 검색 전용" });
+    }
+
+    private UIElement ArticleBody(RuleContentsNode? node, string fallback, string? excerpt = null)
+    {
+        if (!string.IsNullOrWhiteSpace(node?.Markdown)) return RuleArticle.Render(node.Markdown, (FontFamily)FindResource("BraillePlainFont"), excerpt);
+        return new TextBlock { Text = string.IsNullOrWhiteSpace(node?.LegacyText) ? fallback : node.LegacyText, FontSize = 14, TextWrapping = TextWrapping.Wrap };
+    }
+
+    private void ShowEvidence()
+    {
+        ClearReader();
+        Display(evidence.Select(r => new BrailleRule(r.RuleId, r.Source, r.Section, r.Title, r.Excerpt)).ToArray(), useCatalog: false);
+        Status.Text = evidence.Length == 0 ? "이 블록에 전달된 적용 규정이 없습니다." : "원문 수신 당시의 적용 규정입니다. 검색으로 현재 본문을 확인할 수 있습니다.";
+    }
+
+    private void OpenEvidence()
+    {
+        if (Owner is AppliedRulesDialog) Close();
+        else if (OpenAppliedRules != null) OpenAppliedRules(this);
+        else ShowEvidence();
+    }
+
+    private async Task SearchAsync(int targetPage = 0, string? selectedId = null)
+    {
+        var response = await client.SearchPageAsync(submitted, Codes[filterIndex], targetPage, SearchPageSize, Lifetime.Token, includeMatches: true);
+        page = targetPage;
+        rankedMatches = response.MatchingIds;
+        ClearReader();
+        if (response.Items.Length == 0) { empty.Visibility = Visibility.Visible; BuildTree(); return; }
+        // Older servers omit full match IDs. Keep their complete, browsable tree instead of showing partial counts.
+        BuildTree(response.MatchingIds?.ToHashSet(StringComparer.Ordinal));
+        Display(response.Items, useCatalog: true);
+        totalPages = Math.Max(1, response.TotalPages);
+        previous.IsEnabled = page > 0; next.IsEnabled = page + 1 < totalPages; pageInput.Text = (page + 1).ToString(); pageTotal.Text = "/ " + totalPages;
+        count.Text = $"{(filterIndex > 0 ? "「" + sources[filterIndex] + "」 · " : "")}「{submitted}」 {response.TotalElements}건 중 {page * SearchPageSize + 1}–{page * SearchPageSize + response.Items.Length}";
+        count.Visibility = pager.Visibility = Visibility.Visible;
+        if (selectedId != null && ExpandResult(selectedId)) return;
+        if (rankedMatches is not null) RevealTreeItem(response.Items[0].RuleId, select: false);
+    }
+
+    private void Display(IEnumerable<BrailleRule> rows, bool useCatalog)
+    {
+        Expander? expanded = null;
+        foreach (var row in rows)
+        {
+            var node = useCatalog ? articles.GetValueOrDefault(row.RuleId) : null;
+            var header = new StackPanel();
+            header.Children.Add(new TextBlock { Text = node?.Number ?? row.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            header.Children.Add(new TextBlock { Text = breadcrumbs.GetValueOrDefault(row.RuleId, row.Source + " › " + row.Section), Margin = new(0, 4, 0, 4), Foreground = FigmaDialogElements.Brush("#8A8A8A"), TextWrapping = TextWrapping.Wrap });
+            var excerpt = new TextBlock { Text = row.Contents, FontSize = 14, Foreground = FigmaDialogElements.Brush("#5F5F5F"), MaxHeight = 40, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.Wrap };
+            header.Children.Add(excerpt);
+            if (row.Supported == false) header.Children.Add(new TextBlock { Text = row.SupportLabel, Foreground = FigmaDialogElements.Brush("#5F5F5F") });
+            var detail = new StackPanel();
+            if (!row.HasFullText && string.IsNullOrWhiteSpace(node?.Markdown))
+            {
+                detail.Children.Add(new TextBlock { Text = "발췌 · 전문 미제공", Foreground = FigmaDialogElements.Brush("#5F5F5F") });
+                if (row.RuleId.Length > 0) detail.Children.Add(Button("규정 전문 찾기", () => RunAsync(async () => { query.Text = row.RuleId; filterIndex = 0; PaintFilters(); await Submit(); })));
+            }
+            detail.Children.Add(ArticleBody(node, row.ExpandedText, row.Contents));
+            var item = new Expander { Header = header, Content = detail, Tag = row.RuleId, Margin = new(0, 0, 0, 12), Style = cardStyle };
+            AutomationProperties.SetName(item, row.Section + " " + row.Name);
+            item.Expanded += (_, _) =>
+            {
+                if (expanded != null && expanded != item) expanded.IsExpanded = false;
+                expanded = item;
+                if (useCatalog) RevealTreeItem(row.RuleId, select: true);
+                if (string.IsNullOrWhiteSpace(node?.Markdown) && !string.IsNullOrEmpty(row.Contents) && row.ExpandedText.StartsWith(row.Contents, StringComparison.Ordinal))
+                    excerpt.Visibility = Visibility.Collapsed;
+            };
+            item.Collapsed += (_, _) =>
+            {
+                excerpt.Visibility = Visibility.Visible;
+                if (expanded != item) return;
+                expanded = null;
+                if (useCatalog && articleItems.TryGetValue(row.RuleId, out var entry)) entry.IsSelected = false;
+            };
+            RuleResults.Children.Add(item);
+
+        }
+    }
+
 }

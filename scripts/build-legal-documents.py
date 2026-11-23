@@ -91,4 +91,4 @@ def build(path):
     print(path.stem + ': generated ' + str(sum(1 for _ in doc.iter())) + ' text/layout elements')
 
 if __name__ == '__main__':
-    for name in ('Terms', 'Privacy'): build(ROOT / (name + '.md'))
+    for name in ('Terms', 'Privacy', 'Marketing'): build(ROOT / (name + '.md'))

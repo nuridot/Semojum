@@ -8,11 +8,13 @@ using Semojum.Core.Integration;
 namespace Semojum.Feature.Institution;
 
 public sealed record InstitutionMonthlyUsage(string Month, long Credits);
+public sealed record InstitutionLayoutUsage(string LayoutType, long Credits);
 public sealed record InstitutionDashboard(string OrgName, string OrgCode, string ContractType, string? ContractStartedAt, string? ContractExpiresAt,
-    long CreditAllocated, long CreditUsed, long CreditRemaining, InstitutionMonthlyUsage[] MonthlyUsage);
+    long CreditAllocated, long CreditUsed, long CreditRemaining, InstitutionMonthlyUsage[] MonthlyUsage,
+    InstitutionLayoutUsage[]? LayoutUsage = null, long? ChargedContractPages = null, long? RecentContractCredits = null);
 /// <summary>Email, a monthly CreditLimit (null = 제한 없음, 0 = 크레딧 없음), this month's (KST) usage and the creation time; older servers send none of them.</summary>
 public sealed record InstitutionAccount(string LoginId, string? Alias, string Status, string Role, string? LastLoginAt, long UsedCredits, bool Self,
-    string? Email = null, long? CreditLimit = null, long? MonthUsedCredits = null, string? CreatedAt = null);
+    string? Email = null, long? CreditLimit = null, long? MonthUsedCredits = null, string? CreatedAt = null, string? LockedAt = null);
 public sealed record InstitutionAccounts(string? UsageSince, InstitutionAccount[] Items);
 public sealed record InstitutionAccountJob(string JobId, string FileName, string Mode, string Status, int TotalPages, int? DonePages,
     int? FailedPages, long? Credits, string? StartedAt, string? FinishedAt);
@@ -28,13 +30,16 @@ public sealed record InstitutionOrder(Guid Id, string OrderDate, string Descript
     string? RequestedBy = null, string? RequestedByRole = null, string? RequestedAt = null, string? QuoteFileName = null);
 public sealed record InstitutionOrders(string? ReceiptEmail, InstitutionOrder[] Items);
 public sealed record InstitutionReceipt(string FileName, string Url);
+public sealed record InstitutionContract(string Number, string Status, string? Start, string? End);
+public sealed record InstitutionInvoice(string Number, string Status, long Total, long Outstanding);
+public sealed record InstitutionSharedDocument(Guid Id, string Number, string Type, string? Invoice);
 /// <summary>Category is MAINTENANCE, RELEASE, MATERIAL or null; the institution page's 분류 column shows Scope.</summary>
 public sealed record InstitutionNotice(Guid Id, string Scope, string Title, string Body, string? StartsOn, string? EndsOn, string CreatedAt, string? Category = null);
 /// <summary>The server's VAT-inclusive estimate for a credit request; the unit price is a server setting the app never applies itself.</summary>
-public sealed record InstitutionCreditEstimate(long Credits, long UnitPriceKrw, long AmountKrw);
+public sealed record InstitutionCreditEstimate(long Credits, decimal UnitPriceKrw, long AmountKrw);
 
 /// <summary>Institution-scoped API; server authorization and response validation remain authoritative.</summary>
-public sealed class InstitutionClient(SemojumApiClient api)
+public sealed class InstitutionClient(SemojumApiClient api, Guid? expectedSession = null)
 {
     private void RequireAdmin()
     {
@@ -42,7 +47,7 @@ public sealed class InstitutionClient(SemojumApiClient api)
     }
     private async Task<JsonElement> Send(HttpMethod method, string path, object? body, CancellationToken ct)
     {
-        RequireAdmin(); return await api.SendAuthenticatedAsync(method, path, body, ct);
+        RequireAdmin(); return await api.SendAuthenticatedAsync(method, path, body, ct, expectedSession);
     }
     private static InvalidDataException Invalid() => new("기관 관리 응답을 확인할 수 없습니다. 다시 시도해 주세요.");
     private static JsonElement Field(JsonElement value, string name)
@@ -75,14 +80,17 @@ public sealed class InstitutionClient(SemojumApiClient api)
         var r = await Send(HttpMethod.Get, "/api/org/dashboard", null, ct);
         return new(Text(r,"orgName"), Text(r,"orgCode"), Text(r,"contractType"), OptionalText(r,"contractStartedAt"), OptionalText(r,"contractExpiresAt"),
             Number(r,"creditAllocated"), Number(r,"creditUsed"), Number(r,"creditRemaining"),
-            Array(Field(r,"monthlyUsage")).Select(x => new InstitutionMonthlyUsage(Text(x,"month"), Number(x,"credits"))).ToArray());
+            Array(Field(r,"monthlyUsage")).Select(x => new InstitutionMonthlyUsage(Text(x,"month"), Number(x,"credits"))).ToArray(),
+            r.TryGetProperty("layoutUsage", out var layouts) && layouts.ValueKind == JsonValueKind.Array
+                ? Array(layouts).Select(x => new InstitutionLayoutUsage(Text(x,"layoutType"), Number(x,"credits"))).ToArray() : null,
+            OptionalLong(r,"chargedContractPages"), OptionalLong(r,"recentContractCredits"));
     }
     public async Task<InstitutionAccounts> AccountsAsync(CancellationToken ct = default)
     {
         var r = await Send(HttpMethod.Get, "/api/org/accounts", null, ct);
         return new(OptionalText(r,"usageSince"), Array(Field(r,"items")).Select(x => new InstitutionAccount(Text(x,"loginId"), OptionalText(x,"alias"),
             Text(x,"status"), Text(x,"role"), OptionalText(x,"lastLoginAt"), Number(x,"usedCredits"), Boolean(x,"self"),
-            OptionalText(x,"email"), OptionalLong(x,"creditLimit"), OptionalLong(x,"monthUsedCredits"), OptionalText(x,"createdAt"))).ToArray());
+            OptionalText(x,"email"), OptionalLong(x,"creditLimit"), OptionalLong(x,"monthUsedCredits"), OptionalText(x,"createdAt"), OptionalText(x,"lockedAt"))).ToArray());
     }
     /// <summary>계정 상세 [저장]: PUT overwrites alias, email and the monthly limit together, so a field left null is cleared (limit null = 제한 없음, 0 = 크레딧 없음).</summary>
     public async Task UpdateAccountAsync(string loginId, string? alias, string? email, long? creditLimit, CancellationToken ct = default)
@@ -137,7 +145,10 @@ public sealed class InstitutionClient(SemojumApiClient api)
     {
         if (credits < 1) throw new ArgumentOutOfRangeException(nameof(credits), "요청할 크레딧은 1 이상이어야 합니다.");
         var r = await Send(HttpMethod.Get,"/api/org/credit-estimate?credits=" + credits.ToString(CultureInfo.InvariantCulture),null,ct);
-        var estimate = new InstitutionCreditEstimate(Number(r,"credits"), Number(r,"unitPriceKrw"), Number(r,"amountKrw"));
+        var unitPrice = Field(r, "unitPriceKrw");
+        if (unitPrice.ValueKind != JsonValueKind.Number || !unitPrice.TryGetDecimal(out var price) || price < 0)
+            throw Invalid();
+        var estimate = new InstitutionCreditEstimate(Number(r,"credits"), price, Number(r,"amountKrw"));
         return estimate.Credits == credits && estimate.AmountKrw >= 0 ? estimate : throw Invalid();
     }
     public async Task CancelRequestAsync(Guid id, CancellationToken ct = default) => _ = await Send(HttpMethod.Delete,"/api/org/requests/" + IdPath(id),null,ct);
@@ -170,9 +181,22 @@ public sealed class InstitutionClient(SemojumApiClient api)
     public Task<InstitutionReceipt> ReceiptAsync(Guid id, CancellationToken ct = default) => OrderFileAsync(id, "receipt", ct);
     /// <summary>주문 상세 「견적서 내려받기」: a 15-minute presigned URL like the receipt.</summary>
     public Task<InstitutionReceipt> QuoteAsync(Guid id, CancellationToken ct = default) => OrderFileAsync(id, "quote", ct);
-    private async Task<InstitutionReceipt> OrderFileAsync(Guid id, string kind, CancellationToken ct)
+    private Task<InstitutionReceipt> OrderFileAsync(Guid id, string kind, CancellationToken ct) =>
+        DownloadAsync("/api/org/orders/" + IdPath(id) + "/" + kind, ct);
+    public Task<InstitutionReceipt> DocumentFileAsync(Guid id, CancellationToken ct = default) =>
+        DownloadAsync("/api/org/billing/documents/" + IdPath(id) + "/download", ct);
+    public async Task<InstitutionContract[]> ContractsAsync(CancellationToken ct = default) =>
+        Array(await Send(HttpMethod.Get, "/api/org/contracts", null, ct))
+            .Select(x => new InstitutionContract(Text(x,"contractNo"), Text(x,"status"), OptionalText(x,"startDate"), OptionalText(x,"endDate"))).ToArray();
+    public async Task<InstitutionInvoice[]> InvoicesAsync(CancellationToken ct = default) =>
+        Array(await Send(HttpMethod.Get, "/api/org/billing/invoices", null, ct))
+            .Select(x => new InstitutionInvoice(Text(x,"invoiceNo"), Text(x,"status"), Number(x,"totalAmount"), Number(x,"outstandingAmount"))).ToArray();
+    public async Task<InstitutionSharedDocument[]> DocumentsAsync(CancellationToken ct = default) =>
+        Array(await Send(HttpMethod.Get, "/api/org/billing/documents", null, ct))
+            .Select(x => new InstitutionSharedDocument(Id(x,"id"), Text(x,"documentNo"), Text(x,"docType"), OptionalText(x,"invoiceNo"))).ToArray();
+    private async Task<InstitutionReceipt> DownloadAsync(string path, CancellationToken ct)
     {
-        var r = await Send(HttpMethod.Get,"/api/org/orders/" + IdPath(id) + "/" + kind,null,ct);
+        var r = await Send(HttpMethod.Get, path, null, ct);
         var name = DisplayFileName.Normalize(Text(r,"fileName")); var url = Text(r,"url");
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0) throw Invalid();
         return new(name,url);

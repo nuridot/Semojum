@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -16,14 +17,14 @@ namespace Semojum.Desktop.Services;
 
 internal static class WindowsNotificationChecks
 {
-    internal static async Task RunAsync(Action<bool, string> check)
+    internal static async Task RunAsync(Action<bool, string> check, string directory)
     {
         var fixture = new Fixture(); using var http = new HttpClient(fixture); var api = new SemojumApiClient(http);
         await api.LoginAsync("fixture", "fixture"); var board = new BoardDialog(new BoardClient(api), ""); board.Show();
         try
         {
             await WaitAsync(() => fixture.BoardLists > 0);
-            var entry = Descendants(board).OfType<Button>().FirstOrDefault(b => Equals(b.Content, "알림"));
+            var entry = Descendants(board).OfType<Button>().FirstOrDefault(b => System.Windows.Automation.AutomationProperties.GetName(b) == "알림" && b.IsVisible);
             check(entry is not null,
                 "The board provides a visible entry to notifications");
             var opened = false; var close = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
@@ -116,7 +117,10 @@ internal static class WindowsNotificationChecks
         closePublic.Start();
         try
         {
-            Descendants(account).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "공지사항").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var navigation = Descendants(account).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetAutomationId(b) == "LoginNavigation");
+            navigation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var noticeItem = navigation.ContextMenu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "공지사항"));
+            navigation.ContextMenu.IsOpen = false; noticeItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Descendants(account).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "문의하기").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             check(sawNotices && sawInquiry && unsignedApi.Account is null && fixture.PublicWasAnonymous,
                 "Login opens public notices and inquiry without creating a session");
@@ -188,12 +192,12 @@ internal static class WindowsNotificationChecks
             var list = Descendants(listWindow).OfType<ListBox>().Single();
             await WaitAsync(() => list.Items.Count == 2);
             list.SelectedIndex = 0;
-            var open = Descendants(listWindow).OfType<Button>().Single(b => Equals(b.Content, "열기"));
-            fixture.DenyPost = true; open.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Button Open() => Descendants(listWindow).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "첫 문의");
+            fixture.DenyPost = true; Open().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(() => fixture.PostRequests == 1);
             check(list.Items[0] is BoardNotification { Read: false } && fixture.PostRequests == 1,
                 "A forbidden post does not mark the notification as read");
-            fixture.DenyPost = false; open.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            fixture.DenyPost = false; Open().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(() => fixture.PostRequests == 2 && list.Items.Count == 2 && list.Items[0] is BoardNotification { Read: true });
             check(list.Items[0] is BoardNotification { Read: true } && list.Items[1] is BoardNotification { Read: false },
                 "Opening a permitted post refreshes only its server-confirmed read status");
@@ -206,8 +210,7 @@ internal static class WindowsNotificationChecks
             fixture.DenyReadAll = false; readAll.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(() => fixture.ReadAllRequests == 2 && list.Items[1] is BoardNotification { Read: true });
             check(fixture.MutationAuthorized && list.Items.Cast<BoardNotification>().All(n => n.Read), "Successful authenticated read-all refreshes server-confirmed statuses");
-            check(Descendants(listWindow).OfType<Button>().Where(b => b.Content is string).Select(b => (string)b.Content).SequenceEqual(["모두 읽음", "열기"]),
-                "Notifications offer only the final read-all and open actions");
+            check(Descendants(listWindow).OfType<Button>().Any(b => Equals(b.Content, "공지 전체 보기")), "The list has a footer link to all notices");
             fixture.InvalidNotifications = true; var count = fixture.NotificationLists;
             readAll.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(() => fixture.NotificationLists > count);
@@ -215,6 +218,92 @@ internal static class WindowsNotificationChecks
                 "A malformed notification response reports an error without clearing the prior list");
         }
         finally { closePost.Stop(); listWindow.Close(); }
+
+        fixture.InvalidNotifications = false; fixture.FrameFixture = true;
+        var inbox = new NotificationsDialog(new BoardClient(api), "");
+        inbox.Show();
+        try
+        {
+            var list = Descendants(inbox).OfType<ListBox>().Single();
+            await WaitAsync(() => list.Items.Count == 4); inbox.UpdateLayout();
+            Rect Bounds(FrameworkElement element) => new(element.TranslatePoint(new Point(), inbox), element.RenderSize);
+            var rows = Descendants(list).OfType<NotificationView>().ToArray();
+            var titles = list.Items.Cast<BoardAlert>().Select(n => n.Title).ToArray();
+            check(inbox.RenderSize == new Size(400, 354) && rows.Length == 4 &&
+                Bounds(rows[0]) == new Rect(1, 49, 398, 65) && Bounds(rows[3]) == new Rect(1, 244, 398, 65) &&
+                titles[0] == "서버 점검 11.25 02:00~04:00" && titles[3] == "문의 답변 등록", "Board notices and answers are in timestamp order in four 65px Figma rows");
+            check(Descendants(inbox).OfType<TextBlock>().Count(t => t.Text == "중요" && t.IsVisible) == 1 &&
+                Descendants(inbox).OfType<TextBlock>().Any(t => t.Text == "2" && t.IsVisible), "Importance and unread count come from the feed");
+            await WindowsSmoke.RenderAsync(inbox, Path.Combine(directory, "alert-list.png"));
+            var openNotice = Descendants(rows[0]).OfType<Button>().Single();
+            var detail = inbox.Dispatcher.InvokeAsync(async () =>
+            {
+                var dialog = inbox.OwnedWindows.OfType<BoardNoticeDialog>().Single();
+                try
+                {
+                    var text = Descendants(dialog).OfType<TextBlock>().Select(t => t.Text).ToArray();
+                    check(dialog.RenderSize == new Size(520, 238) && text.Contains("중요 공지") && text.Contains("2026-11-22") &&
+                        text.Any(t => t.StartsWith("점검 동안 변환")), "Important notice shows the authorized detail title, date and body");
+                    await WindowsSmoke.RenderAsync(dialog, Path.Combine(directory, "alert-important.png"));
+                }
+                finally { dialog.Close(); }
+            }, DispatcherPriority.ApplicationIdle);
+            openNotice.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await detail.Task.Unwrap();
+            await WaitAsync(() => list.Items.OfType<BoardNoticeAlert>().Any(n => n.Read));
+            check(list.Items.OfType<BoardNoticeAlert>().Single().Read, "Opening an announcement refreshes its server-confirmed read state");
+            var overview = inbox.Dispatcher.InvokeAsync(async () =>
+            {
+                var boardWindow = inbox.OwnedWindows.OfType<BoardDialog>().Single();
+                try
+                {
+                    await WaitAsync(() => Descendants(boardWindow).OfType<Button>().Any(b => b.IsVisible && Equals(b.Content, "공지") && System.Windows.Automation.AutomationProperties.GetItemStatus(b) == "선택됨"));
+                    check(Descendants(boardWindow).OfType<Button>().Any(b => b.IsVisible && Equals(b.Content, "공지") && System.Windows.Automation.AutomationProperties.GetItemStatus(b) == "선택됨"),
+                        "The footer opens the signed-in board on its notices tab");
+                }
+                finally { boardWindow.Close(); }
+            }, DispatcherPriority.ApplicationIdle);
+            Descendants(inbox).OfType<Button>().Single(b => Equals(b.Content, "공지 전체 보기")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await overview.Task.Unwrap();
+        }
+        finally { inbox.Close(); }
+    }
+
+    internal static async Task RunLiveAsync(string origin, string directory, Action<bool, string> check)
+    {
+        var service = new Uri(origin);
+        if (!service.IsLoopback) throw new InvalidOperationException("공지 통합 검사는 로컬 시험 서버에서만 실행합니다.");
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var api = new SemojumApiClient(http, service);
+        await api.LoginAsync(Environment.GetEnvironmentVariable("BOARD_NOTICE_QA_LOGIN")!, Environment.GetEnvironmentVariable("BOARD_NOTICE_QA_PASSWORD")!);
+        var client = new BoardClient(api);
+        var inbox = new NotificationsDialog(client, ""); inbox.Show();
+        try
+        {
+            var list = Descendants(inbox).OfType<ListBox>().Single();
+            const string title = "설치본 연동 시험 공지";
+            await WaitAsync(() => list.Items.OfType<BoardNoticeAlert>().Any(n => n.Title == title));
+            var notice = list.Items.OfType<BoardNoticeAlert>().Single(n => n.Title == title);
+            check(notice.Important && !notice.Read, "The installed inbox renders the real account's unread important notice");
+            var row = Descendants(inbox).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == title);
+            var child = inbox.Dispatcher.InvokeAsync(async () =>
+            {
+                await WaitAsync(() => inbox.OwnedWindows.OfType<BoardNoticeDialog>().Any(w => w.IsVisible));
+                var dialog = inbox.OwnedWindows.OfType<BoardNoticeDialog>().Single(w => w.IsVisible);
+                try
+                {
+                    check(Descendants(dialog).OfType<TextBlock>().Any(t => t.Text == "서버에서 가져온 공지 본문"), "Opening a notification retrieves the actual authorized detail");
+                    await WindowsSmoke.RenderAsync(dialog, Path.Combine(directory, "important.png"));
+                }
+                finally { dialog.Close(); }
+            }, DispatcherPriority.ApplicationIdle);
+            row.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await child.Task.Unwrap();
+            await WaitAsync(() => list.Items.OfType<BoardNoticeAlert>().Any(n => n.NoticeId == notice.NoticeId && n.Read));
+            check(list.Items.OfType<BoardNoticeAlert>().Single(n => n.NoticeId == notice.NoticeId).Read, "The inbox reloads the confirmed read status from the database");
+            Descendants(inbox).OfType<Button>().Single(b => Equals(b.Content, "모두 읽음")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitAsync(() => list.Items.OfType<BoardAlert>().All(n => n.Read));
+            check((await client.NotificationsAsync()).UnreadCount == 0, "Mark all read persists for the authenticated account");
+        }
+        finally { inbox.Close(); }
     }
 
     private static async Task WaitAsync(Func<bool> ready)
@@ -268,6 +357,8 @@ internal static class WindowsNotificationChecks
         public bool DenyPost { get; set; }
         public bool DenyReadAll { get; set; }
         public bool InvalidNotifications { get; set; }
+        public bool FrameFixture { get; set; }
+        private bool openedFrameNotice;
         public bool MutationAuthorized { get; private set; }
         public int PostRequests { get; private set; }
         public int ReadAllRequests { get; private set; }
@@ -290,7 +381,19 @@ internal static class WindowsNotificationChecks
                 if (HoldNotifications) return pending.Task.WaitAsync(cancellationToken);
                 if (InvalidNotifications) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 { Content = new StringContent("{\"isSuccess\":true,\"result\":{\"unreadCount\":0,\"items\":null}}", Encoding.UTF8, "application/json") });
-                result = !Populated ? "{\"unreadCount\":0,\"items\":[]}" : System.Text.Json.JsonSerializer.Serialize(new
+                if (FrameFixture)
+                {
+                    var today = DateTime.Today;
+                    var rows = new[] {
+                        new BoardNotification(8, 80, "2026_수능특강_사회문화 변환 완료", 1, today.AddHours(8).AddMinutes(40).ToString("s"), false),
+                        new BoardNotification(9, 81, "크레딧 잔여 안내", 1, new DateTime(today.Year - 1, 11, 20).ToString("s"), true),
+                        new BoardNotification(10, 82, "문의 답변 등록", 1, new DateTime(today.Year - 1, 11, 18).ToString("s"), true)
+                    };
+                    var notices = new[] { new BoardNoticeAlert("fixture-notice", "서버 점검 11.25 02:00~04:00", today.AddHours(9).AddMinutes(12).ToString("s"), true, openedFrameNotice) };
+                    result = JsonSerializer.Serialize(new { unreadCount = openedFrameNotice ? 1 : 2, items = rows, notices },
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                }
+                else result = !Populated ? "{\"unreadCount\":0,\"items\":[]}" : System.Text.Json.JsonSerializer.Serialize(new
                 {
                     unreadCount = (firstRead ? 0 : 1) + (secondRead ? 0 : 1), items = new[]
                     {
@@ -298,6 +401,12 @@ internal static class WindowsNotificationChecks
                         new { notificationId = 2, postId = 78, title = "둘째 문의", answerCount = 1, lastAnsweredAt = "2026-10-29", read = secondRead }
                     }
                 });
+            }
+            else if (path == "/api/board/notices/fixture-notice")
+            {
+                openedFrameNotice = true;
+                result = JsonSerializer.Serialize(new { title = "11월 25일 02:00~04:00 서버 점검", createdAt = "2026-11-22", important = true,
+                    body = "점검 동안 변환 · 서버 저장 · 게시판을 쓸 수 없습니다. 열어 둔 문서는 이 컴퓨터에 저장해 두십시오." });
             }
             else if (path == "/api/board/posts/77")
             {

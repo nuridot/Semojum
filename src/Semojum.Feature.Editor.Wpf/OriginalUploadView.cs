@@ -16,11 +16,12 @@ internal sealed class OriginalUploadView : UserControl
     internal event Action<string[]?>? UploadRequested;
     internal OriginalUploadView()
     {
-        var root = new Grid { Background = Brushes.White };
-        root.RowDefinitions.Add(new RowDefinition()); root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
+        Background = Brushes.White;
+        var root = new Grid { Margin = new Thickness(17, 21, 17, 21) };
+        root.RowDefinitions.Add(new RowDefinition());
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Content = root;
         var region = UploadArea;
-        region.Margin = new Thickness(16);
         region.Height = double.NaN; // Override the shared 32px button style.
         region.VerticalAlignment = VerticalAlignment.Stretch;
         region.Padding = new Thickness(0);
@@ -29,64 +30,58 @@ internal sealed class OriginalUploadView : UserControl
         region.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         region.VerticalContentAlignment = VerticalAlignment.Stretch;
         region.AllowDrop = true;
-        region.ToolTip = "파일을 선택하거나 이 영역에 놓으세요";
+        const string supportedFiles = "PDF · HWP · HWPX · TXT · JPG · JPEG · PNG · SMJ";
+        region.ToolTip = $"파일을 선택하거나 이 영역에 놓으세요. 지원 형식: {supportedFiles}";
+        System.Windows.Automation.AutomationProperties.SetHelpText(region, supportedFiles);
         System.Windows.Automation.AutomationProperties.SetName(region, "원본 파일 선택 또는 놓기");
         var template = new ControlTemplate(typeof(Button));
         template.VisualTree = new FrameworkElementFactory(typeof(ContentPresenter));
         region.Template = template;
         var surface = new Grid();
-        surface.Children.Add(new Border { Background = ColorBrush(0xF7, 0xF9, 0xFC), CornerRadius = new CornerRadius(10) });
-        surface.Children.Add(new Rectangle { Stroke = ColorBrush(0x00, 0x5F, 0xB8), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 6, 4 }, RadiusX = 10, RadiusY = 10, IsHitTestVisible = false });
-        var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(12), IsHitTestVisible = false };
-        content.Children.Add(Icon("original-upload.svg", 32));
-        content.Children.Add(new TextBlock { Text = "PDF 파일을 드래그하거나\n클릭해서 선택하세요", FontSize = 14, FontWeight = FontWeights.Bold, Foreground = ColorBrush(0x1A, 0x1A, 0x1A), TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 16, 0, 0), LineHeight = 22 });
+        surface.Children.Add(new Border { Background = ColorBrush(0xEF, 0xF6, 0xFC), CornerRadius = new CornerRadius(8) });
+        surface.Children.Add(new Rectangle { Stroke = ColorBrush(0x00, 0x5F, 0xB8), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 6, 4 }, RadiusX = 8, RadiusY = 8, IsHitTestVisible = false });
+        var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(20, 0, 20, 0), IsHitTestVisible = false };
+        content.Children.Add(Icon("original-upload.svg", 24));
+        content.Children.Add(new TextBlock { Text = "PDF 파일을 드래그하거나 클릭해서 선택하세요", FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = ColorBrush(0x1A, 0x1A, 0x1A), TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), LineHeight = 20 });
         content.Children.Add(new TextBlock { Text = "파일 1개당 최대 100MB", FontSize = 12, Foreground = ColorBrush(0x5F, 0x5F, 0x5F), TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 12, 0, 0) });
-        content.Children.Add(new TextBlock { Text = "업로드 가능한 형식: PDF, PNG, JPG, JPEG,\nTXT, HWP, HWPX, SMJ", FontSize = 12, Foreground = ColorBrush(0x5F, 0x5F, 0x5F), TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0), LineHeight = 18 });
-        content.Children.Add(new Border { Background = ColorBrush(0x5B, 0x8D, 0xEF), CornerRadius = new CornerRadius(6), Width = 140, Height = 40, Margin = new Thickness(0, 16, 0, 0), Child = new TextBlock { Text = "파일 선택", FontSize = 14, FontWeight = FontWeights.Bold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
+        content.Children.Add(new TextBlock { Text = "PDF · HWP · HWPX · TXT · JPG · PNG · SMJ", FontSize = 12, Foreground = ColorBrush(0x5F, 0x5F, 0x5F), TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), LineHeight = 16 });
+        content.Children.Add(new Border { Background = ColorBrush(0x00, 0x5F, 0xB8), CornerRadius = new CornerRadius(4), Width = 88, Height = 32, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0), Child = new TextBlock { Text = "파일 선택", FontSize = 14, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
         surface.Children.Add(content); region.Content = surface;
-        var contents = new Grid();
-        contents.RowDefinitions.Add(new RowDefinition());
-        contents.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        contents.Children.Add(region);
-        limitWarning.Margin = new Thickness(16, 0, 16, 20); limitWarning.Height = 52;
+        root.Children.Add(region);
+        limitWarning.Margin = new Thickness(0, 12, 0, 0);
+        limitWarning.Padding = new Thickness(12, 8, 12, 8);
         limitWarning.Background = ColorBrush(0xFD, 0xE7, 0xE9); limitWarning.BorderBrush = ColorBrush(0xC4, 0x2B, 0x1C);
-        limitWarning.BorderThickness = new Thickness(1); limitWarning.CornerRadius = new CornerRadius(6);
-        var warningGrid = new Grid();
-        warningGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(31) });
-        warningGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        var warningIcon = Icon("original-upload-warning.svg", 16); warningIcon.VerticalAlignment = VerticalAlignment.Top; warningIcon.Margin = new Thickness(8, 10, 0, 0);
+        limitWarning.BorderThickness = new Thickness(1); limitWarning.CornerRadius = new CornerRadius(4);
+        var warningGrid = new DockPanel();
+        var warningIcon = Icon("original-upload-warning.svg", 16);
+        warningIcon.Margin = new Thickness(0, 0, 8, 0);
         warningGrid.Children.Add(warningIcon);
-        var warningText = new StackPanel { Margin = new Thickness(0, 5, 8, 0) };
-        limitTitle.FontSize = 14; limitTitle.FontWeight = FontWeights.Bold; limitTitle.Foreground = ColorBrush(0xC4, 0x2B, 0x1C); limitTitle.TextTrimming = TextTrimming.CharacterEllipsis;
-        warningText.Children.Add(limitTitle);
-        warningText.Children.Add(new TextBlock { Text = "100MB를 초과했습니다", FontSize = 12, Foreground = ColorBrush(0xC4, 0x2B, 0x1C) });
-        Grid.SetColumn(warningText, 1); warningGrid.Children.Add(warningText); limitWarning.Child = warningGrid;
+        limitTitle.FontSize = 12;
+        limitTitle.Foreground = ColorBrush(0xC4, 0x2B, 0x1C);
+        limitTitle.TextWrapping = TextWrapping.Wrap;
+        limitTitle.VerticalAlignment = VerticalAlignment.Center;
+        warningGrid.Children.Add(limitTitle);
+        limitWarning.Child = warningGrid;
         System.Windows.Automation.AutomationProperties.SetLiveSetting(limitWarning, System.Windows.Automation.AutomationLiveSetting.Assertive);
-        Grid.SetRow(limitWarning, 1); contents.Children.Add(limitWarning);
-        root.Children.Add(contents);
+        Grid.SetRow(limitWarning, 1); root.Children.Add(limitWarning);
+
         DataContextChanged += (_, _) => ClearLimitWarning();
         region.Click += (_, _) => UploadRequested?.Invoke(null);
         region.DragOver += (_, e) => { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
         region.Drop += (_, e) => { if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } paths) UploadRequested?.Invoke(paths); e.Handled = true; };
-        var footer = new Border { BorderBrush = ColorBrush(0xEA, 0xEA, 0xEA), BorderThickness = new Thickness(0, 1, 0, 0), Background = ColorBrush(0xFB, 0xFB, 0xFB) };
-        var bar = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        bar.Children.Add(Icon("original-upload-prev.svg", 16));
-        bar.Children.Add(new Border { Width = 44, Height = 24, BorderBrush = ColorBrush(0xEA, 0xEA, 0xEA), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Background = Brushes.White, Margin = new Thickness(12, 0, 8, 0), Child = new TextBlock { Text = "—", HorizontalAlignment = HorizontalAlignment.Center } });
-        bar.Children.Add(new TextBlock { Text = "/ —", Foreground = ColorBrush(0x5F, 0x5F, 0x5F), Margin = new Thickness(0, 0, 20, 0) });
-        bar.Children.Add(Icon("original-upload-next.svg", 16)); footer.Child = bar;
-        Grid.SetRow(footer, 1); root.Children.Add(footer);
+
     }
     /// <summary>Names the first oversized file and its size (Figma C3); other oversized files are counted and listed in the tooltip.</summary>
     internal void ShowLimitWarning(IReadOnlyList<(string Path, long Bytes)> oversized)
     {
-        limitTitle.Text = Label(oversized[0]) + (oversized.Count > 1 ? $" 외 {oversized.Count - 1}개" : "");
+        limitTitle.Text = Label(oversized[0]) + (oversized.Count > 1 ? $" 외 {oversized.Count - 1}개" : "") + " · 100MB 를 넘습니다";
         limitTitle.ToolTip = string.Join("\n", oversized.Select(Label));
         limitWarning.Visibility = Visibility.Visible;
     }
     /// <summary>Several images over the shared 100 MB total (BE 2026-11-02): names the count and total; each file is in the tooltip.</summary>
     internal void ShowTotalLimitWarning(IReadOnlyList<(string Path, long Bytes)> images)
     {
-        limitTitle.Text = $"이미지 {images.Count}장 합계 ({Megabytes(images.Sum(file => file.Bytes))}MB)";
+        limitTitle.Text = $"이미지 {images.Count}장 합계 ({Megabytes(images.Sum(file => file.Bytes))}MB) · 100MB 를 넘습니다";
         limitTitle.ToolTip = string.Join("\n", images.Select(Label));
         limitWarning.Visibility = Visibility.Visible;
     }

@@ -110,7 +110,7 @@ internal static class WindowsLoginDesignChecks
                 if (remember)
                 {
                     var icons = children.OfType<SharpVectors.Converters.SvgViewbox>().ToArray();
-                    foreach (var (asset, size) in new[] { ("login-check.svg", 16d), ("login-bell.svg", 16d), ("login-mail.svg", 16d),
+                    foreach (var (asset, size) in new[] { ("login-check.svg", 12d), ("login-mail.svg", 16d),
                         ("login-caption-min.svg", 16d), ("login-caption-max.svg", 16d), ("login-caption-close.svg", 16d) })
                     {
                         var icon = icons.SingleOrDefault(i => i.Source?.ToString().EndsWith("/" + asset, StringComparison.Ordinal) == true);
@@ -119,7 +119,7 @@ internal static class WindowsLoginDesignChecks
                             $"Login renders final Figma asset in its intended size: {asset}");
                     }
                     var brand = icons.SingleOrDefault(icon => icon.Source?.ToString().EndsWith("/nuridot-logo.svg", StringComparison.Ordinal) == true);
-                    check(brand is { Drawings.Bounds.IsEmpty: false, Width: 280, Height: 80, Stretch: Stretch.Uniform }
+                    check(brand is { Drawings.Bounds.IsEmpty: false, Width: 200, Height: 48, Stretch: Stretch.Uniform }
                         && brand.ActualWidth > 0 && brand.ActualHeight > 0 && AutomationProperties.GetName(brand) == "누리닷 로고",
                         "Login renders the supplied Nuridot wordmark at its original aspect ratio");
                     foreach (var (id, label) in new[] { ("LoginCaptionmin", "최소화"), ("LoginCaptionmax", "최대화 / 복원"), ("LoginCaptionclose", "닫기") })
@@ -132,11 +132,11 @@ internal static class WindowsLoginDesignChecks
                     if (Math.Abs(dialog.ActualWidth - 1440) < 1 && Math.Abs(dialog.ActualHeight - 1000) < 1)
                     {
                         var card = children.OfType<Border>().Single(b => b.Width == 420);
-                        var noticeLink = children.OfType<Button>().Single(b => AutomationProperties.GetName(b) == "공지사항");
+                        var noticeLink = children.OfType<Button>().Single(b => AutomationProperties.GetName(b) == "문의하기");
                         var cardY = card.TransformToAncestor(dialog).Transform(new Point()).Y;
                         var linkY = noticeLink.TransformToAncestor(dialog).Transform(new Point()).Y;
-                        check(Math.Abs(cardY - 260) < 3 && Math.Abs(linkY - 760) < 3,
-                            $"The 1440x1000 login card and public links match the final Figma vertical placement (card={cardY:F1}, link={linkY:F1})");
+                        check(Math.Abs(cardY - 287) <= 2 && Math.Abs(card.ActualHeight - 410) <= 1 && Math.Abs(linkY - 713) <= 2 && noticeLink.ActualWidth == 100 && noticeLink.ActualHeight == 32,
+                            $"The 1440x1000 login card and public links are visible in their intended vertical order (card={cardY:F1}, link={linkY:F1})");
                     }
                     var originalWidth = dialog.Width; var originalHeight = dialog.Height;
                     dialog.Width = 480; dialog.Height = 400; dialog.UpdateLayout();
@@ -197,7 +197,7 @@ internal static class WindowsLoginDesignChecks
             foreach (var child in Descendants(VisualTreeHelper.GetChild(parent, i))) yield return child;
     }
 
-    private sealed class MemoryStore : IAccountCredentialStore
+    internal sealed class MemoryStore : IAccountCredentialStore
     {
         internal SessionCredential? Value;
         public SessionCredential? Read() => Value;

@@ -28,6 +28,15 @@ internal static class WindowsMathDockChecks
             check(renderer.Formula == source && !renderer.HasError && renderer.Visibility == Visibility.Visible,
                 "The selected numeric or Korean formula renders successfully, including repeated selection");
         }
+        fixture.ShowFormula(@"\frac{a+b}{2} = \sqrt{c}", true);
+        check(renderer.Content is TextBlock { Text: "(a + b) / 2 = √c" },
+            "The strip shows grouped arithmetic in the reference's single-line notation");
+        fixture.ShowFormula(@"\frac{1}{\frac{a}{b}}", true);
+        check(renderer.Content is TextBlock { Text: "1 / (a / b)" },
+            "A fraction in the denominator keeps its grouping in one-line notation");
+        fixture.ShowFormula(@"\frac{x^2}{\sqrt{a+b}}", true);
+        check(renderer.Content is Image { Source: DrawingImage } && !renderer.HasError,
+            "Powers and other complex TeX keep the full typeset drawing");
         // Force the original failure: Arial has no Korean glyph. The previous numeric drawing must be removed.
         fixture.ShowFormula(numeric, true); renderer.TextFontFamily = new FontFamily("Arial");
         foreach (var attempt in new[] { 1, 2 })
@@ -40,10 +49,12 @@ internal static class WindowsMathDockChecks
         check(!renderer.HasError && renderer.Visibility == Visibility.Visible && renderer.Formula == korean,
             "A supported Korean font restores the current formula after a rendering failure");
         var path = Path.Combine(directory, "math-dock-" + Guid.NewGuid().ToString("N") + ".smj");
+        const string stripFormula = @"\frac{a+b}{2} = \sqrt{c}";
         var model = new DocumentSession();
         model.Add(new EditorBlock { Id = 1, Page = 1, Source = "일반 문단" });
-        model.Add(new EditorBlock { Id = 2, Page = 1, Source = "<!수식>\\frac{a+b}{2}<!/수식>", Braille = "⠿⠿", HasManualBraille = true, Metadata = new(Type: "formula") });
+        model.Add(new EditorBlock { Id = 2, Page = 1, Source = "<!수식>" + stripFormula + "<!/수식>", Braille = "⠿⠿", HasManualBraille = true, Metadata = new(Type: "formula") });
         model.Add(new EditorBlock { Id = 3, Page = 1, Source = "<!수식>\\frac{<!/수식>", Braille = "⠿", HasManualBraille = true, Metadata = new(Type: "formula") });
+        model.Add(new EditorBlock { Id = 4, Page = 1, Source = "<!수식>" + korean.Trim() + "<!/수식>", Metadata = new(Type: "formula") });
         model.ActiveBlock = model.Blocks[0]; model.IsDirty = false;
         await SmjFile.SaveAsync(path, SmjFile.Snapshot(model));
         await using var engine = EngineRuntime.Create();
@@ -61,9 +72,19 @@ internal static class WindowsMathDockChecks
             await Dispatcher.Yield(DispatcherPriority.Background); window.UpdateLayout();
             var rendered = Descendants(dock).OfType<FormulaControl>().Single();
             var latex = Descendants(dock).OfType<TextBox>().Single();
-            check(dock.IsVisible && rendered.Formula == @"\frac{a+b}{2}" && latex.Text == @"\frac{a+b}{2}",
+            check(dock.IsVisible && rendered.Formula == stripFormula && latex.Text == stripFormula,
                 "Selecting a formula shows its real rendered expression and LaTeX");
-            await WindowsSmoke.RenderElementAsync(dock, Path.Combine(directory, "math-dock.png"));
+            window.WindowState = WindowState.Normal; window.Width = 1440; window.Height = 1000;
+            var columns = ((Grid)window.SourcePanel.Parent).ColumnDefinitions;
+            var sourceColumn = columns[Grid.GetColumn(window.SourcePanel)];
+            var previousWidth = sourceColumn.Width;
+            sourceColumn.Width = new GridLength(760);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
+            check(dock.ActualWidth == 760 && dock.ActualHeight == 102 && rendered.IsVisible && latex.IsVisible
+                && rendered.TranslatePoint(new(0, 0), dock).X < latex.TranslatePoint(new(0, 0), dock).X,
+                "The selected formula and selectable LaTeX share the 760×102 Figma strip in the resized source panel");
+            await WindowsSmoke.RenderElementAsync(dock, Path.Combine(directory, "math-preview.png"));
+            sourceColumn.Width = previousWidth; window.UpdateLayout();
             check(formula.Braille == "⠿⠿" && formula.HasManualBraille && !window.Session.IsDirty,
                 "Opening the preview does not change the source or manual braille");
             var opened = false;
@@ -72,7 +93,7 @@ internal static class WindowsMathDockChecks
             {
                 var dialog = Application.Current.Windows.OfType<MathDialog>().FirstOrDefault(d => d.Owner == window && d.IsVisible);
                 if (dialog is null) return;
-                opened = dialog.Latex == @"\frac{a+b}{2}" && dialog.BrailleInput.Text == "⠿⠿"; dialog.Close();
+                opened = dialog.Latex == stripFormula && dialog.BrailleInput.Text == "⠿⠿"; dialog.Close();
             };
             try
             {
@@ -81,6 +102,46 @@ internal static class WindowsMathDockChecks
             }
             finally { timer.Stop(); }
             check(opened && formula.Braille == "⠿⠿", "The preview opens the selected formula in the editor without changing manual braille");
+            window.Session.ActiveBlock = window.Session.Blocks.Single(b => b.Id == 4);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Exception? captureFailure = null;
+            var captured = false;
+            var capture = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+            var deadline = DateTime.UtcNow.AddSeconds(20);
+            capture.Tick += async (_, _) =>
+            {
+                var editor = Application.Current.Windows.OfType<MathDialog>().FirstOrDefault(d => d.Owner == window && d.IsVisible);
+                if (DateTime.UtcNow >= deadline)
+                {
+                    capture.Stop(); captureFailure = new TimeoutException("Waiting for the editor and local braille translation"); editor?.Close(); return;
+                }
+                if (editor?.Translation is null) return;
+                capture.Stop();
+                try
+                {
+                    editor.UpdateLayout();
+                    var input = editor.Input.TranslatePoint(new(0, 0), editor);
+                    var cells = editor.BrailleInput.TranslatePoint(new(0, 0), editor);
+                    check(editor.ActualWidth == 900 && editor.ActualHeight == 558 && cells.X > 450 && input.X < 60 && input.Y > cells.Y + 140,
+                        "The live formula editor puts braille to the right of the visual formula and full-width LaTeX below them");
+                    check(Descendants(editor).OfType<FormulaControl>().Single().Content is TextBlock { Text: "득표율(%) = 득표수 ⁄ 유효 투표수 × 100" },
+                        "The Korean fraction uses the editor reference's labelled linear notation");
+                    check(editor.Latex == korean.Trim() && editor.BrailleInput.Text == editor.Translation.Cells && editor.BrailleInput.Text.Any(c => c >= '⠁' && c <= '⣿'),
+                        "The Korean vote-share equation and its real engine braille populate the editor from the document");
+                    await WindowsSmoke.RenderElementAsync(editor, Path.Combine(directory, "math-editor.png"));
+                    captured = true;
+                }
+                catch (Exception ex) { captureFailure = ex; }
+                finally { editor.Close(); }
+            };
+            try
+            {
+                capture.Start();
+                Descendants(dock).OfType<Button>().Single(b => Equals(b.Content, "편집")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }
+            finally { capture.Stop(); }
+            if (captureFailure != null) throw new InvalidOperationException("Formula capture failed", captureFailure);
+            check(captured, "The normal edit action captures the Figma-sized formula editor");
             var invalid = window.Session.Blocks.Single(b => b.Id == 3); window.Session.ActiveBlock = invalid;
             await Dispatcher.Yield(DispatcherPriority.Background);
             check(dock.IsVisible && Descendants(dock).OfType<TextBlock>().Any(t => t.IsVisible && t.Text.Contains("표시할 수 없습니다")),

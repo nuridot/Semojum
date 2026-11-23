@@ -92,7 +92,7 @@ internal static class WindowsRequiredUpdateChecks
                 await window.ExecuteAsync("sixDotMode");
                 check((window.SixDotToggle.IsChecked == true) == before, "Direct editor command is also blocked during account startup");
                 timer.Start();
-                handler.Version.TrySetResult(Handler.Json("{\"latestVersion\":\"99.0.0\",\"minSupportedVersion\":\"99.0.0\",\"downloadUrl\":\"https://fixture.invalid/update.zip\"}"));
+                handler.Version.TrySetResult(Handler.Json("{\"version\":\"99.0.0\",\"minSupportedVersion\":\"99.0.0\",\"fileUrl\":\"https://fixture.invalid/update.zip\"}"));
                 await startup.WaitAsync(TimeSpan.FromSeconds(8));
                 check(requested && (!failSave || errorShown) && window.IsVisible && ReferenceEquals(window.Session, model)
                     && model.IsDirty && model.ActiveBlock!.Source == unsaved,
@@ -110,13 +110,20 @@ internal static class WindowsRequiredUpdateChecks
             }
         }
         // Cover the production response that blocked 0.9.2 before login: minimum 1.0.0, no download URL.
-        foreach (var metadata in new[] { "null", "{\"latestVersion\":\"1.0.0\",\"minSupportedVersion\":\"1.0.0\",\"downloadUrl\":null}" })
+        foreach (var metadata in new[] { "null", "{\"latestVersion\":\"1.0.0\",\"minSupportedVersion\":\"1.0.0\",\"downloadUrl\":null}",
+            "{\"latestVersion\":\"99.1.0\",\"minSupportedVersion\":\"1.0.0\",\"downloadUrl\":\"https://fixture.invalid/new.zip\"}" })
         {
             var handler = new Handler();
             handler.Version.TrySetResult(Handler.Json(metadata));
             using var http = new HttpClient(handler);
             var window = new MainWindow(new SemojumApiClient(http)); window.Show();
             var loginUsable = false;
+            var promptsBeforeLogin = 0;
+            window.UpdateConfirmationForChecks = question =>
+            {
+                if (window.Title != "누리닷 로그인" && question.Contains("99.1.0")) promptsBeforeLogin++;
+                return MessageBoxResult.No;
+            };
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
             timer.Tick += (_, _) =>
             {
@@ -131,6 +138,7 @@ internal static class WindowsRequiredUpdateChecks
                 var startup = (Task)typeof(MainWindow).GetMethod("StartAccountAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
                 await startup.WaitAsync(TimeSpan.FromSeconds(8));
                 check(loginUsable, $"Startup displays a usable maximized login in the existing window (metadata: {metadata})");
+                check(promptsBeforeLogin == (metadata.Contains("99.1.0") ? 1 : 0), "A signed-out launch offers a newer public release before the login screen");
             }
             finally { timer.Stop(); await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); if (window.IsVisible) window.Close(); }
         }

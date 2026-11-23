@@ -1,0 +1,69 @@
+<UserControl x:Class="Semojum.Desktop.Dialogs.BoardWorkspace" x:ClassModifier="internal"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:svg="http://sharpvectors.codeplex.com/svgc/">
+  <UserControl.Resources>
+    <Style x:Key="BoardTab" TargetType="Button">
+      <Setter Property="Height" Value="44"/><Setter Property="FontSize" Value="14"/><Setter Property="MinWidth" Value="0"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Grid Background="Transparent"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          <Border x:Name="Mark" Height="2" VerticalAlignment="Bottom" Margin="16,0,16,2" Background="#005FB8" Visibility="Hidden"/>
+        </Grid>
+        <ControlTemplate.Triggers>
+          <Trigger Property="Tag" Value="selected"><Setter TargetName="Mark" Property="Visibility" Value="Visible"/></Trigger>
+          <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="#003E92"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="HeaderAction" TargetType="Button">
+      <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="#1A1A1A"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#F0F0F0"/></Trigger>
+          <Trigger Property="IsPressed" Value="True"><Setter Property="Background" Value="#EEEEEE"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </UserControl.Resources>
+  <DockPanel Background="White">
+    <Border DockPanel.Dock="Top" Height="48" BorderThickness="0,0,0,1" BorderBrush="#EAEAEA" Padding="16,0">
+      <DockPanel LastChildFill="False">
+        <Button x:Name="Back" Style="{StaticResource HeaderAction}" HorizontalAlignment="Left" VerticalAlignment="Center"
+                Height="32" Padding="8,0" AutomationProperties.Name="편집기로 돌아가기">
+          <StackPanel Orientation="Horizontal">
+            <svg:SvgViewbox Source="pack://application:,,,/Semojum.Feature.Board.Wpf;component/Assets/Figma/board-chevron-left.svg" Width="16" Height="16" Stretch="None"/>
+            <TextBlock Text="편집기로 돌아가기" FontSize="14" Margin="8,0,0,0"/>
+          </StackPanel>
+        </Button>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button x:Name="Account" Style="{StaticResource HeaderAction}" Height="24" Padding="8,0" Background="#F0F0F0" AutomationProperties.Name="계정 메뉴">
+            <StackPanel Orientation="Horizontal">
+              <svg:SvgViewbox Source="pack://application:,,,/Semojum.Feature.Board.Wpf;component/Assets/Figma/board-user.svg" Width="16" Height="16" Stretch="None"/>
+              <TextBlock x:Name="LoginName" FontSize="12" Margin="4,0" TextTrimming="CharacterEllipsis" MaxWidth="180"/>
+              <svg:SvgViewbox Source="pack://application:,,,/Semojum.Feature.Board.Wpf;component/Assets/Figma/board-account-chevron.svg" Width="12" Height="12" Stretch="None"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="Notifications" Style="{StaticResource HeaderAction}" Width="32" Height="24" Margin="8,0,0,0" AutomationProperties.Name="알림" ToolTip="알림">
+            <Grid Width="32" Height="24">
+              <svg:SvgViewbox Source="pack://application:,,,/Semojum.Feature.Board.Wpf;component/Assets/Figma/board-bell.svg" Width="16" Height="16" Stretch="None"/>
+              <Border x:Name="Badge" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="7" MinWidth="14" Height="14"
+                      Padding="3,0" Visibility="Collapsed" Background="#C42B1C">
+                <TextBlock x:Name="Count" FontSize="10" LineHeight="14" Foreground="White" TextAlignment="Center"/>
+              </Border>
+            </Grid>
+          </Button>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+    <ScrollViewer x:Name="PageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="게시판 본문">
+      <Grid Margin="16,32,16,24">
+        <StackPanel MaxWidth="1040">
+          <TextBlock Text="게시판" FontWeight="SemiBold" FontSize="28" Height="36" Margin="0,0,0,16"/>
+          <DockPanel x:Name="Page"/>
+        </StackPanel>
+      </Grid>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

@@ -12,9 +12,17 @@ internal static class DesktopUsageActions
     {
         var board = new BoardClient(api);
         return new(
-            owner => { new PublicInquiryDialog(api) { Owner = owner }.ShowDialog(); },
-            owner => { var writing = BoardDialog.Writing(board, workInfo, initiallyMine: true); writing.Owner = owner; writing.ShowDialog(); return writing.Changed; },
+            owner => { new PublicInquiryDialog(api, standalone: true) { Owner = owner }.ShowDialog(); },
+            owner =>
+            {
+                var writing = BoardDialog.Writing(board, workInfo, initiallyMine: true);
+                writing.Owner = owner;
+                writing.Loaded += (_, _) => writing.WindowState = System.Windows.WindowState.Maximized;
+                writing.ShowDialog();
+                return writing.Changed;
+            },
             (owner, post) => { var reading = BoardDialog.Reading(board, post, workInfo, initiallyMine: true); reading.Owner = owner; reading.ShowDialog(); },
-            owner => { new BoardDialog(board, workInfo, initiallyMine: true) { Owner = owner }.ShowDialog(); });
+            owner => { new BoardDialog(board, workInfo, initiallyMine: true) { Owner = owner }.ShowDialog(); },
+            OpenNotifications: owner => { new NotificationsDialog(board, workInfo) { Owner = owner }.ShowDialog(); });
     }
 }

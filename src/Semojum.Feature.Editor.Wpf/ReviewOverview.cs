@@ -17,7 +17,7 @@ internal readonly record struct ReviewOverviewMarker(int Offset, int Length, Rev
 /// <summary>
 /// Figma 훑어보기 띠: an independent 12px column right of the text. The whole document maps
 /// onto its height, so it shows review marks and the visible part even without a scrollbar.
-/// It replaces the hidden native vertical scrollbar for mouse (click, drag, wheel) and UIA.
+/// The overview and the adjacent document scrollbar both support navigation.
 /// </summary>
 internal sealed class ReviewOverview : FrameworkElement
 {

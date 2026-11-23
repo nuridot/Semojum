@@ -21,7 +21,8 @@ public sealed record JobStatus(string JobId, int TotalPages, int CompletedPages,
     public int FinishedPages => Math.Min(TotalPages, SucceededPages + FailedPages);
     public int RunningPages => Pages.Values.Count(s => s is "RUNNING" or "PROCESSING");
     public int RemainingPages => Math.Max(0, TotalPages - FinishedPages);
-    public ConversionProgress ToProgress(string estimate) => new(TotalPages, SucceededPages, FailedPages, RunningPages, estimate);
+    public ConversionProgress ToProgress(string estimate, string? proofModel = null) => new(TotalPages, SucceededPages, FailedPages, RunningPages, estimate)
+    { IsProofreading = RunningPages > 0 && proofModel is "MINERU" or "HAIKU" or "SONNET" or "OPUS" };
     public string Label => OverallStatus switch
     {
         "PENDING" => "대기 중", "IN_PROGRESS" => "변환 중", "COMPLETED" => "변환 완료", "FAILED" => "변환 실패",
@@ -65,7 +66,7 @@ public sealed record JobSaveResult(int SavedPages, int[] FailedPages, string? Sa
 public sealed record UploadFile(string FileName, byte[] Bytes);
 public sealed record RemotePage(int Number, string Status, EditorBlock[] Blocks, string? OriginalType,
     Uri? OriginalUrl, string[]? OriginalLines, int Width, int Height,
-    ServerBlockRecord[]? ServerBlocks = null, QualityIssue[]? Quality = null, double? OcrConfidenceAverage = null);
+    ServerBlockRecord[]? ServerBlocks = null, QualityIssue[]? Quality = null, double? OcrConfidenceAverage = null, string? BlockedReason = null);
 
 /// <summary>V3.1 job boundary. Saving does not create a job or invoke AI.</summary>
 public sealed partial class JobClient(SemojumApiClient api)
@@ -77,7 +78,14 @@ public sealed partial class JobClient(SemojumApiClient api)
             || status.Pages.Keys.Any(page => page < 1)) return false;
         model.TryApplyServerOriginalPageTotal(status.JobId, status.TotalPages, status.Pages.Keys);
         model.JobStatus = status.OverallStatus;
-        foreach (var pair in status.Pages) model.PageStatuses[pair.Key] = pair.Value;
+        var changed = false;
+        foreach (var (page, state) in status.Pages)
+        {
+            changed |= model.PageStatuses.GetValueOrDefault(page) != state;
+            model.PageStatuses[page] = state;
+            if (state is not ("BLOCKED" or "FAILED")) changed |= model.PageFailureReasons.Remove(page);
+        }
+        if (changed) model.NotifyPageStatesChanged();
         return true;
     }
     public const long MaximumUploadBytes = 100L * 1024 * 1024;
@@ -103,6 +111,7 @@ public sealed partial class JobClient(SemojumApiClient api)
         if (files.FirstOrDefault(f => f.Bytes.LongLength > MaximumUploadBytes) is { } oversized) throw new ArgumentException($"{oversized.FileName} 파일이 100 MB를 넘습니다. 파일 1개당 100 MB까지 올릴 수 있습니다.");
         if (files.Count > 1 && files.Any(f => Path.GetExtension(f.FileName).ToLowerInvariant() is not (".png" or ".jpg" or ".jpeg")))
             throw new ArgumentException("여러 파일은 이미지일 때만 함께 업로드할 수 있습니다.");
+        if (files.Count > 1) UploadFileReader.ValidateUniqueFileNames(files.Select(f => f.FileName).ToArray());
         if (ExceedsImageTotal(files.Select(f => f.Bytes.LongLength).ToArray())) throw new ArgumentException(ImageTotalMessage(files.Count));
         if (password is not null && (password.Length == 0 || files.Count != 1 || !Path.GetExtension(files[0].FileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase)))
             throw new ArgumentException("문서 암호는 PDF 파일 하나를 올릴 때만 보낼 수 있습니다.");
@@ -194,7 +203,7 @@ public sealed partial class JobClient(SemojumApiClient api)
     public static RemotePage ReadPage(JsonElement data, int page, int firstLocalId)
     {
         var blocks = new List<EditorBlock>();
-        var status = Text(data, "status") ?? "COMPLETED";
+        var status = Text(data, "pageStatus") ?? Text(data, "status") ?? "COMPLETED";
         var width = 0; var height = 0;
         var records = new List<ServerBlockRecord>(); var quality = new List<QualityIssue>(); double? confidenceAverage = null;
         if (data.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.Object)
@@ -251,7 +260,7 @@ public sealed partial class JobClient(SemojumApiClient api)
             if (Uri.TryCreate(Text(original, "url"), UriKind.Absolute, out var uri) && uri.Scheme == "https") url = uri;
             if (original.TryGetProperty("lines", out var value)) lines = value.Deserialize<string[]>();
         }
-        return new(page, status, blocks.ToArray(), originalType, url, lines, width, height, records.ToArray(), quality.ToArray(), confidenceAverage);
+        return new(page, status, blocks.ToArray(), originalType, url, lines, width, height, records.ToArray(), quality.ToArray(), confidenceAverage, Text(data, "blockedReason"));
     }
     private static double? Confidence(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d) && d is >= 0 and <= 1 ? Math.Round(d, 3) : null;
@@ -277,6 +286,7 @@ public sealed partial class JobClient(SemojumApiClient api)
             ["editScope"] = l.EditScope, ["advancedAi"] = l.AdvancedAi
         };
         if (ServerContract.PageNumberLine(l.PageNumbers) is { } line) body["pageNumberLine"] = line;
+        if (l.ProofModel is not null) body["proofModel"] = l.ProofModel;
         if (ServerContract.FooterPages(l.Footer) is { } footerPages) body["footerPages"] = footerPages;
         return body;
     }
@@ -296,7 +306,7 @@ public sealed partial class JobClient(SemojumApiClient api)
         Footer: Text(l, "footerPages") == "every" ? "모든 페이지" : "홀수 페이지",
         CoverPages: Number(l, "coverPages"), SourcePageStart: Number(l, "sourcePageStart", 1), ShowSourcePageNumber: Bool(l, "showSourcePageNumber", true),
         ShowBraillePageNumber: Bool(l, "showBraillePageNumber", true), ShowChangeLine: Bool(l, "showChangeLine", true), FooterAlign: Text(l, "footerAlign") ?? "center",
-        EditScope: Text(l, "editScope") ?? "all", AdvancedAi: Bool(l, "advancedAi"));
+        EditScope: Text(l, "editScope") ?? "all", AdvancedAi: Bool(l, "advancedAi"), ProofModel: Text(l, "proofModel"));
     public static BrailleOptions ReadOptions(JsonElement o) => new(Text(o, "hangulGrade") == "grade1", Text(o, "englishGrade") == "grade1",
         Text(o, "brailleRule") == "english", Text(o, "lineBreakUnit") ?? "syllable", Text(o, "mixedRule") ?? "korean",
         Text(o, "consecutiveSpace") ?? "single", Text(o, "choiceLayout") ?? "merge",

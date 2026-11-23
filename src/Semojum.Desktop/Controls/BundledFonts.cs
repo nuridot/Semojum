@@ -11,8 +11,10 @@ public static class BundledFonts
     // Ship the font so Korean and Latin text use the same family on every PC.
     public static FontFamily Interface { get; } = new($"{Location}#Pretendard");
     public static FontFamily UserInterface => Interface;
-    public static FontFamily Mono => Interface;
+    public static FontFamily Mono { get; } = new($"Segoe UI Symbol, {Location}#Noto Sans KR, {Interface.Source}");
     public static FontFamily Braille { get; } = CreateBraille();
+    public static FontFamily BraillePlain { get; } = new(new Uri("pack://application:,,,/"),
+        "./Semojum.Feature.Editor.Wpf;component/Assets/Fonts/#Nuridot Braille Plain, " + Interface.Source);
     // IMM uses GDI, which cannot resolve WPF's file URI. These fonts are private
     // to this process and are released by Windows when the app exits.
     public static void RegisterNativeInputFonts()

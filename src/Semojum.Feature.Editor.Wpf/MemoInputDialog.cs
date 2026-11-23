@@ -1,44 +1,68 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Data;
-using SharpVectors.Converters;
 
 namespace Semojum.Desktop.Dialogs;
 
-public sealed class MemoInputDialog : CompactDialog
+public abstract class MemoPopover : CompactDialog
 {
-    internal TextBox Input { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 2000, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top, MinHeight = 32, MaxHeight = 160, Padding = new(7), Margin = new(0, 8, 0, 6) };
-    public string Value => Input.Text.Trim();
-    public MemoInputDialog(string? author = null) : base("메모", 300, 150, popover: true)
+    protected MemoPopover(double width, double height) : base("메모", width, height, popover: true)
     {
-        MinHeight = 150; MinWidth = 300; SizeToContent = SizeToContent.Height;
+        UseLayoutRounding = true;
+        SizeToContent = SizeToContent.Height;
+        var frame = (Border)Content;
+        frame.CornerRadius = new(8);
+        frame.BorderBrush = EditorModalDesign.Color("#EAEAEA");
+        frame.Background = Background = EditorModalDesign.Color("#FBFBFB");
+        var labels = new Style(typeof(TextBlock), (Style)FindResource(typeof(TextBlock)));
+        labels.Setters.Add(new Setter(RenderTransformProperty, new TranslateTransform(0, -1)));
+        Resources[typeof(TextBlock)] = labels;
+    }
+}
+
+public sealed class MemoInputDialog : MemoPopover
+{
+    internal TextBox Input { get; } = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 2000,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top,
+        FontSize = 14, MinHeight = 64, MaxHeight = 160, Padding = new(11, 7, 11, 7), Margin = new(0, 8, 0, 8) };
+    public string Value => Input.Text.Trim();
+    public MemoInputDialog(string? author = null) : base(320, 158)
+    {
         Input.ToolTip = "Enter: 저장 · Shift+Enter: 줄 바꿈";
         MemoTextInputAppearance.Attach(this, Input);
-        var panel = new StackPanel { Margin = new(11) }; Body(panel);
-        panel.Children.Add(MemoAuthor.Header(author)); panel.Children.Add(Input);
-        System.Windows.Automation.AutomationProperties.SetName(Input, "메모 내용");
+        var panel = new StackPanel { Margin = new(12) }; Body(panel);
+        panel.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(author) ? "작성자 미상" : author,
+            FontSize = 14, FontWeight = FontWeights.SemiBold, Height = 20, LineHeight = 20,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = author });
+        panel.Children.Add(Input);
+        AutomationProperties.SetName(Input, "메모 내용");
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         panel.Children.Add(buttons);
-        var save = Action("저장", () => { if (Value.Length == 0) throw new ArgumentException("메모를 입력해 주세요."); DialogResult = true; }, true);
-        InputBindings.Add(new KeyBinding(ApplicationCommands.Save, Key.Enter, ModifierKeys.Control) { CommandTarget = this });
-        CommandBindings.Add(new CommandBinding(ApplicationCommands.Save, (_, e) => { save.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); e.Handled = true; }));
         var cancel = Action("취소", () => DialogResult = false);
-        foreach (var button in new[] { save, cancel })
-        { Actions.Children.Remove(button); button.MinWidth = button.Width = 56; button.Height = 32; buttons.Children.Add(button); }
+        var save = Action("저장", () => { if (Value.Length == 0) throw new ArgumentException("메모를 입력해 주세요."); DialogResult = true; }, true);
+        foreach (var button in new[] { cancel, save })
+        {
+            Actions.Children.Remove(button);
+            button.MinWidth = button.Width = 88; button.Height = 32;
+            button.Margin = new(button == save ? 8 : 0, 0, 0, 0);
+            button.Template = EditorModalDesign.ButtonTemplate(typeof(Button));
+            buttons.Children.Add(button);
+        }
+        cancel.Background = EditorModalDesign.Color("#FBFBFB"); cancel.BorderBrush = EditorModalDesign.Color("#D1D1D1");
+        InputBindings.Add(new KeyBinding(ApplicationCommands.Save, Key.Enter, ModifierKeys.Control) { CommandTarget = this });
+        CommandBindings.Add(new CommandBinding(ApplicationCommands.Save, (_, e) => { save.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); e.Handled = true; }));
         Input.PreviewKeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
-            save.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); e.Handled = true;
+            save.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); e.Handled = true;
         };
         Loaded += (_, _) => Input.Focus();
     }
 
-    internal void ApplyInputAppearance(bool highContrast)
-    {
-        MemoTextInputAppearance.Apply(Input, highContrast);
-    }
+    internal void ApplyInputAppearance(bool highContrast) => MemoTextInputAppearance.Apply(Input, highContrast);
 }
 
 internal static class MemoTextInputAppearance
@@ -63,6 +87,7 @@ internal static class MemoTextInputAppearance
         surface.SetBinding(Border.BackgroundProperty, new Binding(nameof(Control.Background)) { RelativeSource = RelativeSource.TemplatedParent });
         surface.SetValue(Border.BorderBrushProperty, EditorModalDesign.Color("#D1D1D1"));
         surface.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        surface.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
         var host = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
         host.SetValue(UIElement.FocusableProperty, false);
         host.SetBinding(ScrollViewer.VerticalScrollBarVisibilityProperty, new Binding { Path = new PropertyPath("(0)", ScrollViewer.VerticalScrollBarVisibilityProperty), RelativeSource = RelativeSource.TemplatedParent });
@@ -88,22 +113,5 @@ internal static class MemoTextInputAppearance
         else disabled.Setters.Add(new Setter(UIElement.OpacityProperty, .5));
         template.Triggers.Add(disabled);
         return template;
-    }
-}
-
-internal static class MemoAuthor
-{
-    internal static Grid Avatar(string? author, bool reply = false)
-    {
-        var avatar = new Grid { Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Top };
-        avatar.Children.Add(new SvgViewbox { Source = new Uri($"pack://application:,,,/Semojum.Feature.Editor.Wpf;component/Assets/Figma/{(reply ? "memo-reply-author" : "memo-author")}.svg"), Width = 20, Height = 20, Stretch = Stretch.None });
-        avatar.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(author) ? "?" : System.Globalization.StringInfo.GetNextTextElement(author.Trim()), Foreground = Brushes.White, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        return avatar;
-    }
-    internal static DockPanel Header(string? author)
-    {
-        var row = new DockPanel { Height = 20 }; var avatar = Avatar(author); avatar.Margin = new(0, 0, 8, 0); row.Children.Add(avatar);
-        row.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(author) ? "작성자 미상" : author, FontSize = 14, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
-        return row;
     }
 }

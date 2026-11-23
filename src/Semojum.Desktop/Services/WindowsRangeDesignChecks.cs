@@ -1,75 +1,82 @@
+using System.IO;
 using System.Windows;
-using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Media;
 using System.Windows.Threading;
-using Semojum.Desktop.Controls;
 using Semojum.Desktop.Dialogs;
 using SharpVectors.Converters;
+using static Semojum.Desktop.Services.WindowsExportRangeChecks;
 
 namespace Semojum.Desktop.Services;
 
 internal static class WindowsRangeDesignChecks
 {
-    internal static async Task RunAsync(Action<bool, string> check)
+    internal static async Task RunAsync(Action<bool, string> check, string? directory = null)
     {
         var countCalls = 0;
-        var dialog = new ExportRangeDialog([3, 4, 6], () => { countCalls++; return Task.FromResult(7); }, allowFormatChange: true); dialog.Show();
-        try
-        {
-            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); dialog.UpdateLayout();
-            var scope = Descendants(dialog).OfType<SegmentedChoice>().Single(); var format = Descendants(dialog).OfType<ComboBox>().Single();
-            var start = Descendants(dialog).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "시작 페이지 번호");
-            var end = Descendants(dialog).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "끝 페이지 번호");
-            check(dialog.Width == 520 && dialog.Height == 324 && scope.SelectedIndex == 0 && start.Text == "3" && end.Text == "6", "Source range opens with Figma dimensions and real original page bounds");
-            var card = (Border)((Grid)((Grid)format.Parent).Parent).Parent;
-            var formatRect = format.TransformToAncestor(card).TransformBounds(new Rect(0, 0, format.ActualWidth, format.ActualHeight));
-            check(format.ActualHeight == 32 && formatRect.Bottom <= card.ActualHeight, "The entire format selector fits inside the range card");
-            foreach (var asset in new[] { "range-close.svg", "range-spinner-up.svg", "range-spinner-down.svg", "range-format-chevron.svg" })
-            {
-                var icons = Descendants(dialog).OfType<SvgViewbox>().Where(i => i.Source?.ToString().EndsWith(asset, StringComparison.Ordinal) == true).ToArray();
-                check(icons.Length > 0 && icons.All(i => i.Drawings is { Bounds.IsEmpty: false } && i.ActualWidth > 0 && i.ActualHeight > 0), $"{asset} renders its nonempty original Figma drawing");
-            }
-            if (Environment.GetEnvironmentVariable("RANGE_SOURCE_CAPTURE") is { Length: > 0 } sourceCapture) await WindowsSmoke.RenderElementAsync(dialog, sourceCapture);
-            scope.SelectedIndex = 1; await WaitAsync(() => end.Text == "7");
-            check(start.Text == "1" && countCalls == 1, "Braille range counts real pages and starts at the first physical page");
-            if (Environment.GetEnvironmentVariable("RANGE_BRAILLE_CAPTURE") is { Length: > 0 } brailleCapture) await WindowsSmoke.RenderElementAsync(dialog, brailleCapture);
-            check(format.Items.Cast<string>().SequenceEqual([".brf", ".txt — 점자"]), "Braille scope offers BRF and braille TXT without BRL");
-            format.SelectedItem = ".txt — 점자";
-            check(dialog.SelectedFormat == ".txt — 점자" && scope.SelectedIndex == 1, "Braille TXT retains braille scope");
-            scope.SelectedIndex = 0; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            check(format.Items.Cast<string>().SequenceEqual([".txt — 원문", ".md"]) && start.Text == "3" && end.Text == "6",
-                "Original scope offers only TXT and MD and restores original bounds");
-            format.SelectedItem = ".md";
-            check(dialog.SelectedFormat == ".md", "Markdown is selectable for original pages");
-            scope.SelectedIndex = 1; await WaitAsync(() => end.Text == "7");
-            check(countCalls == 1, "Switching formats preserves the computed braille page count");
-        }
-        finally { dialog.Close(); }
-
-        var only = new ExportRangeDialog([], () => Task.FromResult(4), brailleOnly: true, format: ".txt — 점자"); only.Show();
+        var dialog = new ExportRangeDialog([12, 18, 24], () => { countCalls++; return Task.FromResult(640); }, allowFormatChange: true);
+        dialog.Show();
         try
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            var scope = Descendants(only).OfType<SegmentedChoice>().Single();
-            check(scope.SelectedIndex == 1 && !((ListBoxItem)scope.Items[0]).IsEnabled, "Braille preview limits selection to braille pages");
-            if (Environment.GetEnvironmentVariable("RANGE_PREVIEW_CAPTURE") is { Length: > 0 } previewCapture) await WindowsSmoke.RenderElementAsync(only, previewCapture);
+            check(dialog.ActualWidth == 560 && dialog.ActualHeight == 250 && Field(dialog, true).Text == "12" && Field(dialog, false).Text == "24", "Source range opens in the 560×250 Figma window with real document bounds");
+            var card = Tree(dialog).OfType<Border>().Single(b => b.CornerRadius.TopLeft == 8 && b.Child is StackPanel);
+            check(card.TranslatePoint(new Point(), dialog) == new Point(25, 57) && card.ActualWidth == 510 && card.ActualHeight == 120
+                && Field(dialog, true).TranslatePoint(new Point(), dialog) == new Point(203, 101)
+                && Field(dialog, false).TranslatePoint(new Point(), dialog) == new Point(332, 101),
+                "The range card and both 96px number fields align with the design");
+            foreach (var (asset, expected) in new[] { ("range-close.svg", 1), ("layout-step-up.svg", 2), ("layout-step-down.svg", 2) })
+            {
+                var icons = Tree(dialog).OfType<SvgViewbox>().Where(i => i.Source.ToString().EndsWith(asset)).ToArray();
+                check(icons.Length == expected && icons.All(i => i.ActualWidth > 0 && i.ActualHeight > 0 && i.Drawings is { Bounds.IsEmpty: false }), asset + " renders in all original slots");
+            }
+            await Capture("source", "RANGE_SOURCE_CAPTURE");
+            Choice(dialog, "점자 페이지").IsChecked = true;
+            check(countCalls == 1 && Field(dialog, true).Text == "1" && Field(dialog, false).Text == "640" && Tree(dialog).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "총 640면"),
+                "Braille scope calculates and displays the real face count");
+            Field(dialog, true).Text = "31"; Field(dialog, false).Text = "62";
+            await Capture("braille", "RANGE_BRAILLE_CAPTURE");
+            Choice(dialog, ".txt 점자").IsChecked = true;
+            check(dialog.SelectedFormat == ".txt — 점자" && Choice(dialog, "점자 페이지").IsChecked == true, "Braille TXT retains the braille scope");
+            Choice(dialog, "원본 페이지").IsChecked = true; Choice(dialog, ".md").IsChecked = true;
+            check(dialog.SelectedFormat == ".md" && Field(dialog, true).Text == "12" && Field(dialog, false).Text == "24", "Source bounds and Markdown are available when returning to source scope");
+            Choice(dialog, "점자 페이지").IsChecked = true;
+            check(countCalls == 1, "Switching back reuses the successful braille calculation");
         }
-        finally { only.Close(); }
+        finally { dialog.Close(); }
 
-        var failed = new ExportRangeDialog([1, 2], () => Task.FromException<int>(new InvalidOperationException("면 계산 실패")), allowFormatChange: true); failed.Show();
+        var gate = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var delayed = new ExportRangeDialog([2, 5], () => gate.Task, allowFormatChange: true);
+        delayed.Show();
         try
         {
-            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); var scope = Descendants(failed).OfType<SegmentedChoice>().Single(); scope.SelectedIndex = 1;
-            await WaitAsync(() => Descendants(failed).OfType<TextBlock>().Any(t => t.Text == "면 계산 실패"));
-            check(scope.IsEnabled && Descendants(failed).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "면 계산 실패"), "Failed page count reports the error and allows choosing another range");
-            scope.SelectedIndex = 0;
-            check(Descendants(failed).OfType<TextBox>().Any(t => AutomationProperties.GetName(t) == "끝 페이지 번호" && t.Text == "2"), "After a count failure the original page range remains usable");
+            Choice(delayed, "점자 페이지").IsChecked = true;
+            check(!Save(delayed).IsEnabled, "Braille save waits for the physical page count");
+            Choice(delayed, "원본 페이지").IsChecked = true;
+            Field(delayed, true).Text = "4"; gate.SetResult(17);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            check(Save(delayed).IsEnabled && Field(delayed, true).Text == "4" && Field(delayed, false).Text == "5",
+                "An outstanding braille count never overwrites an edited source range");
         }
-        finally { failed.Close(); }
+        finally { delayed.Close(); }
+
+        var attempts = 0;
+        var retry = new ExportRangeDialog([], () => ++attempts == 1 ? Task.FromException<int>(new InvalidOperationException("면 계산 실패")) : Task.FromResult(7), brailleOnly: true, format: ".txt — 점자");
+        retry.Show();
+        try
+        {
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            check(!Choice(retry, "원본 페이지").IsEnabled && !Choice(retry, ".brf").IsEnabled && Choice(retry, ".txt 점자").IsChecked == true, "A preview-only export keeps its format and scope locked");
+            check(Tree(retry).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == "면 계산 실패"), "The range dialog shows a calculation failure");
+            Save(retry).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            check(attempts == 2 && retry.IsVisible && Field(retry, false).Text == "7" && Field(retry, true).IsEnabled, "A failed preview-only count can be retried before choosing a range");
+            if (Environment.GetEnvironmentVariable("RANGE_PREVIEW_CAPTURE") is { Length: > 0 } preview) await WindowsSmoke.RenderAsync(retry, preview);
+        }
+        finally { retry.Close(); }
+
+        async Task Capture(string name, string variable)
+        {
+            if (directory is not null) await WindowsSmoke.RenderAsync(dialog, Path.Combine(Directory.CreateDirectory(Path.Combine(directory, "export-range")).FullName, name + ".png"));
+            if (Environment.GetEnvironmentVariable(variable) is { Length: > 0 } path) await WindowsSmoke.RenderAsync(dialog, path);
+        }
     }
-    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
-    { for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); yield return child; foreach (var nested in Descendants(child)) yield return nested; } }
-    private static async Task WaitAsync(Func<bool> predicate)
-    { var until = DateTime.UtcNow.AddSeconds(5); while (!predicate() && DateTime.UtcNow < until) await Task.Delay(20); if (!predicate()) throw new InvalidOperationException("Range dialog state did not settle"); }
 }

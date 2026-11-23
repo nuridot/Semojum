@@ -24,7 +24,7 @@ internal static class WindowsQa1110BoardChecks
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); host.UpdateLayout();
             if (Environment.GetEnvironmentVariable("QA1110_BOARD_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(host, capture);
             var colors = Enumerable.Range(0, 5).Select(i => ((grid.ItemContainerGenerator.ContainerFromIndex(i) as DataGridRow)?.Background as SolidColorBrush)?.Color).ToArray();
-            check(colors[0] == Color.FromRgb(239, 246, 252) && colors[1] == colors[0] && colors.Skip(2).All(c => c == Colors.White),
+            check(colors[0] == Color.FromRgb(249, 249, 249) && colors[1] == colors[0] && colors.Skip(2).All(c => c == Colors.White),
                 "QA1110: only the top two notice rows have highlighted backgrounds (" + string.Join(",", colors) + ")");
             grid.ItemsSource = rows.Skip(3).ToArray();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); host.UpdateLayout();

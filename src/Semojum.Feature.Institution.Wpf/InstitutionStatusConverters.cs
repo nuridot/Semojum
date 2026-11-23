@@ -50,13 +50,18 @@ public sealed class InstitutionLastSeenConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
 }
 
+public sealed class InstitutionShortDateConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => InstitutionUsage.InKorea(value as string)?.ToString("MM-dd", CultureInfo.InvariantCulture) ?? "—";
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
 /// <summary>One line of the 소속 계정 table: a member account, or an open account-issue request shown in its place.</summary>
 public sealed record InstitutionAccountRow(string LoginId, string? Alias, string Status, string? LastLoginAt, long? UsedCredits, string? Control,
     InstitutionAccount? Account = null, InstitutionRequest? Request = null)
 {
-    // 사용 is this month's usage, compared with the account's monthly limit; an older server only sends the cumulative total.
-    public static InstitutionAccountRow Of(InstitutionAccount a) => new(a.LoginId, a.Alias, a.Status, a.LastLoginAt, a.MonthUsedCredits ?? a.UsedCredits,
-        a.Self ? null : a.Status switch { "ACTIVE" => "잠금", "INACTIVE" => "잠금 해제", _ => null }, Account: a);
+    public string LimitLabel => Account?.CreditLimit?.ToString("N0") ?? (Account?.MonthUsedCredits is not null ? "제한 없음" : "—");
+    public static InstitutionAccountRow Of(InstitutionAccount a) => new(a.LoginId, a.Alias, a.Status, a.LastLoginAt, a.MonthUsedCredits, "상세", Account: a);
     public static InstitutionAccountRow Of(InstitutionRequest r) => new("발급 요청 중", r.Details?.AccountAlias ?? Field(r.Message, "별칭"),
         InstitutionUsage.InKorea(r.CreatedAt) is { } day ? day.ToString("MM-dd", CultureInfo.InvariantCulture) + " 요청" : "요청", null, null,
         r is { Type: "ACCOUNT_ISSUE", Status: "OPEN" } ? "요청 취소" : null, Request: r);

@@ -28,10 +28,17 @@ internal static class WindowsUploadLimitChecks
             using var handler = new Fixture(); using var http = new HttpClient(handler);
             var api = new SemojumApiClient(http); await api.LoginAsync("fixture", "fixture");
             var window = new MainWindow(api, startEmpty: true) { Width = 1440, Height = 1000 }; window.Show();
-            var settingsCount = 0; var modalCount = 0;
+            var settingsCount = 0; var modalCount = 0; var orderCount = 0;
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
             timer.Tick += (_, _) =>
             {
+                var order = Application.Current.Windows.OfType<ImageOrderDialog>().FirstOrDefault(d => d.Owner == window && d.IsVisible);
+                if (order is not null)
+                {
+                    orderCount++;
+                    Descendants(order).OfType<Button>().Single(b => Equals(b.Content, "올리기")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    return;
+                }
                 var settings = Application.Current.Windows.OfType<OpenDocumentDialog>().FirstOrDefault(d => d.Owner == window && d.IsVisible);
                 if (settings is not null) { settingsCount++; settings.DialogResult = false; }
                 var notice = Application.Current.Windows.OfType<NoticeDialog>().FirstOrDefault(d => d.Owner == window && d.IsVisible);
@@ -47,7 +54,7 @@ internal static class WindowsUploadLimitChecks
                 window.OriginalUpload.UploadArea.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Task.Delay(200);
                 var visible = VisibleText(window.OriginalUpload);
-                check(settingsCount == 0 && modalCount == 0 && visible.Contains("100MB를 초과") && visible.Contains("큰이미지.png"),
+                check(settingsCount == 0 && modalCount == 0 && visible.Contains("100MB 를 넘습니다") && visible.Contains("큰이미지.png"),
                     "Picking a file above the limit shows its name in the original panel without opening settings");
                 check(ReferenceEquals(model, window.Session) && model.IsDirty && model.ActiveBlock!.Source == "보존할 미저장 작업" && window.DocumentTabs.Items.Count == tabs && handler.Uploads == 0,
                     "An oversized selection neither starts conversion nor loses the unsaved document");
@@ -65,7 +72,7 @@ internal static class WindowsUploadLimitChecks
                 drop.RoutedEvent = UIElement.DropEvent; window.OriginalUpload.UploadArea.RaiseEvent(drop);
                 await Task.Delay(200);
                 visible = VisibleText(window.OriginalUpload);
-                check(settingsCount == 0 && modalCount == 0 && visible.Contains("100MB를 초과") && visible.Contains("큰이미지.png (101MB)") && !visible.Contains("추가이미지.png"),
+                check(settingsCount == 0 && modalCount == 0 && visible.Contains("100MB 를 넘습니다") && visible.Contains("큰이미지.png (101MB)") && !visible.Contains("추가이미지.png"),
                     "Dropping several images where one exceeds the per-file limit names that file in the inline warning");
                 check(ReferenceEquals(model, window.Session) && model.IsDirty && handler.Uploads == 0, "An oversized drop preserves unsaved work and does not upload");
                 using (var file = new FileStream(large, FileMode.Open, FileAccess.Write)) file.SetLength(JobClient.MaximumUploadBytes);
@@ -73,7 +80,7 @@ internal static class WindowsUploadLimitChecks
                 window.OriginalUpload.UploadArea.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Task.Delay(200);
                 visible = VisibleText(window.OriginalUpload);
-                check(settingsCount == 1 && !visible.Contains("100MB를 초과"), "Exactly 100 MiB is accepted and clears an earlier warning");
+                check(settingsCount == 1 && !visible.Contains("100MB 를 넘습니다"), "Exactly 100 MiB is accepted and clears an earlier warning");
                 async Task DropAsync(params string[] files)
                 {
                     var args = (DragEventArgs)ctor.Invoke([new DataObject(DataFormats.FileDrop, files), DragDropKeyStates.LeftMouseButton, DragDropEffects.Copy, window.OriginalUpload.UploadArea, new Point(1, 1)]);
@@ -84,12 +91,12 @@ internal static class WindowsUploadLimitChecks
                 using (var file = new FileStream(extra, FileMode.Open, FileAccess.Write)) file.SetLength(JobClient.MaximumUploadBytes);
                 await DropAsync(large, extra);
                 visible = VisibleText(window.OriginalUpload);
-                check(settingsCount == 1 && modalCount == 0 && visible.Contains("100MB를 초과") && visible.Contains("이미지 2장 합계 (200MB)") && handler.Uploads == 0,
+                check(settingsCount == 1 && modalCount == 0 && visible.Contains("100MB 를 넘습니다") && visible.Contains("이미지 2장 합계 (200MB)") && handler.Uploads == 0,
                     "Two images of exactly 100 MiB each (200 MiB together) exceed the 100 MB total and name it inline without opening settings");
                 using (var file = new FileStream(large, FileMode.Open, FileAccess.Write)) file.SetLength(JobClient.MaximumUploadBytes / 2);
                 using (var file = new FileStream(extra, FileMode.Open, FileAccess.Write)) file.SetLength(JobClient.MaximumUploadBytes / 2);
                 await DropAsync(large, extra);
-                check(settingsCount == 2 && !VisibleText(window.OriginalUpload).Contains("100MB를 초과") && handler.Uploads == 0,
+                check(settingsCount == 2 && orderCount == 1 && !VisibleText(window.OriginalUpload).Contains("100MB 를 넘습니다") && handler.Uploads == 0,
                     "Two images of exactly 100 MiB together reach settings, clear the warning and do not upload");
             }
             finally { timer.Stop(); await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }

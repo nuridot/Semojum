@@ -101,31 +101,31 @@ public partial class MainWindow
         try
         {
             // Missing/unreachable version metadata must not prevent sign-in.
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            try { if (preferences.AutoCheckUpdates) availableVersion = AppVersionInfo.Read(await api.GetPublicAsync("/api/public/app-version", timeout.Token)); }
-            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or SemojumApiException or System.IO.InvalidDataException or JsonException or KeyNotFoundException) { }
-            if (availableVersion?.Required(CurrentVersion) == true)
+            var initialAccount = api.SessionMarker;
+            if (await CheckStartupReleaseAsync()) return;
+            Version? prompted = null;
+            async Task PromptIfNewAsync()
             {
-                await DownloadUpdateAsync();
-                var notice = "필수 업데이트가 필요합니다.\n" + updateStatus;
-                if (UpdateRequiredNoticeForChecks is { } showNotice) showNotice(notice);
-                else NoticeDialog.Choose(this, "필수 업데이트가 필요합니다.", updateStatus.Length > 0 ? updateStatus : "업데이트 후 다시 실행해 주세요.", ["확인"], error: true);
-                if (!await ConfirmAllDocumentsAsync())
-                {
-                    session.Status = "필수 업데이트가 필요합니다. 작업을 저장한 뒤 다시 실행해 주세요.";
-                    return;
-                }
-                allowClose = true; Close(); return;
+                if (availableVersion is not { } info || !info.Available(CurrentVersion) || info.Latest == prompted) return;
+                prompted = info.Latest;
+                session.Status = $"새 버전 {info.Latest}이 있습니다. 버전 정보에서 확인해 주세요.";
+                await ShowVersionAsync(startup: true);
+            }
+            if (initialAccount is null)
+            {
+                IsEnabled = windowWasEnabled;
+                await PromptIfNewAsync();
+                if (resourcesReleased || !IsVisible) return;
             }
             await TryAutomaticLoginAsync();
             if (resourcesReleased || !IsVisible) return;
             IsEnabled = windowWasEnabled; content.IsEnabled = true;
             if (!await EnsureAccountAsync(allowInstitution: true)) { allowClose = true; if (IsVisible) Close(); return; }
             LoadAccountPreferences();
+            if (initialAccount != api.SessionMarker && await CheckStartupReleaseAsync()) return;
+            await PromptIfNewAsync();
             if (preferences.WorkFolder is not null) await OpenWorkFolderAsync(false);
             await RestoreActiveJobAsync();
-            if (availableVersion?.Available(CurrentVersion) == true)
-                session.Status = $"새 버전 {availableVersion.Latest}이 있습니다. 버전 정보에서 확인해 주세요.";
         }
         catch (Exception ex) { ShowError(ex); }
         finally { accountStarting = false; IsEnabled = windowWasEnabled; content.IsEnabled = true; }
@@ -137,7 +137,7 @@ public partial class MainWindow
         automaticLoginMessage = result.Message;
         if (result.Account is not null) RefreshAccount();
     }
-    private void ShowVersion()
+    private async Task ShowVersionAsync(bool startup = false)
     {
         var message = $"누리닷 {CurrentVersion.ToString(3)}\n";
         if (availableVersion is not { } info) { NoticeDialog.Choose(this, "버전 정보를 확인할 수 없습니다.", message + "버전 정보가 등록되지 않았거나 서버에 연결할 수 없습니다.", ["확인"]); return; }
@@ -148,18 +148,49 @@ public partial class MainWindow
         if (info.DownloadUrl is null) { NoticeDialog.Choose(this, "업데이트 다운로드 주소가 아직 등록되지 않았습니다.", message.TrimEnd() + "\n관리자에게 문의해 주세요.", ["확인"], height: 316); return; }
         var question = message + "\n\n업데이트를 다운로드하시겠습니까?";
         if ((UpdateConfirmationForChecks is { } confirm) ? confirm(question) == MessageBoxResult.Yes
-            : NoticeDialog.Choose(this, "업데이트를 다운로드하시겠습니까?", message.TrimEnd(), ["다운로드", "취소"], height: 316) == 0)
-            _ = DownloadUpdateAsync();
+            : NoticeDialog.Choose(this, startup ? $"새 버전 {info.Latest}이 있습니다." : "업데이트를 다운로드하시겠습니까?",
+                message.TrimEnd(), ["다운로드", startup ? "나중에" : "취소"], height: 316) == 0)
+            await DownloadUpdateAsync();
     }
     private async Task CheckVersionAsync()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        availableVersion = AppVersionInfo.Read(await api.GetPublicAsync("/api/public/app-version", timeout.Token));
-        ShowVersion();
+        availableVersion = await ReadReleaseAsync();
+        await ShowVersionAsync();
+    }
+
+    private async Task<AppVersionInfo?> ReadReleaseAsync()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(appLifetime.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(8));
+        if (api.SessionMarker is not { } marker)
+            return AppVersionInfo.Read(await api.GetPublicAsync("/api/public/app-version", timeout.Token));
+        var path = "/api/releases/latest?platform=WINDOWS&channel=STABLE&currentVersion=" + CurrentVersion.ToString(3);
+        var release = await api.SendAuthenticatedAsync(HttpMethod.Get, path, cancellationToken: timeout.Token, expectedSession: marker);
+        return AppVersionInfo.Read(release, scopedRelease: true);
+    }
+
+    private async Task<bool> CheckStartupReleaseAsync()
+    {
+        if (!preferences.AutoCheckUpdates) { availableVersion = null; return false; }
+        try { availableVersion = await ReadReleaseAsync(); }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or SemojumApiException or System.IO.InvalidDataException or JsonException or KeyNotFoundException)
+        {
+            // A public release already found before sign-in applies to every account.
+            return false;
+        }
+        if (availableVersion?.Required(CurrentVersion) != true) return false;
+        await DownloadUpdateAsync();
+        var notice = "필수 업데이트가 필요합니다.\n" + updateStatus;
+        if (UpdateRequiredNoticeForChecks is { } showNotice) showNotice(notice);
+        else NoticeDialog.Choose(this, "필수 업데이트가 필요합니다.", updateStatus.Length > 0 ? updateStatus : "업데이트 후 다시 실행해 주세요.", ["확인"], error: true);
+        if (await ConfirmAllDocumentsAsync()) { allowClose = true; Close(); }
+        else session.Status = "필수 업데이트가 필요합니다. 작업을 저장한 뒤 다시 실행해 주세요.";
+        return true;
     }
     internal Func<Task>? LogoutForChecks { get; set; }
     internal Action<string>? LogoutCredentialErrorForChecks { get; set; }
-    private async Task LogoutAccountAsync()
+    private Task LogoutAccountAsync() => FinishLogoutAsync(false);
+    private async Task FinishLogoutAsync(bool credentialsRevoked)
     {
         if (!IsEnabled || resourcesReleased) return;
         CompleteSourceInput();
@@ -168,6 +199,18 @@ public partial class MainWindow
         foreach (var item in locked) item.Window.IsEnabled = false;
         try
         {
+            if (credentialsRevoked)
+            {
+                try
+                {
+                    if (!smoke && api.GetOwnedSessionCredential() is { } credential) accountCredentials.DeleteIfMatches(credential);
+                }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or System.IO.IOException or UnauthorizedAccessException)
+                { session.Status = "저장된 로그인 정보를 지우지 못했습니다. " + ex.Message; }
+                try { await api.LogoutAsync(); }
+                catch (Exception ex) when (ex is HttpRequestException or SemojumApiException or OperationCanceledException) { }
+                appEvents?.Disable(); eventDocuments.Clear(); RefreshAccount();
+            }
             var previous = openDocument;
             var confirmed = new List<(OpenDocument Context, long Version)>();
             foreach (var context in openDocuments.ToArray())
@@ -183,9 +226,12 @@ public partial class MainWindow
             if (previous is not null && openDocuments.Contains(previous)) SetSession(previous.Model, previous.Path, previous.ShowOriginal);
             try
             {
-                if (LogoutForChecks is not null) await LogoutForChecks();
-                else if (smoke) await api.LogoutAsync();
-                else await AutomaticLogin.LogoutAsync(api, accountCredentials);
+                if (!credentialsRevoked)
+                {
+                    if (LogoutForChecks is not null) await LogoutForChecks();
+                    else if (smoke) await api.LogoutAsync();
+                    else await AutomaticLogin.LogoutAsync(api, accountCredentials);
+                }
             }
             catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or System.IO.IOException or UnauthorizedAccessException)
             {
@@ -216,7 +262,7 @@ public partial class MainWindow
         var model = BlankDocument(); model.Title = title; model.ActiveBlock!.Source = text;
         await ConfigureTextJobAsync(model);
         model.IsDirty = text.Length > 0;
-        SetSession(model, null, true, showUpload: true);
+        SetSession(model, null, false);
         session.Status = "새 텍스트 작업 · AI·크레딧 사용 없음 · Ctrl+S로 저장";
     }
     private async Task ConfigureTextJobAsync(DocumentSession model, DocumentSession? selectedSettings = null, string? formId = null)

@@ -19,11 +19,34 @@ public sealed record BoardRow(long PostId, string Title, int AnswerCount, string
     public string DisplayTitle => (Secret ? "비밀 · " : "") + Title + (AnswerCount > 0 ? $" ({AnswerCount})" : "");
 }
 public sealed record BoardPage(int Page, int TotalCount, BoardRow[] Notices, BoardRow[] Items);
-public sealed record BoardNotification(long NotificationId, long PostId, string Title, int AnswerCount, string LastAnsweredAt, bool Read)
+public abstract record BoardAlert(string Title, bool Read)
 {
+    public abstract string Timestamp { get; }
+    public DateTime? LocalTime
+    {
+        get
+        {
+            if (!DateTime.TryParse(Timestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var value)) return null;
+            if (value.Kind != DateTimeKind.Unspecified) return value.ToLocalTime();
+            // The board API writes offset-free timestamps in Korea Standard Time. Older date-only rows carry no time.
+            return Timestamp.Length <= 10 ? value : new DateTimeOffset(value, TimeSpan.FromHours(9)).LocalDateTime;
+        }
+    }
+}
+public sealed record BoardNoticeAlert(string NoticeId, string Title, string CreatedAt, bool Important, bool Read) : BoardAlert(Title, Read)
+{
+    public override string Timestamp => CreatedAt;
+}
+public sealed record BoardNotification(long NotificationId, long PostId, string Title, int AnswerCount, string LastAnsweredAt, bool Read) : BoardAlert(Title, Read)
+{
+    public override string Timestamp => LastAnsweredAt;
     public string Display => $"{(Read ? "" : "● ")}{PostId}. {Title}\n운영자 답변 {AnswerCount}건 · {LastAnsweredAt}";
 }
-public sealed record BoardNotifications(int UnreadCount, BoardNotification[] Items);
+public sealed record BoardNotifications(int UnreadCount, BoardNotification[] Items, BoardNoticeAlert[]? Notices = null)
+{
+    public IEnumerable<BoardAlert> Entries => Items.Cast<BoardAlert>().Concat(Notices ?? [])
+        .OrderByDescending(n => n.LocalTime);
+}
 
 /// <summary>Post categories in the Figma order; the server takes and returns the code (null for posts written before categories).</summary>
 public static class BoardCategories
@@ -63,7 +86,8 @@ public sealed class BoardClient(SemojumApiClient api) : IBoardListSource
     public async Task<BoardNotifications> NotificationsAsync(CancellationToken ct = default)
     {
         var result = Read<BoardNotifications>(await api.SendAuthenticatedAsync(HttpMethod.Get, "/api/board/notifications", cancellationToken: ct));
-        if (result.Items is null || result.UnreadCount < 0 || result.Items.Any(n => n is null || n.PostId < 1 || n.NotificationId < 1 || n.Title is null))
+        if (result.Items is null || result.UnreadCount < 0 || result.Items.Any(n => n is null || n.PostId < 1 || n.NotificationId < 1 || n.Title is null)
+            || result.Notices?.Any(n => n is null || string.IsNullOrWhiteSpace(n.NoticeId) || n.Title is null) == true)
             throw new InvalidDataException("알림 목록의 서버 응답을 확인할 수 없습니다. 다시 불러와 주세요.");
         return result;
     }

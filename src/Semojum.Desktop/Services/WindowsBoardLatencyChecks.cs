@@ -22,6 +22,8 @@ internal static class WindowsBoardLatencyChecks
         {
             if (request.RequestUri!.AbsolutePath.EndsWith("/login"))
                 return Json("{\"isSuccess\":true,\"result\":{\"accessToken\":\"a\",\"refreshToken\":\"r\",\"role\":\"ROLE_USER\"}}");
+            if (request.RequestUri.AbsolutePath == "/api/board/notifications")
+                return Json("{\"isSuccess\":true,\"result\":{\"unreadCount\":0,\"items\":[]}}");
             LastQuery = request.RequestUri.Query;
             if (BlockList)
             {

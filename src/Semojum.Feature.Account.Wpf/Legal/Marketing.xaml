@@ -1,0 +1,27 @@
+<?xml version='1.0' encoding='utf-8'?>
+<FlowDocument xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" FontSize="12" LineHeight="18" TextAlignment="Left" PagePadding="0" ColumnWidth="10000" Foreground="#1A1A1A">
+  <Paragraph Margin="0,0,0,12" FontSize="22" FontWeight="Bold" LineHeight="30">
+    <Run Text="광고성 정보 이메일 수신 동의" />
+  </Paragraph>
+  <Paragraph Margin="0,0,0,12">
+    <Run Text="[선택] 동의하지 않아도 가입과 서비스 이용에 제한이 없습니다." />
+  </Paragraph>
+  <Paragraph Margin="0,16,0,10" FontSize="16" FontWeight="Bold" LineHeight="24">
+    <Run Text="1. 수신 목적" />
+  </Paragraph>
+  <Paragraph Margin="0,0,0,12">
+    <Run Text="새 소식, 할인 쿠폰, 이벤트 및 프로모션 안내 등 광고성 정보 제공" />
+  </Paragraph>
+  <Paragraph Margin="0,16,0,10" FontSize="16" FontWeight="Bold" LineHeight="24">
+    <Run Text="2. 수신 방법" />
+  </Paragraph>
+  <Paragraph Margin="0,0,0,12">
+    <Run Text="이메일 (입력하신 이메일 주소)" />
+  </Paragraph>
+  <Paragraph Margin="0,16,0,10" FontSize="16" FontWeight="Bold" LineHeight="24">
+    <Run Text="3. 철회 안내" />
+  </Paragraph>
+  <Paragraph Margin="0,0,0,12">
+    <Run Text="마이페이지 또는 이메일 아래의 「수신 거부」 링크로 언제든 동의를 철회할 수 있습니다." />
+  </Paragraph>
+</FlowDocument>

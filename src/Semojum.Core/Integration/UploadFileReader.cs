@@ -8,7 +8,7 @@ public static class UploadFileReader
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in paths)
-            if (!names.Add(Path.GetFileName(path)))
+            if (!names.Add(DisplayFileName.Normalize(Path.GetFileName(path))))
                 throw new ArgumentException("이름이 같은 파일은 함께 올릴 수 없습니다. 파일 이름을 다르게 변경해 주세요.");
     }
 

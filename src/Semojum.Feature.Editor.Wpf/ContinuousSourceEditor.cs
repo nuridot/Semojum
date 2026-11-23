@@ -13,7 +13,7 @@ namespace Semojum.Desktop.Controls;
 /// <summary>Native text selection/IME across a source page, backed by the same block models.</summary>
 public sealed class ContinuousSourceEditor : DockPanel, IDisposable
 {
-    public TextEditor Editor { get; } = new() { ShowLineNumbers = true, WordWrap = true, FontSize = 16, Padding = new(0), VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    public TextEditor Editor { get; } = new() { ShowLineNumbers = true, WordWrap = true, FontSize = 16, Padding = new(0), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     public Action<BlockSpan[], string>? Replace { get; set; }
     public Action<bool>? Replay { get; set; }
     public Action? InsertPageBreak { get; set; }
@@ -33,7 +33,7 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
     private EditorBlock[] linkedRegionBlocks = [];
     internal IReadOnlyList<(int Start, int Length)> LinkedRegionRanges()
     {
-        if (ProjectionPending() || model is null || Editor.Text != BlockRange.Text(Blocks(), SearchPanel.Text)) return [];
+        if (linkedRegionBlocks.Length == 0 || ProjectionPending() || model is null || Editor.Text != BlockRange.Text(Blocks(), SearchPanel.Text)) return [];
         var ranges = new List<(int, int)>(); var offset = 0;
         foreach (var block in Blocks())
         {
@@ -61,6 +61,7 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
         // Figma 훑어보기 띠: an independent 12px column right of the text, visible even when
         // nothing scrolls. It replaces the hidden native vertical scrollbar for mouse and UIA;
         // the hidden (not disabled) scroll viewer keeps keyboard, wheel and UIA scrolling.
+        Editor.Resources[typeof(ScrollViewer)] = (Style)FindResource("EditorDocumentScrollStyle");
         overview = new ReviewOverview(Editor, OverviewMarkers);
         SetDock(overview, Dock.Right); Children.Add(overview); Children.Add(Editor);
         ColoredLineNumbers.SetReviewProvider(Editor.TextArea.TextView, ReviewKindForLine);
@@ -69,7 +70,9 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
         Editor.TextArea.TextView.CurrentLineBackground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 245, 163));
         Editor.TextArea.TextView.CurrentLineBorder = null;
         Editor.TextArea.TextView.LineTransformers.Add(new TagColorizer());
-        Editor.TextArea.TextView.LineTransformers.Add(new RegionHighlight(Editor, LinkedRegionRanges));
+        var region = new RegionHighlight(Editor, LinkedRegionRanges);
+        Editor.TextArea.TextView.LineTransformers.Add(region);
+        Editor.TextArea.TextView.BackgroundRenderers.Add(region);
         Editor.TextArea.TextView.ElementGenerators.Add(new IndentTagGenerator());
         Editor.TextArea.TextView.BackgroundRenderers.Add(new ReviewRangeRenderer(ReviewRanges, () => ShowReviews, () => (Editor.SelectionStart, Editor.SelectionLength)));
         Editor.Document.UndoStack.SizeLimit = 0;
@@ -89,7 +92,7 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
             try
             {
                 var spans = BlockRange.Select(Blocks(), SearchPanel.Text, e.Offset, e.RemovalLength);
-                if (model.IsReadOnly || spans.Any(s => s.Block.Metadata.IsBlocked)) throw new ArgumentException("읽기 전용 구간입니다.");
+                if (model.IsReadOnly || model.IsConversionFailed(page) || spans.Any(s => s.Block.Metadata.IsBlocked)) throw new ArgumentException("읽기 전용 구간입니다.");
                 Replace?.Invoke(spans, e.InsertedText.Text);
             }
             catch (Exception ex) { model.Status = ex.Message; }
@@ -107,7 +110,7 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
         Editor.AddHandler(CommandManager.PreviewCanExecuteEvent, new CanExecuteRoutedEventHandler((_, e) =>
         {
             if (e.Command != ApplicationCommands.Undo && e.Command != ApplicationCommands.Redo) return;
-            e.CanExecute = model?.IsReadOnly == false; e.Handled = true;
+            e.CanExecute = model?.IsReadOnly == false && !model.IsConversionFailed(page); e.Handled = true;
         }));
         Editor.AddHandler(CommandManager.PreviewExecutedEvent, new ExecutedRoutedEventHandler((_, e) =>
         {
@@ -115,7 +118,8 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
             Replay?.Invoke(e.Command == ApplicationCommands.Redo); QueueRefresh(); e.Handled = true;
         }));
     }
-    private EditorBlock[] Blocks() => model?.Blocks.Where(b => b.Page == page).ToArray() ?? [];
+    private EditorBlock[] Blocks() => model is null || model.IsConversionFailed(page)
+        ? [] : model.Blocks.Where(b => b.Page == page).ToArray();
     internal bool TryGetPageCaretPosition(int expectedPage, out int line, out int column)
     {
         line = column = 0;
@@ -191,6 +195,7 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
     {
         if (IsSynchronizing || model?.ActiveBlock is not { } block) return;
         page = block.Page; Refresh();
+        if (model.IsConversionFailed(page)) return;
         var start = Blocks().TakeWhile(b => b != block).Sum(b => b.Source.Length + 1);
         var local = Math.Clamp(offset ?? block.SourceCaret, 0, block.Source.Length);
         syncing = true;
@@ -250,7 +255,7 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
     {
         if (e.PropertyName == nameof(DocumentSession.ActiveBlock) && model?.ActiveBlock?.Page is { } p && page != p)
         { page = p; QueueRefresh(); }
-        if (e.PropertyName == nameof(DocumentSession.IsReadOnly)) QueueRefresh();
+        if (e.PropertyName is nameof(DocumentSession.IsReadOnly) or nameof(DocumentSession.PageStatuses) or nameof(DocumentSession.CreditNotice)) QueueRefresh();
     }
     private void BlocksChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -288,7 +293,7 @@ public sealed class ContinuousSourceEditor : DockPanel, IDisposable
                 var offset = Editor.CaretOffset;
                 Editor.Text = text; Editor.CaretOffset = Math.Min(offset, text.Length);
             }
-            Editor.IsReadOnly = model.IsReadOnly;
+            Editor.IsReadOnly = model.IsReadOnly || model.IsConversionFailed(page);
         }
         finally
         {

@@ -4,16 +4,19 @@ using System.Text.Json;
 
 namespace Semojum.Core;
 
-public sealed record EditorAppearance(string TextColor = "#1F1F1F", string BackgroundColor = "#FFFFFF", string CurrentLineColor = "#FFF5A3",
+public sealed record EditorAppearance(string TextColor = "#1A1A1A", string BackgroundColor = "#FFFFFF", string CurrentLineColor = "#F2F6FB",
     string SelectionColor = "#CCE4F7", string FontFamily = "Pretendard", double TextSize = 14, double BrailleSize = 22,
     double LineSpacing = 1.3, double CursorWidth = 2, bool HighContrast = false, bool SpeakDots = false, int SpeechRate = 0,
-    string SelectionTextColor = "#1F1F1F", string BrailleColor = "#1F1F1F", string MarkerColor = "#808080",
-    string LineNumberColor = "#5F646D", string LineNumberBackground = "#FAFAFA", string TagColor = "#5F5F5F",
+    string SelectionTextColor = "#1A1A1A", string BrailleColor = "#1A1A1A", string MarkerColor = "#005FB8",
+    string LineNumberColor = "#8A8A8A", string LineNumberBackground = "#FAFAFA", string TagColor = "#005FB8",
     string OutlineColor = "#C42B1C", double OutlineWidth = 1, bool Bold = false, bool ShowLineNumbers = true,
     bool ShowFormattingMarks = true, int RecentCount = 10, bool ShowToolbar = true);
 public sealed record OutputPreferences(PageLayout? Layout = null, string LineBreakUnit = "syllable", bool Duplex = true);
 public sealed record AccountPreferences(string SixDotKeys = "F D S J K L", bool SpaceEnabled = true, bool EnterEnabled = true,
-    string[]? TextSnippets = null, string[]? BrailleSnippets = null, EditorAppearance? Appearance = null, OutputPreferences? Output = null);
+    string[]? TextSnippets = null, string[]? BrailleSnippets = null, EditorAppearance? Appearance = null, OutputPreferences? Output = null)
+{
+    public bool UseCustomSixDotKeys { get; init; }
+}
 
 /// <summary>Device-local account preferences. This stores no document snapshots or authentication tokens.</summary>
 public sealed class AccountPreferenceStore(string directory)
@@ -26,7 +29,7 @@ public sealed class AccountPreferenceStore(string directory)
         if (!File.Exists(path)) return new();
         if (new FileInfo(path).Length > 1024 * 1024) throw new InvalidDataException("계정 설정 파일이 너무 큽니다.");
         var value = JsonSerializer.Deserialize<AccountPreferences>(File.ReadAllText(path), Json) ?? new();
-        Validate(value); return value with { SixDotKeys = SixDotInput.MigrateLegacyPreset(value.SixDotKeys) };
+        Validate(value); return value with { SixDotKeys = value.UseCustomSixDotKeys ? value.SixDotKeys : SixDotInput.MigrateLegacyPreset(value.SixDotKeys) };
     }
     public async Task SaveAsync(string loginId, AccountPreferences value)
     {

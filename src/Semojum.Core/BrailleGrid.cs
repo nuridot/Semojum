@@ -6,7 +6,7 @@ public sealed record BrailleGridFace(int Number, GridCell?[][] Rows, string[]? T
 /// <summary>Reversible editing coordinates. Soft wraps and blank padding never enter stored block text.</summary>
 public static class BrailleGrid
 {
-    public static IReadOnlyList<BrailleGridFace> FromComposition(ComposedBraille composition, IReadOnlyList<EditorBlock> blocks, PageLayout layout)
+    public static IReadOnlyList<BrailleGridFace> FromComposition(ComposedBraille composition, IReadOnlyList<EditorBlock> blocks, PageLayout layout, IReadOnlySet<int>? failedPages = null)
     {
         var byId = blocks.ToDictionary(b => b.Id);
         return (composition.Pages ?? []).Select((page, index) =>
@@ -18,6 +18,8 @@ public static class BrailleGrid
                 GridCell? Cell(CellAddress? address, char value, bool insertion)
                 {
                     if (address is null || !byId.TryGetValue(address.BlockId, out var b)) return null;
+                    // A failed page uses display-only cells, including a blank row when no OCR result exists.
+                    if (failedPages?.Contains(b.Page) == true) return new(b, 0, '⠀', insertion);
                     if (address.Offset < 0 || address.Offset > b.Braille.Length || !insertion && address.Offset == b.Braille.Length)
                         throw new InvalidDataException("조판 좌표가 편집 내용과 일치하지 않습니다.");
                     if (!insertion && b.Braille[address.Offset] != value && !(b.Braille[address.Offset] is ' ' or '\t' && value == '⠀'))
@@ -43,7 +45,33 @@ public static class BrailleGrid
         }).ToArray();
     }
 
-    public static IReadOnlyList<BrailleGridFace> Project(IEnumerable<EditorBlock> blocks, PageLayout layout)
+    /// <summary>Hide a failed page without changing its stored text or the layout of neighbouring pages.</summary>
+    public static IReadOnlyList<BrailleGridFace> HideFailedPages(IReadOnlyList<BrailleGridFace> faces, IReadOnlySet<int> failedPages)
+    {
+        return faces.Select(face =>
+        {
+            var rows = face.Rows.ToArray();
+            var text = face.Text?.ToArray();
+            for (var y = 0; y < rows.Length; y++)
+            {
+                var row = rows[y];
+                if (!row.Any(cell => cell is not null && failedPages.Contains(cell.Block.Page))) continue;
+                var visible = row.ToArray();
+                var line = text?[y].ToCharArray();
+                for (var x = 0; x < row.Length; x++)
+                {
+                    if (row[x] is not { } cell || !failedPages.Contains(cell.Block.Page)) continue;
+                    visible[x] = null;
+                    if (line is not null && x < line.Length) line[x] = '⠀';
+                }
+                rows[y] = visible;
+                if (line is not null) text![y] = new string(line);
+            }
+            return face with { Rows = rows, Text = text };
+        }).ToArray();
+    }
+
+    public static IReadOnlyList<BrailleGridFace> Project(IEnumerable<EditorBlock> blocks, PageLayout layout, IReadOnlySet<int>? failedPages = null)
     {
         layout.Validate();
         var faces = new List<BrailleGridFace>();
@@ -54,7 +82,7 @@ public static class BrailleGrid
             rows.Add(row); row = new GridCell?[layout.Columns]; column = 0;
             if (rows.Count == layout.Lines) { faces.Add(new(layout.StartPage + faces.Count, rows.ToArray())); rows.Clear(); }
         }
-        foreach (var block in blocks.Where(b => !b.Metadata.IsBlocked))
+        foreach (var block in blocks.Where(b => !b.Metadata.IsBlocked || failedPages?.Contains(b.Page) == true))
         {
             // A block boundary starts a new editing line. Padding is view-only.
             if (column > 0) FlushRow();

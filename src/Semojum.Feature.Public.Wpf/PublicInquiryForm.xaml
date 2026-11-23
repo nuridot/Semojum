@@ -1,0 +1,71 @@
+<UserControl x:Class="Semojum.Desktop.Dialogs.PublicInquiryForm" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Foreground="#1A1A1A" FontFamily="{StaticResource InterfaceFont}" FontSize="14">
+  <UserControl.Resources>
+    <Style x:Key="Field" TargetType="TextBox">
+      <Setter Property="Height" Value="32"/><Setter Property="FontSize" Value="14"/><Setter Property="Padding" Value="12,0"/>
+      <Setter Property="Background" Value="White"/><Setter Property="Foreground" Value="#1A1A1A"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox">
+        <Border x:Name="Frame" BorderBrush="#D1D1D1" BorderThickness="1" Background="{TemplateBinding Background}" CornerRadius="4">
+          <Grid Margin="{TemplateBinding Padding}"><ScrollViewer x:Name="PART_ContentHost" Focusable="False"/>
+            <TextBlock x:Name="Hint" Text="{TemplateBinding Tag}" Visibility="Collapsed" IsHitTestVisible="False" Foreground="#8A8A8A"
+                       VerticalAlignment="{TemplateBinding VerticalContentAlignment}" TextTrimming="CharacterEllipsis"/>
+          </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="Text" Value=""><Setter TargetName="Hint" Property="Visibility" Value="Visible"/></Trigger>
+          <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="#005FB8"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="CategoryChoice" TargetType="ListBoxItem">
+      <Setter Property="FontSize" Value="14"/><Setter Property="Margin" Value="0,0,16,0"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+        <Border x:Name="FocusFrame" BorderBrush="Transparent" BorderThickness="1" CornerRadius="4" MinHeight="20" Background="Transparent">
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <Grid Width="16" Height="16"><Ellipse x:Name="Circle" Stroke="#5F5F5F" Fill="White"/><Ellipse x:Name="Dot" Fill="White" Width="6" Height="6" Visibility="Hidden"/></Grid>
+            <ContentPresenter VerticalAlignment="Center" Margin="8,0,0,0"/>
+          </StackPanel>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsSelected" Value="True"><Setter TargetName="Circle" Property="Fill" Value="#005FB8"/><Setter TargetName="Circle" Property="Stroke" Value="#005FB8"/><Setter TargetName="Dot" Property="Visibility" Value="Visible"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusFrame" Property="BorderBrush" Value="#005FB8"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </UserControl.Resources>
+  <StackPanel>
+    <TextBlock x:Name="Heading" Text="문의하기" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" Visibility="Collapsed"/>
+    <Grid x:Name="Rows">
+      <Grid.ColumnDefinitions><ColumnDefinition x:Name="LabelWidth" Width="150"/><ColumnDefinition Width="12"/><ColumnDefinition/></Grid.ColumnDefinitions>
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <TextBlock Grid.Row="0" Text="분류" VerticalAlignment="Center" TextWrapping="Wrap"/>
+      <ListBox x:Name="CategoryList" Grid.Column="2" Grid.Row="0" AutomationProperties.Name="분류" Background="Transparent" BorderThickness="0" Padding="0"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+               ItemContainerStyle="{StaticResource CategoryChoice}" KeyboardNavigation.DirectionalNavigation="Cycle">
+        <ListBox.Template><ControlTemplate TargetType="ListBox"><ItemsPresenter/></ControlTemplate></ListBox.Template>
+        <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
+      </ListBox>
+      <TextBlock Grid.Row="2" Text="답 받을 주소" VerticalAlignment="Center" TextWrapping="Wrap"/>
+      <TextBox x:Name="EmailInput" Grid.Column="2" Grid.Row="2" Style="{StaticResource Field}" MaxLength="100" Tag="name@example.org" AutomationProperties.Name="답 받을 주소"/>
+      <TextBlock Grid.Row="4" Text="기관명 (선택)" VerticalAlignment="Center" TextWrapping="Wrap"/>
+      <TextBox x:Name="OrganizationInput" Grid.Column="2" Grid.Row="4" Style="{StaticResource Field}" MaxLength="100" Tag="기관명" AutomationProperties.Name="기관명"/>
+      <TextBlock Grid.Row="6" Text="제목" VerticalAlignment="Center" TextWrapping="Wrap"/>
+      <TextBox x:Name="TitleInput" Grid.Column="2" Grid.Row="6" Style="{StaticResource Field}" MaxLength="200" Tag="제목 (200자)" AutomationProperties.Name="제목"/>
+      <TextBlock Grid.Row="8" Text="내용" VerticalAlignment="Top" TextWrapping="Wrap"/>
+      <TextBox x:Name="MessageInput" Grid.Column="2" Grid.Row="8" Style="{StaticResource Field}" Height="140" VerticalContentAlignment="Top" Padding="12,8" MaxLength="2000"
+               Tag="내용 (2,000자)" AutomationProperties.Name="내용" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+      <TextBlock Grid.Row="10" Text="첨부" VerticalAlignment="Center" TextWrapping="Wrap"/>
+      <StackPanel Grid.Column="2" Grid.Row="10">
+        <WrapPanel><Button x:Name="AttachmentButton" Content="파일 추가" AutomationProperties.Name="파일 첨부" AutomationProperties.AutomationId="PublicInquiryAttachment"/>
+          <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" FontSize="12" Foreground="#5F5F5F" Text="최대 3개 · 10MB"/>
+        </WrapPanel>
+        <ListBox x:Name="AttachedFiles" MaxHeight="90" Margin="0,6,0,0" Visibility="Collapsed" AutomationProperties.AutomationId="PublicInquiryAttachments" AutomationProperties.Name="첨부한 파일"/>
+      </StackPanel>
+      <CheckBox x:Name="Consent" Grid.Column="2" Grid.Row="12" MinHeight="20" VerticalAlignment="Center" AutomationProperties.AutomationId="PublicInquiryConsent"
+                AutomationProperties.Name="개인정보 수집·이용에 동의합니다 (답변 목적 · 1년 보관)">
+        <TextBlock Text="개인정보 수집 · 이용에 동의합니다 (답변 목적 · 1년 보관)" TextWrapping="Wrap" FontSize="14"/>
+      </CheckBox>
+    </Grid>
+    <StackPanel x:Name="FormActions" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0"/>
+  </StackPanel>
+</UserControl>

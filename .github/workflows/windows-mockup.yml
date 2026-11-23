@@ -43,13 +43,16 @@ jobs:
           & $env:SEMOJUM_ENGINE_PYTHON tests/engine/test_editor_translation.py
           if ($LASTEXITCODE -ne 0) { throw "Incremental translation parity checks failed." }
           dotnet run --project tests/Semojum.Core.Tests -c Release --no-build
+      - name: Set the Windows desktop size for the 1440x1000 reference frames
+        shell: powershell
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
       - name: WPF runtime smoke and screenshots
         shell: pwsh
         run: |
           $output = Join-Path $PWD 'artifacts/smoke'
           $started = Get-Date
           $process = Start-Process 'artifacts/Semojum-win-x64/Semojum.Mockup.exe' -ArgumentList @('--smoke-test', $output) -PassThru
-          if (-not $process.WaitForExit(240000)) {
+          if (-not $process.WaitForExit(600000)) {
             $process.Kill()
             $process.WaitForExit()
             Get-Content "$output/qa-progress.txt" -ErrorAction SilentlyContinue

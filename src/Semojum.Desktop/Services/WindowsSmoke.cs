@@ -17,9 +17,18 @@ internal static class WindowsSmoke
     {
         Directory.CreateDirectory(directory);
         var checks = new List<string>();
+        var collectFailures = Environment.GetEnvironmentVariable("NURIDOT_QA_COLLECT_FAILURES") == "1";
+        int failures = 0;
         void Check(bool value, string name)
         {
-            if (!value) throw new InvalidOperationException(name);
+            if (!value)
+            {
+                checks.Add("FAIL " + name);
+                File.WriteAllLines(Path.Combine(directory, "checks.txt"), checks);
+                if (!collectFailures) throw new InvalidOperationException(name);
+                failures++;
+                return;
+            }
             checks.Add("PASS " + name);
         }
         window.WindowState = WindowState.Normal; window.Width = 1440; window.Height = 1000;
@@ -30,18 +39,21 @@ internal static class WindowsSmoke
         await RenderAsync(window, Path.Combine(directory, "01-main.png"));
         await WindowsRegionSelectionChecks.RunAsync(Check, directory);
         await WindowsLoginLegalChecks.RunAsync(Check, directory);
+        await WindowsAuthenticationFormChecks.RunAsync(Check, directory);
         await WindowsQa1110Checks.RunAsync(Check);
         await WindowsQa1117Checks.RunAsync(directory, Check);
         await WindowsAppEventChecks.RunAsync(directory, Check);
         await WindowsIncrementalTranslationChecks.RunAsync(Check);
         window.PageEditor.FollowActive(0, 0);
         Check(window.PageEditor.Editor.ActualWidth > 250 && window.Braille.ActualWidth > 250, "Three-panel layout has usable editor widths");
-        Check(window.LineStrip.ActualHeight == 64 && Math.Abs(window.LineStrip.ActualWidth - window.PanelGrid.ActualWidth) < 2,
-            "Figma line translation strip spans all panels at 64px");
-        Check(window.SourceHeader.ActualHeight == 36 && window.StatusZoom.ActualHeight > 0 && window.ZoomSlider.ActualWidth == 106,
-            "Figma panel headers and status-bar zoom controls retain compact geometry");
+        Check(window.LineStrip.ActualHeight == 56 && Math.Abs(window.LineStrip.ActualWidth - window.PanelGrid.ActualWidth) < 2,
+            "Figma line translation strip spans all panels at 56px");
+        Check(window.SourceHeader.ActualHeight == 36 && window.SourcePageBar.ActualHeight == 24 && window.Braille.FacePageBar.ActualHeight == 24 && window.StatusBar.ActualHeight == 28,
+            "Figma panel headers contain the page and zoom controls above the editing viewport");
         Check(window.Braille.GridView.Items.Count > 0 && window.Braille.GridView.ActualHeight > 100,
             "Service plan braille grid renders editable block coordinates");
+        window.AdditionalCommands.IsChecked = true; window.UpdateLayout();
+        await WindowsRibbonWorkflowChecks.RunAsync(Check);
         foreach (var icon in new[] { window.CutIcon, window.DraftIcon, window.LinenoIcon })
         {
             // Stretch=None keeps the painted SVG bounds (the cut glyph is 12×14 inside its 16×16 viewBox).
@@ -73,6 +85,7 @@ internal static class WindowsSmoke
                 && svg.ActualWidth > 0 && svg.ActualWidth <= 16 && svg.ActualHeight > 0 && svg.ActualHeight <= 16,
                 $"Final Figma toolbar icon is rendered in its 16px slot: {tag}");
         }
+        window.AdditionalCommands.IsChecked = false; window.UpdateLayout();
         var initialVersion = window.Session.ChangeVersion;
         window.HidePanel("hideOriginal"); window.UpdateLayout();
         Check(window.OriginalPanel.Visibility == Visibility.Collapsed && window.PageEditor.Editor.ActualWidth > 350,
@@ -105,9 +118,9 @@ internal static class WindowsSmoke
         window.DetachedPane.Editor.Document.Insert(0, "⠿");
         Check(block.Braille.StartsWith("⠿") && block.HasManualBraille, "Detached edits update model and manual-correction state");
         Check(window.DetachedWindow!.Title.EndsWith(" - 누리닷", StringComparison.Ordinal)
-            && Descendants(window.DetachedWindow).OfType<Border>().Any(b => b.Child is SharpVectors.Converters.SvgViewbox icon && icon.Source.ToString().EndsWith("/nuridot-symbol.svg", StringComparison.Ordinal) && b.Width == 24)
+            && Descendants(window.DetachedWindow).OfType<Border>().Any(b => b.Child is TextBlock { Text: "S" } && b.Width == 16 && b.Height == 16)
             && Descendants(window.DetachedWindow).OfType<Button>().Count(b => b.Content is SharpVectors.Converters.SvgViewbox && b.Width == 46 && b.Height == 32) >= 3,
-            "Detached braille keeps its '- 누리닷' title after edits and uses the Nuridot symbol with 46×32 caption icons");
+            "Detached braille retains its title, the shared 16px mark and 46×32 caption controls");
         window.ToggleDetached();
         Check(window.Braille.Editor.Text.StartsWith("⠿"), "Reattached panel retains detached edits");
         var versionBeforeDetach = window.Session.ChangeVersion;
@@ -317,7 +330,7 @@ internal static class WindowsSmoke
             Check(firstBlock.Braille.StartsWith(new string('⠿', 12)), "Rapid grid input is retained while asynchronous layout refreshes");
             await Task.Delay(300);
             await RenderAsync(real, Path.Combine(directory, "23-composed-grid.png"));
-            Check(System.Text.RegularExpressions.Regex.IsMatch(real.CaretStatus.Text, @"^줄 \d+ · 칸 \d+ / 16$"),
+            Check(System.Text.RegularExpressions.Regex.IsMatch(real.CaretStatus.Text, @"^\d+면 · \d+줄 · \d+칸$"),
                 $"Grid status refreshes line and cell coordinates in one cell after asynchronous composition (actual {real.CaretStatus.Text})");
             real.ToggleDetached(); await Task.Delay(300);
             Check(real.DetachedPane!.GridView.Items.Cast<BrailleGridFace>().SelectMany(f => f.Text ?? []).SequenceEqual(
@@ -412,8 +425,8 @@ internal static class WindowsSmoke
         figmaMemoBlock.Memos.Add(new("figma-2", null, "TEXT", 0, figmaMemoBlock.Source, "확인했습니다. 출판사에 알려 두겠습니다.", DateTimeOffset.Now.AddMinutes(-3), Author: "이교정"));
         static IEnumerable<object> LogicalTree(object node) => new[] { node }.Concat(node is DependencyObject parent ? LogicalTreeHelper.GetChildren(parent).Cast<object>().SelectMany(LogicalTree) : Enumerable.Empty<object>());
         Check(LogicalTree(new MemoConversationView { DataContext = figmaMemoBlock.Memos[0] }).OfType<TextBlock>()
-                .Any(t => t.Text == "10분 전" && t.Foreground is SolidColorBrush { Color: var age } && age == Color.FromRgb(95, 95, 95)),
-            "Memo bubble shows the final Figma relative time 「10분 전」 in #5F5F5F");
+                .Any(t => t.Text == "10분 전" && t.Foreground is SolidColorBrush { Color: var age } && age == Color.FromRgb(138, 138, 138)),
+            "Memo bubble shows the final Figma relative time 「10분 전」 in #8A8A8A");
         await CaptureDialogAsync(new MemoThreadDialog(figmaMemoBlock, "TEXT", 0, figmaMemoBlock.Source, action => action(), figmaMemoModel, author: "김점역") { Owner = window }, directory, "85-memo-thread-figma.png");
         var memoList = new MemoListDialog(memoModel) { Owner = window };
         Check(memoList.MemoItems.Items.Count == 1, "Memo overview hides resolved items by default");
@@ -484,7 +497,7 @@ internal static class WindowsSmoke
             try
             {
                 await math.RefreshAsync();
-                Check(math.SymbolButtons.Children.Count == 23 && math.Translation is not null && math.BrailleInput.Text.Any(c => c >= 0x2800 && c <= 0x28ff), "QA4 math editor offers 23 symbols and previews actual engine cells");
+                Check(math.SymbolButtons.Children.Count == 22 && math.Translation is not null && math.BrailleInput.Text.Any(c => c >= 0x2800 && c <= 0x28ff), "QA4 math editor offers 22 quick symbols and previews actual engine cells");
                 math.BrailleInput.AppendText("⠿"); Check(math.Edited, "QA4 math result can be corrected before applying");
                 await RenderAsync(math, Path.Combine(directory, "27-math-cells.png"));
             }
@@ -497,18 +510,22 @@ internal static class WindowsSmoke
         layoutDialog.Show(); await RenderAsync(layoutDialog, Path.Combine(directory, "29-page-settings.png"));
         Check(layoutDialog.Top >= SystemParameters.WorkArea.Top && layoutDialog.Top + layoutDialog.ActualHeight <= SystemParameters.WorkArea.Bottom + 1,
             "QA4 page settings fit the current work area with actions reachable"); layoutDialog.Close();
-        Check(window.StatusOptions.Text.Contains("2024") && !window.CaretStatus.Text.Contains("저장됨"), "QA4 status shows option summary without obsolete save-state columns");
+        Check(window.StatusOptions.Text.Contains("한글") && window.StatusOptions.Text.Contains("영어") && window.StatusOptions.ToolTip?.ToString()?.Contains("2024") == true, "The footer shows both live language grades and retains the full option summary on hover");
         window.Session.IsDirty = false;
         File.WriteAllLines(Path.Combine(directory, "checks.txt"), checks);
+        if (failures > 0) throw new InvalidOperationException($"{failures} failing checks. See checks.txt.");
     }
-    internal static byte[] PdfFixture()
+    internal static byte[] PdfFixture(int pageCount = 1)
     {
         var b = new System.Text.StringBuilder("%PDF-1.4\n"); var offsets = new List<int> { 0 };
-        var objects = new[] { "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>", "<< /Length 24 >>\nstream\n1 0 0 rg 0 0 200 200 re f\nendstream" };
-        for (var i = 0; i < objects.Length; i++) { offsets.Add(b.Length); b.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n"); }
-        var xref = b.Length; b.Append("xref\n0 5\n0000000000 65535 f \n");
+        var kids = string.Join(" ", Enumerable.Range(3, pageCount).Select(n => $"{n} 0 R"));
+        var objects = new List<string> { "<< /Type /Catalog /Pages 2 0 R >>", $"<< /Type /Pages /Kids [{kids}] /Count {pageCount} >>" };
+        objects.AddRange(Enumerable.Repeat($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents {pageCount + 3} 0 R >>", pageCount));
+        objects.Add("<< /Length 25 >>\nstream\n1 0 0 rg 0 0 200 200 re f\nendstream");
+        for (var i = 0; i < objects.Count; i++) { offsets.Add(b.Length); b.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n"); }
+        var xref = b.Length; b.Append($"xref\n0 {objects.Count + 1}\n0000000000 65535 f \n");
         foreach (var offset in offsets.Skip(1)) b.Append(offset.ToString("0000000000") + " 00000 n \n");
-        b.Append($"trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        b.Append($"trailer\n<< /Size {objects.Count + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
         return System.Text.Encoding.ASCII.GetBytes(b.ToString());
     }
 
@@ -518,7 +535,25 @@ internal static class WindowsSmoke
         try { await RenderAsync(dialog, Path.Combine(directory, name)); }
         finally { dialog.Close(); }
     }
-    private static async Task RenderAsync(Window window, string path)
+    internal static async Task WithModal<T>(Func<Task> open, Func<T,Task> inspect) where T : Window
+    {
+        async Task Inspect()
+        {
+            for (var i = 0; i < 180; i++)
+            {
+                await Task.Delay(40);
+                if (Application.Current.Windows.OfType<T>().LastOrDefault(w => w.IsVisible) is not { } dialog) continue;
+                try { dialog.UpdateLayout(); await inspect(dialog); }
+                finally { if (dialog.IsVisible) dialog.Close(); }
+                return;
+            }
+            throw new InvalidOperationException("Timed out waiting for " + typeof(T).Name);
+        }
+        var observer = Inspect();
+        await Task.WhenAll(open(), observer);
+    }
+
+    internal static async Task RenderAsync(Window window, string path)
         => await RenderElementAsync(window, path);
     internal static async Task CaptureComponentAsync(FrameworkElement element, Window owner, double width, double height, string path)
     {

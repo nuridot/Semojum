@@ -23,11 +23,12 @@ public partial class MainWindow
         for (var i = 0; i < 10; i++)
         {
             var slot = i;
-            target.InputBindings.Add(new KeyBinding(new RelayCommand(() => InsertSnippet(slot, SearchPanel.Text)), new KeyGesture(Key.D0 + i, ModifierKeys.Control)));
-            target.InputBindings.Add(new KeyBinding(new RelayCommand(() => InsertSnippet(slot, SearchPanel.Braille)), new KeyGesture(Key.D0 + i, ModifierKeys.Alt)));
+            target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => InsertSnippetAsync(slot, SearchPanel.Text)), new KeyGesture(Key.D0 + i, ModifierKeys.Control)));
+            target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => InsertSnippetAsync(slot, SearchPanel.Braille)), new KeyGesture(Key.D0 + i, ModifierKeys.Alt)));
         }
         foreach (var (key, action) in new[] { (Key.N, "new"), (Key.O, "open"), (Key.S, "save"), (Key.F, "find"), (Key.H, "replace"), (Key.G, "goto"), (Key.W, "closeDocument"), (Key.C, "copy"), (Key.X, "cut"), (Key.V, "paste"), (Key.M, "memo") })
             target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => ExecuteAsync(action)), new KeyGesture(key, ModifierKeys.Control)));
+        target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => ExecuteAsync("math")), new KeyGesture(Key.M, ModifierKeys.Alt)));
         target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => ExecuteAsync("appearance")), new KeyGesture(Key.S, ModifierKeys.Alt)));
         target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => ExecuteAsync("colors")), new KeyGesture(Key.C, ModifierKeys.Alt)));
         target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => ExecuteAsync("defaults")), new KeyGesture(Key.G, ModifierKeys.Alt)));
@@ -38,7 +39,7 @@ public partial class MainWindow
         target.InputBindings.Add(new KeyBinding(new AsyncRelayCommand(() => ExecuteAsync("findNext")), new KeyGesture(Key.F3)));
     }
 
-    internal void ToggleSourcePanel() { SourceToggle.IsChecked = true; TogglePanel(SourcePanel, "텍스트"); }
+    internal void ToggleSourcePanel() { SourceToggle.IsChecked = true; TogglePanel(SourcePanel, "묵자"); }
     internal void ToggleOriginalPanel()
     {
         OriginalToggle.IsChecked = true;
@@ -79,11 +80,13 @@ public partial class MainWindow
         PanelGrid.ColumnDefinitions.Clear();
         var panels = new[]
         {
-            (Panel: (FrameworkElement)OriginalPanel, Visible: OriginalToggle.IsChecked && !detachedPanels.ContainsKey(OriginalPanel), Weight: 380d, Minimum: 260d),
-            (Panel: (FrameworkElement)SourcePanel, Visible: SourceToggle.IsChecked && !detachedPanels.ContainsKey(SourcePanel), Weight: OriginalToggle.IsChecked ? 474d : 854d, Minimum: 300d),
+            (Panel: (FrameworkElement)OriginalPanel, Visible: OriginalToggle.IsChecked && !detachedPanels.ContainsKey(OriginalPanel), Weight: 300d, Minimum: 260d),
+            (Panel: (FrameworkElement)SourcePanel, Visible: SourceToggle.IsChecked && !detachedPanels.ContainsKey(SourcePanel), Weight: OriginalToggle.IsChecked ? 554d : 854d, Minimum: 300d),
             (Panel: (FrameworkElement)BrailleContainer, Visible: BrailleToggle.IsChecked && detachedWindow is null, Weight: 586d, Minimum: 300d)
         };
         PanelGrid.MinWidth = panels.Where(p => p.Visible).Sum(p => p.Minimum);
+        EmptyPanelActions.Visibility = !OriginalToggle.IsChecked && !SourceToggle.IsChecked && !BrailleToggle.IsChecked
+            ? Visibility.Visible : Visibility.Collapsed;
         ResizePanelGrid();
         SourcePanelNumber.Text = OriginalToggle.IsChecked ? "2" : "1";
         Braille.PanelNumber.Text = OriginalToggle.IsChecked ? "3" : "2";
@@ -110,10 +113,32 @@ public partial class MainWindow
             PanelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(item.Weight, GridUnitType.Star), MinWidth = item.Minimum });
             Grid.SetColumn(item.Panel, column++); item.Panel.Visibility = Visibility.Visible;
         }
+        if (session is null) return;
+        var activePanelOpen = zoomPanel switch
+        {
+            ZoomPanel.Original => OriginalToggle.IsChecked,
+            ZoomPanel.Braille => BrailleToggle.IsChecked,
+            _ => SourceToggle.IsChecked
+        };
+        if (!activePanelOpen && EmptyPanelActions.Visibility != Visibility.Visible)
+            SetActiveEditor(SourceToggle.IsChecked ? PageEditor.Editor : BrailleToggle.IsChecked ? (detachedPane ?? Braille).Editor : null);
+        else RefreshEditorStatus();
     }
     private void ResizePanelGrid()
     {
         var width = Math.Max(PanelGrid.MinWidth, PanelScroll.ActualWidth);
         if (width > 0 && (!double.IsFinite(PanelGrid.Width) || Math.Abs(PanelGrid.Width - width) > 0.5)) PanelGrid.Width = width;
+    }
+
+    private void RestorePanel_Click(object sender, RoutedEventArgs e)
+    {
+        var target = ((FrameworkElement)sender).Tag as string;
+        if (target is "original" or "all") OriginalToggle.IsChecked = true;
+        if (target is "source" or "all") SourceToggle.IsChecked = true;
+        if (target is "braille" or "all") BrailleToggle.IsChecked = true;
+        UpdatePanelLayout();
+        if (SourceToggle.IsChecked) { SetActiveEditor(PageEditor.Editor); PageEditor.Editor.Focus(); }
+        else if (BrailleToggle.IsChecked) { SetActiveEditor(Braille.Editor); Braille.GridView.Focus(); }
+        else { SetActiveEditor(null); Original.Focus(); }
     }
 }

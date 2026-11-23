@@ -20,8 +20,8 @@ internal static class WindowsInstitutionDesignChecks
     {
         var handler = new Fixture(); using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.invalid") };
         var api = new SemojumApiClient(http) { RefreshRequiresIdentity = a => a.Role == "ROLE_ORG_ADMIN" };
-        await api.LoginAsync("org", "fixture"); var allowLogout = false; var logoutCalls = 0;
-        var window = new InstitutionWindow(api, () => { logoutCalls++; return Task.FromResult(allowLogout); }) { Width = 960, Height = 650 };
+        await api.LoginAsync("org", "fixture"); var allowLogout = false; var logoutCalls = 0; var inquiryCalls = 0;
+        var window = new InstitutionWindow(api, () => { logoutCalls++; return Task.FromResult(allowLogout); }, openInquiry: _ => inquiryCalls++) { Width = 960, Height = 650 };
         window.Show();
         try
         {
@@ -29,26 +29,47 @@ internal static class WindowsInstitutionDesignChecks
             var table = window.Accounts;
             var header = new DataGridColumnHeader { Style = table.ColumnHeaderStyle };
             var cell = new DataGridCell { Style = table.CellStyle };
-            check(header.Background is SolidColorBrush headerFill && headerFill.Color == Color.FromRgb(0xF4, 0xF6, 0xF9)
+            check(header.Background is SolidColorBrush headerFill && headerFill.Color == Color.FromRgb(0xF9, 0xF9, 0xF9)
                 && header.Foreground is SolidColorBrush headerText && headerText.Color == Color.FromRgb(0x5F, 0x5F, 0x5F)
-                && header.Padding == new Thickness(8, 0, 8, 0) && table.ColumnHeaderHeight == 24
+                && header.Padding == new Thickness(8, 0, 8, 0) && table.ColumnHeaderHeight == 32
                 && table.HorizontalGridLinesBrush is SolidColorBrush separator && separator.Color == Color.FromRgb(0xEA, 0xEA, 0xEA)
                 && cell.Padding == new Thickness(8, 0, 8, 0),
                 "Institution tables use the Figma header, 8px content inset and row separator colors");
-            check(window.Identity.Text == "테스트 기관 · O1" && window.Allocated.Text == "1,000" && window.Balance.Text == "700" && window.UsageBar.Value == 30,
+            check(window.Identity.Text == "테스트 기관 · org" && window.Allocated.Text == "300 / 1,000" && window.Balance.Text == "700" && window.UsageBar.Value == 30,
                 "Institution dashboard displays actual server organization and credit values");
-            // TextBlock.Text does not follow Inlines edits, so the status line is read from its runs; " | " marks each vertical rule.
-            string StatusLine() => string.Concat(window.StatusSummary.Inlines.Select(i => (i as System.Windows.Documents.Run)?.Text ?? " | "));
-            check(window.UsagePercent.Text == "30%" && window.ContractRemaining.Text != "정보 없음"
-                && StatusLine() is var statusLine && statusLine.StartsWith("기관 테스트 기관 | 남은 크레딧 700 | 계약 만료 ", StringComparison.Ordinal)
-                && statusLine.EndsWith(" | ", StringComparison.Ordinal) && !statusLine.Contains("남음", StringComparison.Ordinal)
-                && window.SessionIdentity.IsVisible && window.SessionIdentity.Text == (api.Account?.LoginId ?? "로그인 정보 없음"),
-                "Institution percentage, contract days and the status bar (기관 | 남은 크레딧 | 계약 만료 N일 전 | ID) use the actual dashboard response");
-            check(window.Chart.Children.Count == 1 && window.ChartMaximum.Text == "300" && window.ChartAverage.Text == "6개월 평균 정보 없음",
+            check(window.UsagePercent.Text == "사용률 30%" && window.Contract.Text == "2026-01-01 ~ 2026-12-31" && window.ContractRemaining.Text != "정보 없음"
+                && window.CreditDetail.Text == "이 추세면 약 7쪽 · 14.0개월 더 처리", "Dashboard allocation, contract range and forecast reflect the server ledger");
+            var estimate = new InstitutionDashboard("기관", "id", "ANNUAL", null, null, 3, 0, 3, [], ChargedContractPages: 1, RecentContractCredits: 3);
+            check(InstitutionWindow.Forecast(estimate).StartsWith("이 추세면 약 1쪽 · ", StringComparison.Ordinal)
+                && InstitutionWindow.Forecast(estimate with { CreditRemaining = long.MaxValue, ChargedContractPages = long.MaxValue, RecentContractCredits = long.MaxValue }).Contains(long.MaxValue.ToString("N0") + "쪽")
+                && InstitutionWindow.Forecast(estimate with { ChargedContractPages = null, RecentContractCredits = null }) == "예측 정보 없음",
+                "Page forecasts use whole pages at exact credit boundaries and distinguish missing data from zero charges");
+            string[] Metrics(DependencyObject panel) => Descendants(panel).OfType<TextBlock>().Select(t => t.Text).ToArray();
+            check(Metrics(window.LayoutStats).Contains("75%") && Metrics(window.LayoutStats).Contains("25%") && Metrics(window.LayoutStats).Contains("기타")
+                && Metrics(window.AccountStats).Contains("worker") && Metrics(window.AccountStats).Contains("1,140") && Metrics(window.AccountStats).Contains("—"),
+                "Layout consumption accounts for unknown types and member rankings distinguish missing monthly usage from zero");
+            window.RenderLayoutUsage([]); check(Metrics(window.LayoutStats).Contains("최근 6개월간 차감 내역이 없습니다."), "A current server can report no charges");
+            window.RenderLayoutUsage(null); check(Metrics(window.LayoutStats).Contains("유형별 사용량 정보 없음"), "A legacy dashboard omits the usage breakdown");
+            window.RenderLayoutUsage([new("PAGE_LAYOUT_TEXT", 225), new("OTHER", 75)]);
+            check(window.Chart.Children.Count == 1 && window.ChartTicks[0].Text == "500" && window.ChartAverage.Text == "6개월 평균 정보 없음",
                 "An incomplete monthly response shows its real axis and does not invent a six-month average");
+            window.Width = 1440; window.Height = 1000; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
+            Rect CardRect(string name)
+            {
+                var card = Descendants(window).OfType<Border>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == name);
+                return card.TransformToAncestor(window).TransformBounds(new Rect(0, 0, card.ActualWidth, card.ActualHeight));
+            }
+            var summary = CardRect("할당 크레딧"); var monthly = CardRect("월별 크레딧"); var layout = CardRect("유형별 소비 비중"); var ranking = CardRect("계정별 사용량 · 이번 달");
+            var accounts = CardRect("소속 계정"); var notice = CardRect("공지"); var orders = CardRect("주문 내역");
+            check(Math.Abs(summary.Left - 25) <= 2 && Math.Abs(summary.Top - 89) <= 2 && Math.Abs(summary.Width - 453) <= 2
+                && Math.Abs(monthly.Top - 223) <= 2 && Math.Abs(monthly.Top - layout.Top) < 1 && Math.Abs(monthly.Top - ranking.Top) < 1
+                && Math.Abs(layout.Left - monthly.Right - 16) <= 1 && Math.Abs(ranking.Left - layout.Right - 16) <= 1
+                && Math.Abs(accounts.Top - layout.Bottom - 16) <= 1 && Math.Abs(accounts.Width - 1390) <= 2 && Math.Abs(notice.Top - accounts.Bottom - 16) <= 1
+                && Math.Abs(orders.Top - notice.Top) <= 1 && Math.Abs(orders.Left - notice.Right - 16) <= 1,
+                "At 1440x1000 the dashboard matches the Figma summary and chart coordinates, equal columns, full-width accounts and adjacent notice and order cards");
             var sixMonths = new[] { new InstitutionMonthlyUsage("2026-03", 2100), new("2026-04", 2600), new("2026-05", 3100), new("2026-06", 2800), new("2026-07", 3900), new("2026-08", 4600) };
             window.RenderMonthlyUsage(sixMonths); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
-            check(window.Chart.Children.Count == 6 && window.ChartMaximum.Text == "4,600" && window.ChartMiddle.Text == "3,067" && window.ChartLower.Text == "1,533" && window.ChartAverage.Text == "6개월 평균 3,183",
+            check(window.Chart.Children.Count == 6 && window.ChartTicks.Select(t => t.Text).SequenceEqual(["5,000","4,000","3,000","2,000","1,000","0"]) && window.Chart.Children.OfType<Grid>().SelectMany(g => g.Children.OfType<Border>()).All(b => b.Width == 24) && window.ChartAverage.Text == "6개월 평균 3,183",
                 "The monthly chart shows the six real values, proportional axis ticks and calculated Figma average");
             if (Environment.GetEnvironmentVariable("INSTITUTION_MONTHLY_CAPTURE") is { Length: > 0 } monthlyCapture)
             {
@@ -56,12 +77,12 @@ internal static class WindowsInstitutionDesignChecks
                 await WindowsSmoke.RenderElementAsync(window, monthlyCapture);
             }
             window.Width = 480; window.Height = 650; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
-            var legendLabel = Descendants(window).OfType<TextBlock>().Single(t => t.Text == "월 사용 크레딧");
+            var legendLabel = Descendants(window).OfType<TextBlock>().Single(t => t.Text == "월별 크레딧");
             var legendRect = legendLabel.TransformToAncestor(window).TransformBounds(new Rect(0, 0, legendLabel.ActualWidth, legendLabel.ActualHeight));
             var averageRect = window.ChartAverage.TransformToAncestor(window).TransformBounds(new Rect(0, 0, window.ChartAverage.ActualWidth, window.ChartAverage.ActualHeight));
-            check(window.ChartScroll.ScrollableWidth > 0 && legendLabel.IsVisible && window.ChartAverage.IsVisible
+            check(window.ChartScroll.ViewportWidth > 0 && legendLabel.IsVisible && window.ChartAverage.IsVisible
                 && (legendRect.Bottom <= averageRect.Top + .5 || averageRect.Bottom <= legendRect.Top + .5 || legendRect.Right <= averageRect.Left + .5 || averageRect.Right <= legendRect.Left + .5),
-                "At 480px the chart scrolls and the real legend and average remain readable without overlapping");
+                "At 480px the chart fits its viewport and the real legend and average remain readable without overlapping");
             window.Width = 960; window.Height = 650; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
             check(InstitutionUsage.SixMonthAverage([]) is null && InstitutionUsage.SixMonthAverage(sixMonths[..5]) is null
                 && InstitutionUsage.SixMonthAverage([sixMonths[0], sixMonths[0], .. sixMonths[2..]]) is null
@@ -74,11 +95,11 @@ internal static class WindowsInstitutionDesignChecks
             check(InstitutionUsage.SixMonthAverage(zeroMonths) == 0 && InstitutionUsage.SixMonthAverage(hugeMonths) == long.MaxValue,
                 "Six-month averages handle zero and maximum 64-bit credit amounts without overflow");
             window.RenderMonthlyUsage(hugeMonths); window.UpdateLayout();
-            check(window.ChartMaximum.Text == long.MaxValue.ToString("N0") && window.ChartAverage.Text.Contains(long.MaxValue.ToString("N0"))
-                && window.Chart.Children.OfType<Grid>().SelectMany(g => g.Children.OfType<Border>()).All(b => b.Height is >= 0 and <= 110),
+            check(decimal.Parse(window.ChartTicks[0].Text) >= long.MaxValue && window.ChartAverage.Text.Contains(long.MaxValue.ToString("N0"))
+                && window.Chart.Children.OfType<Grid>().SelectMany(g => g.Children.OfType<Border>()).All(b => b.Height is >= 0 and <= 104),
                 "Large chart values retain exact labels and bounded bar heights");
             window.ApplyChartContrast(true);
-            check(window.ChartMaximum.Foreground == SystemColors.WindowTextBrush && window.Chart.Children.OfType<Grid>().SelectMany(g => g.Children.OfType<Border>()).All(b => b.Background == SystemColors.HighlightBrush),
+            check(window.ChartTicks[0].Foreground == SystemColors.WindowTextBrush && window.Chart.Children.OfType<Grid>().SelectMany(g => g.Children.OfType<Border>()).All(b => b.Background == SystemColors.HighlightBrush),
                 "The monthly chart uses readable system colors in high contrast");
             window.ApplyChartContrast(false); window.RenderMonthlyUsage([]);
             check(window.ChartEmpty.IsVisible && window.ChartArea.Visibility == Visibility.Collapsed && window.ChartAverage.Text == "6개월 평균 정보 없음",
@@ -119,38 +140,36 @@ internal static class WindowsInstitutionDesignChecks
             check(issueRow is { LoginId: "발급 요청 중", Alias: "국어 담당", Status: "08-12 요청", LastLoginAt: null, UsedCredits: null, Control: "요청 취소", Account: null }
                 && window.PendingRequests.Text == "발급 요청 1건 처리 중" && window.PendingRequests.IsVisible,
                 "An open account-issue request is a row of the account table and is counted beside the request button");
-            check(!Descendants(window).OfType<Expander>().Any() && !Descendants(window).OfType<Button>().Any(b => Equals(b.Content, "새로 고침")),
-                "The institution page has no separate request-history expander or refresh button");
+            check(Descendants(window).OfType<Button>().Any(b => Equals(b.Content, "새로 고침 (F5)")) && Descendants(window).OfType<Button>().Any(b => Equals(b.Content, "문의하기")), "The dashboard header exposes the Figma inquiry and refresh commands");
+            Descendants(window).OfType<Button>().Single(b => Equals(b.Content, "문의하기")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            check(inquiryCalls == 1, "The inquiry button opens the public inquiry host from the institution window");
             window.UpdateLayout();
             var controlColumn = (DataGridTemplateColumn)window.Accounts.Columns[^1];
             Button? RowControl(InstitutionAccountRow? row) => row is not null && controlColumn.GetCellContent(row) is { } cell ? Descendants(cell).OfType<Button>().FirstOrDefault() : null;
             TextBlock? RowId(InstitutionAccountRow? row) => row is null ? null : window.Accounts.Columns[0].GetCellContent(row) as TextBlock;
             var selfRow = window.Accounts.Items.OfType<InstitutionAccountRow>().FirstOrDefault(r => r.LoginId == "org");
             var memberRow = window.Accounts.Items.OfType<InstitutionAccountRow>().FirstOrDefault(r => r.LoginId == "worker");
-            check(RowControl(selfRow) is { IsVisible: false } && RowControl(memberRow) is { IsVisible: true, Content: "잠금" } && RowControl(issueRow) is { IsVisible: true, Content: "요청 취소" }
-                && !Descendants(window.Accounts).OfType<Button>().Any(b => Equals(b.Content, "상세")),
-                "Each account row shows its own 잠금 or 요청 취소 control, none on the administrator's row, and no 상세 button");
-            check(memberRow is { UsedCredits: 1140 } && selfRow is { UsedCredits: 100 } && window.Accounts.Columns[4].GetCellContent(memberRow) is TextBlock { Text: "1,140" }
-                && window.Accounts.Columns[4].GetCellContent(issueRow) is TextBlock { Text: "—" },
-                "The 사용 column shows this month's credits as 1,140, falls back to the cumulative total from an older response and shows — for a pending request");
-            check(RowId(memberRow) is { FontSize: 14, Foreground: SolidColorBrush { Color: var idColor } } memberId && memberId.FontWeight == FontWeights.Bold && idColor == Color.FromRgb(0x00, 0x5F, 0xB8)
+            check(RowControl(selfRow) is { IsVisible: true, Content: "상세" } && RowControl(memberRow) is { IsVisible: true, Content: "상세" } && RowControl(issueRow) is { IsVisible: true, Content: "요청 취소" },
+                "Account details and pending-request cancellation are reachable with their own row controls");
+            check(memberRow is { UsedCredits: 1140, LimitLabel: "2,000" } && selfRow is { UsedCredits: null, LimitLabel: "—" } && window.Accounts.Columns[5].GetCellContent(memberRow) is TextBlock { Text: "1,140" }
+                && window.Accounts.Columns[5].GetCellContent(issueRow) is TextBlock { Text: "—" },
+                "The monthly columns distinguish an older cumulative-only response and a pending request from zero");
+            check(RowId(memberRow) is { FontSize: 14, Foreground: SolidColorBrush { Color: var idColor } } memberId && memberId.FontWeight == FontWeights.SemiBold && idColor == Color.FromRgb(0x00, 0x3E, 0x92)
                 && RowId(issueRow) is { Foreground: SolidColorBrush { Color: var pendingColor } } && pendingColor == Color.FromRgb(0x5F, 0x5F, 0x5F),
                 "Account IDs are 14px bold blue and the pending request line is gray");
             foreach (var scroll in Descendants(window).OfType<ScrollViewer>().Where(s => s.Content is StackPanel)) scroll.ScrollToTop();
             check(window.AccountRequest.IsEnabled && window.CreditRequest.IsEnabled && window.ReceiptAddress is { Text: "billing@example.test", IsEnabled: true },
                 "Available request actions and receipt recipient reflect the current institution response");
-            check(window.CreditRequest.Background is SolidColorBrush { Color: var orange } && orange == Color.FromRgb(232, 115, 12)
+            check(window.CreditRequest.Background is SolidColorBrush { Color: var orange } && orange == Color.FromRgb(0, 95, 184)
                 && window.Accounts.RowHeight == 40 && window.Accounts.GridLinesVisibility == DataGridGridLinesVisibility.Horizontal
-                && window.UsageBar.Template.FindName("InstitutionTrack", window.UsageBar) is Border { Background: SolidColorBrush { Color: var track } } && track == Color.FromRgb(237, 239, 243),
-                "Institution controls use the Figma orange request button, light table rows and rounded credit track");
+                && window.UsageBar.Template.FindName("InstitutionTrack", window.UsageBar) is Border { Background: SolidColorBrush { Color: var track } } && track == Color.FromRgb(227, 230, 235),
+                "Institution controls use the Figma blue request button, light table rows and rounded credit track");
             var icons = Descendants(window).OfType<SvgViewbox>().Where(i => i.Source?.ToString().Contains("institution-caption-") == true).ToArray();
             check(icons.Length == 3 && icons.All(i => i.Width == 16 && i.Height == 16 && i.Drawings is { Bounds.IsEmpty: false }), "Institution caption renders all three original Figma SVGs");
-            check(InstitutionAccountRow.Of(new InstitutionAccount("me", null, "ACTIVE", "ROLE_ORG_ADMIN", null, 0, true)).Control is null
-                && InstitutionAccountRow.Of(new InstitutionAccount("a", null, "ACTIVE", "ROLE_USER", null, 0, false)).Control == "잠금"
-                && InstitutionAccountRow.Of(new InstitutionAccount("b", null, "INACTIVE", "ROLE_USER", null, 0, false)).Control == "잠금 해제"
-                && InstitutionAccountRow.Of(new InstitutionAccount("c", null, "FUTURE_STATUS", "ROLE_USER", null, 0, false)).Control is null
+            check(InstitutionAccountRow.Of(new InstitutionAccount("me", null, "ACTIVE", "ROLE_ORG_ADMIN", null, 0, true)).Control == "상세"
+                && InstitutionAccountRow.Of(new InstitutionAccount("b", null, "INACTIVE", "ROLE_USER", null, 0, false)).Control == "상세"
                 && InstitutionAccountRow.Of(new InstitutionRequest(Guid.NewGuid(), "ACCOUNT_ISSUE", "OPEN", "별칭: 국어 담당", "2026-08-12")) is { Control: "요청 취소", Alias: "국어 담당", Status: "08-12 요청" },
-                "The control column offers lock, unlock or request cancel by row state and nothing on the administrator's own row");
+                "The details button is available for both active and locked accounts and the open request retains its cancellation action");
             if (Environment.GetEnvironmentVariable("INSTITUTION_CAPTURE") is { Length: > 0 } capture) await WindowsSmoke.RenderElementAsync(window, capture);
             if (Environment.GetEnvironmentVariable("INSTITUTION_FULL_CAPTURE") is { Length: > 0 } fullCapture)
             {
@@ -163,15 +182,15 @@ internal static class WindowsInstitutionDesignChecks
             // 증빙 받는 사람 (F-AC-8): the Figma label and 220×32 field with no save button; Enter or leaving the field saves.
             window.UpdateLayout();
             Rect Bounds(FrameworkElement element) => element.TransformToAncestor(window).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
-            var receiptLabel = Descendants(window).OfType<TextBlock>().SingleOrDefault(t => t.Text == "증빙 받는 사람");
+            var receiptLabel = Descendants(window).OfType<TextBlock>().SingleOrDefault(t => t.Text == "증빙 받는 메일");
             var receiptField = window.ReceiptAddress; var fieldBounds = Bounds(receiptField);
             check(receiptLabel is { IsVisible: true, FontSize: 12, Foreground: SolidColorBrush { Color: var receiptLabelColor } } && receiptLabelColor == Color.FromRgb(0x5F, 0x5F, 0x5F)
-                && receiptField is { IsVisible: true, FontSize: 12, Text: "billing@example.test" } && Math.Abs(receiptField.ActualWidth - 220) < .5 && Math.Abs(receiptField.ActualHeight - 32) < .5
-                && Bounds(receiptLabel) is var labelBounds && Math.Abs(fieldBounds.Left - labelBounds.Right - 12) < 1 && Math.Abs((labelBounds.Top + labelBounds.Bottom) / 2 - (fieldBounds.Top + fieldBounds.Bottom) / 2) < 1
-                && System.Windows.Automation.AutomationProperties.GetName(receiptField) == "증빙 받는 사람"
+                && receiptField is { IsVisible: true, FontSize: 12, Text: "billing@example.test" } && Math.Abs(receiptField.ActualWidth - 200) < .5 && Math.Abs(receiptField.ActualHeight - 28) < .5
+                && Bounds(receiptLabel) is var labelBounds && Math.Abs(fieldBounds.Left - labelBounds.Right - 8) < 1 && Math.Abs((labelBounds.Top + labelBounds.Bottom) / 2 - (fieldBounds.Top + fieldBounds.Bottom) / 2) < 1
+                && System.Windows.Automation.AutomationProperties.GetName(receiptField) == "증빙 받는 메일"
                 && !Descendants(window).OfType<TextBlock>().Any(t => t.Text.StartsWith("증빙 받는 사람:", StringComparison.Ordinal) || t.Text == "증빙 받는 사람 정보 없음")
                 && !Descendants(window).OfType<Button>().Any(b => Equals(b.Content, "저장")),
-                "The receipt recipient is a 12px gray label and a 220x32 field holding the server address, 12px apart, with no save button");
+                "The receipt recipient is a 12px gray label and a 200x28 field holding the server address, 8px apart, with no save button");
             void PressReceipt(Key key) => receiptField.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(receiptField)!, Environment.TickCount, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
             static string? SentEmail(string body) { using var json = System.Text.Json.JsonDocument.Parse(body); return json.RootElement.GetProperty("email").GetString(); }
             var receiptSent = handler.ReceiptBodies.Count;
@@ -186,7 +205,7 @@ internal static class WindowsInstitutionDesignChecks
             handler.FailReceipt = false; receiptSent = handler.ReceiptBodies.Count;
             receiptField.Text = "account@"; PressReceipt(Key.Enter); window.UpdateLayout();
             check(handler.ReceiptBodies.Count == receiptSent && receiptField.Text == "account@" && window.ReceiptHint is { IsVisible: true } && window.ReceiptHint.Text.Contains("형식")
-                && Bounds(window.ReceiptHint) is var hintBounds && hintBounds.Top >= fieldBounds.Bottom - .5 && Math.Abs(hintBounds.Left - fieldBounds.Left) < .5,
+                && Bounds(window.ReceiptHint) is var hintBounds && hintBounds.Top >= Bounds(receiptField).Bottom - .5 && Math.Abs(hintBounds.Left - Bounds(receiptField).Left) < .5,
                 "A malformed receipt address is not sent, stays in the field and shows a format hint under it");
             PressReceipt(Key.Escape); PressReceipt(Key.Enter); window.UpdateLayout();
             check(handler.ReceiptBodies.Count == receiptSent && receiptField.Text == "account@kblib.or.kr" && !window.ReceiptHint.IsVisible,
@@ -204,6 +223,27 @@ internal static class WindowsInstitutionDesignChecks
                 window.Dispatcher.BeginInvoke(() => { opened = Application.Current.Windows.OfType<InstitutionOrderDialog>().FirstOrDefault(w => w.IsVisible); opened?.Close(); }, DispatcherPriority.ApplicationIdle);
                 act(); return opened is not null;
             }
+            var worker = table.Items.OfType<InstitutionAccountRow>().Single(r => r.Account?.LoginId == "worker");
+            table.SelectedItem = worker;
+            var edit = window.Dispatcher.InvokeAsync(() =>
+            {
+                var detail = window.OwnedWindows.OfType<InstitutionAccountDetailDialog>().Single(w => w.IsVisible);
+                try
+                {
+                    detail.AliasBox.Text = "수학 교정"; detail.EmailBox.Text = "bad-address";
+                    detail.SaveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    check(detail.IsVisible && handler.ProfileWrite is null, "An invalid email keeps the account form open and sends no update");
+                    detail.EmailBox.Text = "proof@example.test"; detail.LimitBox.Text = "0";
+                    detail.SaveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                }
+                catch { detail.Close(); throw; }
+            }, DispatcherPriority.ApplicationIdle);
+            table.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window)!, 0, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            await edit.Task; await WaitFor(() => !window.Refreshing && handler.ProfileWrite is not null);
+            var updated = System.Text.Json.Nodes.JsonNode.Parse(handler.ProfileWrite!)!;
+            check(updated["alias"]?.GetValue<string>() == "수학 교정" && updated["email"]?.GetValue<string>() == "proof@example.test" && updated["creditLimit"]?.GetValue<long>() == 0,
+                "Opening the actual institution account row saves all three profile fields to the worker endpoint and preserves zero as a limit");
+
             // PreviewMouseLeftButtonUp is re-raised from the tunnelling PreviewMouseUp on every element of the route, so the table sees the cell as its source.
             static MouseButtonEventArgs Release() => new(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = Mouse.PreviewMouseUpEvent };
             window.UpdateLayout();
@@ -219,7 +259,7 @@ internal static class WindowsInstitutionDesignChecks
             var receiptColumn = (DataGridTemplateColumn)window.Orders.Columns.Last();
             window.Orders.ScrollIntoView(hasReceipt, receiptColumn); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
             var receiptCell = receiptColumn.GetCellContent(hasReceipt);
-            var rowButton = receiptCell is null ? null : Descendants(receiptCell).OfType<Button>().FirstOrDefault(b => Equals(b.Content, "내려받기"));
+            var rowButton = receiptCell is null ? null : Descendants(receiptCell).OfType<Button>().FirstOrDefault(b => System.Windows.Automation.AutomationProperties.GetName(b).Contains("증빙 내려받기"));
             check(rowButton is { IsVisible: true, IsEnabled: true, Focusable: true } && System.Windows.Automation.AutomationProperties.GetName(rowButton).Contains("실제 주문"),
                 "The row's actual receipt action remains keyboard accessible in a 480px window");
             check(rowButton is not null && !OpensOrder(() => rowButton.RaiseEvent(Release())), "Pressing a row's 내려받기 link does not also open the order detail");
@@ -240,15 +280,15 @@ internal static class WindowsInstitutionDesignChecks
                 "견적서 내려받기 requests its own order's quote and opens the presigned URL, and an order without a quote sends nothing");
             window.ReceiptLauncher = launcher;
             window.Orders.ItemsSource = originalOrders; window.Width = 960; window.ErrorText.Text = "";
-            window.LogoutItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); await Task.Delay(30);
+            window.LogoutItem.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30);
             check(logoutCalls == 1 && window.IsVisible && !window.LogoutRequested, "Cancelled or failed logout keeps the institution window open");
 
-            // The final page has no refresh button; F5 is the remaining manual reload.
+            // F5 and the header command use the same refresh action.
             void PressF5() => window.Accounts.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window.Accounts)!, Environment.TickCount, Key.F5) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
             handler.FailDashboard = true; PressF5();
             await WaitFor(() => !window.Refreshing && window.ErrorText.Text.Contains("기관 정보"));
             check(window.Identity.Text == "정보 없음" && window.Balance.Text == "—" && window.UsagePercent.Text == "정보 없음" && window.ContractRemaining.Text == "정보 없음"
-                && StatusLine() == "기관 정보 없음" && window.UsageBar.Visibility == Visibility.Collapsed,
+                && Metrics(window.LayoutStats).Contains("유형별 사용량 정보 없음") && window.UsageBar.Visibility == Visibility.Collapsed,
                 "A dashboard refresh error clears old credit, date, graph and status values");
             handler.FailDashboard = false; PressF5();
             await WaitFor(() => !window.Refreshing && window.Identity.Text.Contains("테스트 기관"));
@@ -257,9 +297,9 @@ internal static class WindowsInstitutionDesignChecks
             PressF5(); await WaitFor(() => !window.Refreshing && api.Account is null);
             check(api.Account is null && window.Identity.Text == "정보 없음" && window.Balance.Text == "—" && window.Accounts.Items.Count == 0 && window.Orders.Items.Count == 0
                 && !window.AccountRequest.IsEnabled && !window.CreditRequest.IsEnabled && window.PendingRequests.Text == "" && window.ReceiptAddress is { IsEnabled: false, Text: "" }
-                && window.SessionIdentity.Text == "로그인 정보 없음" && StatusLine() == "기관 정보 없음" && window.ErrorText.Text.Contains("다시 로그인"),
+                && Metrics(window.AccountStats).Contains("계정별 사용량 정보 없음") && window.ErrorText.Text.Contains("다시 로그인"),
                 "A role-unverified refresh clears previously loaded institution data and disables changes");
-            allowLogout = true; window.LogoutItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); await Task.Delay(30);
+            allowLogout = true; window.LogoutItem.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30);
             check(logoutCalls == 2 && window.LogoutRequested && !window.IsVisible, "The logout callback can return an expired institution session to login");
         }
         finally { if (window.IsVisible) window.Close(); }
@@ -279,8 +319,8 @@ internal static class WindowsInstitutionDesignChecks
         check(result == true && attempts == 2 && submitted is { AccountAlias: "국어 담당", RecipientEmail: "reader@example.test", CreditScope: "SHARED", CreditAmount: null, InvoiceType: null } && submittedMessage is null,
             "An account request closes only after its callback succeeds and sends alias, recipient and 기관 할당 공유 (SHARED) as fields instead of message text");
         await CreditEstimateChecks(check);
-        var detail = new InstitutionAccountDetailDialog(new("self", "본인", "ACTIVE", "ROLE_ORG_ADMIN", null, 0, true), new("self", "본인", "2026-01-01", "2026-01-31", [], 0, 0), _ => Task.CompletedTask);
-        check(!detail.LockButton.IsEnabled, "The institution administrator cannot lock their own account"); detail.Close();
+        var detail = new InstitutionAccountDetailDialog(new("self", "본인", "ACTIVE", "ROLE_ORG_ADMIN", null, 0, true), new("self", "본인", "2026-01-01", "2026-01-31", [], 0, 0), _ => Task.CompletedTask, (_, _, _) => Task.CompletedTask);
+        check(!detail.LockButton.IsEnabled && !detail.SaveButton.IsEnabled, "A legacy profile retains account data and the administrator cannot lock their own account"); detail.Close();
     }
     /// <summary>F-AC-11: the credit request shows the server's estimate after typing pauses, cancels a superseded request, shows 「—」 on failure and sends its fields.</summary>
     private static async Task CreditEstimateChecks(Action<bool, string> check)
@@ -303,21 +343,21 @@ internal static class WindowsInstitutionDesignChecks
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); dialog.UpdateLayout();
                 check(dialog.EstimateAmount is { IsVisible: true, Text: "—" } && !dialog.EstimateNote.IsVisible && calls.Count == 0, "An empty credit request shows 「—」 and asks nothing");
                 dialog.First.Text = "1"; dialog.First.Text = "12"; dialog.First.Text = "123"; await Settle();
-                check(calls.Select(c => c.Credits).SequenceEqual([123L]) && dialog.EstimateAmount.Text == "₩31,980" && dialog.EstimateNote is { IsVisible: true, Text: "부가세 포함" },
+                check(calls.Select(c => c.Credits).SequenceEqual([123L]) && dialog.EstimateAmount.Text == "31,980원" && Equals(dialog.EstimateAmount.ToolTip, "크레딧당 260원") && dialog.EstimateNote is { IsVisible: true, Text: "(부가세 포함)" },
                     "Typing quickly sends one estimate request after the pause and shows the server's amount with 부가세 포함");
                 dialog.First.Text = "3,000"; await Settle();
-                check(calls[^1].Credits == 3000 && dialog.EstimateAmount.Text == "₩780,000" && dialog.EstimateAmount.FontWeight == FontWeights.Bold && dialog.EstimateAmount.FontSize == 14,
-                    "3,000 credits show the Figma 「₩780,000 · 부가세 포함」 from the server response");
+                check(calls[^1].Credits == 3000 && dialog.EstimateAmount.Text == "780,000원" && dialog.EstimateAmount.FontWeight == FontWeights.SemiBold && dialog.EstimateAmount.FontSize == 14,
+                    "3,000 credits show the Figma 「780,000원 · 부가세 포함」 from the server response");
                 dialog.First.Text = "4000"; await WaitFor(() => calls.Count == 3 && held is not null);
                 dialog.First.Text = "5000"; await Settle();
-                check(calls[2].Token.IsCancellationRequested && calls[^1].Credits == 5000 && dialog.EstimateAmount.Text == "₩1,300,000", "A newer amount cancels the pending estimate and shows only its own answer");
+                check(calls[2].Token.IsCancellationRequested && calls[^1].Credits == 5000 && dialog.EstimateAmount.Text == "1,300,000원", "A newer amount cancels the pending estimate and shows only its own answer");
                 held!.SetResult(new(4000, 260, 1)); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); await Task.Delay(50);
-                check(dialog.EstimateAmount.Text == "₩1,300,000", "A late answer for a superseded amount is ignored");
+                check(dialog.EstimateAmount.Text == "1,300,000원", "A late answer for a superseded amount is ignored");
                 dialog.First.Text = "6000"; await Settle();
                 check(calls[^1].Credits == 6000 && dialog.EstimateAmount.Text == "—" && !dialog.EstimateNote.IsVisible, "A failed estimate leaves the amount 「—」");
                 var count = calls.Count; dialog.First.Text = "0"; await Settle();
                 check(calls.Count == count && dialog.EstimateAmount.Text == "—", "A zero or invalid amount shows 「—」 without asking the server");
-                dialog.First.Text = "3,000"; dialog.Option.SelectedIndex = 1; dialog.Submit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                dialog.First.Text = "3,000"; dialog.ChoicesShown[1].IsChecked = true; dialog.Submit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
             catch (Exception ex) { check(false, "Credit estimate checks failed: " + ex.Message); dialog.Close(); }
         });
@@ -372,6 +412,7 @@ internal static class WindowsInstitutionDesignChecks
         internal bool FailAccountsOnRefresh;
         internal bool FailDashboard;
         internal string? LastReceiptPath;
+        internal string? ProfileWrite;
         internal bool HoldReceipt, RefreshProbe, ProbeRejected, FailReceipt;
         internal readonly List<string> ReceiptBodies = [], QuotePaths = [];
         internal TaskCompletionSource<HttpResponseMessage>? HeldReceipt;
@@ -393,11 +434,13 @@ internal static class WindowsInstitutionDesignChecks
             }
             if (path.EndsWith("/quote")) { QuotePaths.Add(path); return Json(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"fileName\":\"견적서.pdf\",\"url\":\"https://example.invalid/quote\"}}"); }
             if (path == "/api/org/receipt-email" && request.Method == HttpMethod.Patch) return ReceiptEmail(request, cancellationToken);
+            if (path == "/api/org/accounts/worker" && request.Method == HttpMethod.Put) return StoreProfile(request, cancellationToken);
             var result = path switch
             {
-                "/api/org/dashboard" => "{\"orgName\":\"테스트 기관\",\"orgCode\":\"O1\",\"contractType\":\"ANNUAL\",\"contractStartedAt\":\"2026-01-01\",\"contractExpiresAt\":\"2026-12-31\",\"creditAllocated\":1000,\"creditUsed\":300,\"creditRemaining\":700,\"monthlyUsage\":[{\"month\":\"2026-10\",\"credits\":300}]}",
+                "/api/org/dashboard" => "{\"orgName\":\"테스트 기관\",\"orgCode\":\"O1\",\"contractType\":\"ANNUAL\",\"contractStartedAt\":\"2026-01-01\",\"contractExpiresAt\":\"2026-12-31\",\"creditAllocated\":1000,\"creditUsed\":300,\"creditRemaining\":700,\"monthlyUsage\":[{\"month\":\"2026-10\",\"credits\":300}],\"layoutUsage\":[{\"layoutType\":\"PAGE_LAYOUT_TEXT\",\"credits\":225},{\"layoutType\":\"OTHER\",\"credits\":75}],\"chargedContractPages\":3,\"recentContractCredits\":300}",
                 // The administrator row is an older response without the monthly fields; the worker row has them.
                 "/api/org/accounts" => "{\"usageSince\":\"2026-10-01\",\"items\":[{\"loginId\":\"org\",\"alias\":\"관리자\",\"status\":\"ACTIVE\",\"role\":\"ROLE_ORG_ADMIN\",\"lastLoginAt\":null,\"usedCredits\":100,\"self\":true},{\"loginId\":\"worker\",\"alias\":null,\"status\":\"ACTIVE\",\"role\":\"ROLE_USER\",\"lastLoginAt\":null,\"usedCredits\":3120,\"self\":false,\"email\":\"math@kblib.or.kr\",\"creditLimit\":2000,\"monthUsedCredits\":1140,\"createdAt\":\"2026-02-24T10:00:00\"}]}",
+                "/api/org/accounts/worker/jobs" => """{"loginId":"worker","from":"2026-11-01","to":"2026-11-30","items":[],"totalPages":0,"totalCredits":0}""",
                 // The open account request carries its alias in details; its message no longer holds the fields.
                 "/api/org/requests" => "[{\"id\":\"ad769b7f-5e74-40ad-94d3-1cccd1198072\",\"type\":\"CREDIT_ADD\",\"status\":\"OPEN\",\"message\":\"요청\",\"createdAt\":\"2026-10-01\"},"
                     + "{\"id\":\"ad769b7f-5e74-40ad-94d3-1cccd1198073\",\"type\":\"ACCOUNT_ISSUE\",\"status\":\"OPEN\",\"message\":null,\"createdAt\":\"2026-08-12T01:00:00Z\",\"details\":{\"accountAlias\":\"국어 담당\",\"recipientEmail\":\"reader@example.test\",\"creditScope\":\"SHARED\",\"creditAmount\":null,\"invoiceType\":null}},"
@@ -407,6 +450,11 @@ internal static class WindowsInstitutionDesignChecks
                 _ => "{}"
             };
             return Json(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":" + result + "}");
+        }
+        private async Task<HttpResponseMessage> StoreProfile(HttpRequestMessage request, CancellationToken ct)
+        {
+            ProfileWrite = await request.Content!.ReadAsStringAsync(ct);
+            return await Json(HttpStatusCode.OK, """{"isSuccess":true,"result":null}""");
         }
         private async Task<HttpResponseMessage> ReceiptEmail(HttpRequestMessage request, CancellationToken cancellationToken)
         {
