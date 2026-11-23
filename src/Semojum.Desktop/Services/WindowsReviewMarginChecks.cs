@@ -39,6 +39,11 @@ internal static class WindowsReviewMarginChecks
             await Paint();
             check(margin.ReviewPreview(0).Contains("인식하지 못한 문자: 기호") && margin.ReviewPreview(1) == "", "Only the real review block's first line describes its dropped character");
             check(Math.Abs(margin.ActualWidth - 32) < .5 && !margin.IsReviewHit(0, 8) && margin.IsReviewHit(0, 24), "Coexisting memo and review use separate 16px slots and click targets");
+            var firstLine = source.TextArea.TextView.VisualLines.First();
+            var centerY = firstLine.VisualTop - source.TextArea.TextView.VerticalOffset + firstLine.Height / 2;
+            check(new[] { 1d, 8d, 15d, 17d, 24d, 31d }.All(x =>
+                ReferenceEquals(window.InputHitTest(margin.TranslatePoint(new Point(x, centerY), window)), margin)),
+                "The entire memo and review slots receive input, including transparent parts of each icon");
             margin.ActivateLine(0, 8); margin.ActivateLine(0, 24);
             check(memoClicks == 1 && reviewClicks == 1, "Source mouse-handler coordinate dispatch invokes each actual callback separately");
             memoClicks = reviewClicks = 0;

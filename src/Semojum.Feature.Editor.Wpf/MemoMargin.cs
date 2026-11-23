@@ -184,6 +184,11 @@ public sealed class MemoMargin(Func<EditorBlock?> active, string panel, Action<i
         {
             var line = row.Line; var memo = row.Memo; var review = row.Review; var kinds = row.Kinds;
             if (!memo && !review && kinds.Length == 0) continue;
+            // Hollow SVG paths leave gaps in WPF hit testing. Give each visible
+            // marker its entire slot, including the space around its strokes.
+            var rowSlots = (memo ? 1 : 0) + (review ? 1 : 0) + kinds.Length;
+            drawingContext.DrawRectangle(Brushes.Transparent, null,
+                new Rect(SlotPadding, line.VisualTop - TextView.VerticalOffset, rowSlots * 16, line.Height));
             var y = line.VisualTop - TextView.VerticalOffset + (line.Height - 16) / 2;
             void Icon(Drawing drawing, double x) { drawingContext.PushTransform(new TranslateTransform(x, y)); drawingContext.DrawDrawing(drawing); drawingContext.Pop(); }
             if (memo) Icon(MemoDrawing, SlotPadding);
