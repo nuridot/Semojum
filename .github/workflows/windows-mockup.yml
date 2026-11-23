@@ -43,6 +43,9 @@ jobs:
           & $env:SEMOJUM_ENGINE_PYTHON tests/engine/test_editor_translation.py
           if ($LASTEXITCODE -ne 0) { throw "Incremental translation parity checks failed." }
           dotnet run --project tests/Semojum.Core.Tests -c Release --no-build
+      - name: Set the Windows desktop size for the 1440x1000 reference frames
+        shell: powershell
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
       - name: WPF runtime smoke and screenshots
         shell: pwsh
         run: |
