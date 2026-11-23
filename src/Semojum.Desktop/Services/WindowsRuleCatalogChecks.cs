@@ -101,6 +101,24 @@ internal static class WindowsRuleCatalogChecks
             clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => query.Text.Length == 0 && tree.Items.Count == 3 && dialog.RuleResults.Children.Count == 0);
             check(tree.Items.Cast<TreeViewItem>().All(i => !i.IsExpanded), "Clearing the query restores the initial document browser");
+
+            const string longArticleId = "MCST-한글-4.10.33";
+            dialog.Width = 640;
+            await Search(longArticleId, () => dialog.RuleResults.Children.OfType<Expander>().Any(card => Equals(card.Tag, longArticleId)));
+            var longCard = dialog.RuleResults.Children.OfType<Expander>().Single(card => Equals(card.Tag, longArticleId));
+            var firstParagraph = ((RuleContentsNode)leaves.Single(item => ((RuleContentsNode)item.Tag).RuleId == longArticleId).Tag).Summary!;
+            var preview = Elements(longCard).OfType<TextBlock>().Single(t => t.Text == firstParagraph && t.IsVisible);
+            var collapsedHeight = preview.ActualHeight;
+            longCard.IsExpanded = true;
+            dialog.UpdateLayout();
+            var fullText = new TextBlock { Text = preview.Text, FontFamily = preview.FontFamily, FontSize = preview.FontSize, TextWrapping = TextWrapping.Wrap };
+            fullText.Measure(new Size(preview.ActualWidth, double.PositiveInfinity));
+            check(preview.IsVisible && preview.ActualHeight > collapsedHeight && preview.ActualHeight + 1 >= fullText.DesiredSize.Height,
+                "Opening article 33 at 640 DIP shows its complete first paragraph beyond the two-line preview");
+            await Capture("narrow-article");
+            longCard.IsExpanded = false;
+            dialog.UpdateLayout();
+            check(Math.Abs(preview.ActualHeight - collapsedHeight) < 1, "Collapsing the article restores its compact search preview");
         }
         finally { dialog.Close(); }
 
