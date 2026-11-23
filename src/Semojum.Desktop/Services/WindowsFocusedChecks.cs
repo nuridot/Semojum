@@ -94,6 +94,7 @@ internal static class WindowsFocusedChecks
                 case "tablememo":
                     await WindowsQa1110TableChecks.RunPreviewAsync(Check);
                     await WindowsMemoDeleteChecks.RunAsync(directory, Check);
+                    await WindowsMemoHoverChecks.RunAsync(Check);
                     await WindowsMemoFrameChecks.RunAsync(directory, Check);
                     await WindowsMemoRestoreChecks.RunAsync(directory, Check);
                     await WindowsTableDockChecks.RunAsync(directory, Check);

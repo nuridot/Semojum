@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
@@ -224,7 +226,9 @@ public sealed class MemoHoverBubble(Func<EditorBlock, string, int, MemoThreadDia
         if (Current is { IsVisible: true } && anchor == (block, panel, line)) { overMarker = true; closeTimer?.Stop(); return true; }
         Close();
         if (open(block, panel, line) is not { } bubble) return false;
-        bubble.ShowActivated = false; bubble.WindowStartupLocation = WindowStartupLocation.Manual;
+        bubble.ShowActivated = false;
+        bubble.ShowInTaskbar = false;
+        bubble.WindowStartupLocation = WindowStartupLocation.Manual;
         UIElement? reference = PresentationSource.FromVisual(marker) is not null ? marker : bubble.Owner;
         if (reference is not null && PresentationSource.FromVisual(reference)?.CompositionTarget is { } target)
         {
@@ -239,8 +243,39 @@ public sealed class MemoHoverBubble(Func<EditorBlock, string, int, MemoThreadDia
         bubble.CommandMenu.Closed += (_, _) => { if (Current == bubble) ScheduleClose(); };
         bubble.Closed += (_, _) => { if (Current == bubble) { Current = null; anchor = null; overMarker = overBubble = false; closeTimer?.Stop(); } };
         Current = bubble; anchor = (block, panel, line); overMarker = true; overBubble = false;
-        bubble.Show(); return true;
+        // WPF can reposition the new HWND for a different monitor's DPI inside Show(),
+        // activating it despite ShowActivated=false. Keep that move from taking keyboard focus.
+        ShowWithoutActivation(bubble);
+        return true;
     }
+
+    private static void ShowWithoutActivation(Window preview)
+    {
+        const int WH_CBT = 5, HCBT_ACTIVATE = 5;
+        var window = new WindowInteropHelper(preview);
+        IntPtr PreventPreviewActivation(int code, IntPtr target, IntPtr data) =>
+            code == HCBT_ACTIVATE && target == window.Handle
+                ? new IntPtr(1)
+                : CallNextHookEx(IntPtr.Zero, code, target, data);
+        HookProc callback = PreventPreviewActivation;
+        var hook = SetWindowsHookExW(WH_CBT, callback, IntPtr.Zero, GetCurrentThreadId());
+        try { preview.Show(); }
+        finally
+        {
+            if (hook != IntPtr.Zero) UnhookWindowsHookEx(hook);
+            GC.KeepAlive(callback);
+        }
+    }
+
+    private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWindowsHookExW(int idHook, HookProc callback, IntPtr module, uint thread);
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWindowsHookEx(IntPtr hook);
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
     /// <summary>The pointer left the memo marker.</summary>
     public void Leave() { overMarker = false; ScheduleClose(); }
     public void Close() { closeTimer?.Stop(); Current?.Close(); }
