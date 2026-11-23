@@ -100,6 +100,8 @@ internal static class WindowsFocusedChecks
                     await WindowsTableDockChecks.RunAsync(directory, Check);
                     break;
                 case "drafts":
+                    if (Environment.GetEnvironmentVariable("VISUAL_CATALOG_QA_ORIGIN") is { Length: > 0 } catalogOrigin)
+                    { await WindowsVisualDescriptionDesignChecks.RunLiveAsync(catalogOrigin, directory, Check); break; }
                     await WindowsDraftDockChecks.RunAsync(Check);
                     await WindowsDraftPendingChecks.RunAsync(Check);
                     await WindowsVisualPolicyChecks.RunAsync(Check);

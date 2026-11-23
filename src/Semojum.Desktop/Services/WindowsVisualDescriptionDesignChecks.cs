@@ -18,6 +18,84 @@ namespace Semojum.Desktop.Services;
 
 internal static class WindowsVisualDescriptionDesignChecks
 {
+    internal static async Task RunLiveAsync(string origin, string directory, Action<bool, string> check)
+    {
+        var endpoint = new Uri(origin);
+        if (!endpoint.IsLoopback) throw new InvalidOperationException("로컬 시험 서버만 사용할 수 있습니다.");
+        using var http = new HttpClient();
+        var api = new SemojumApiClient(http, endpoint);
+        await api.LoginAsync(Environment.GetEnvironmentVariable("VISUAL_CATALOG_QA_LOGIN")!,
+            Environment.GetEnvironmentVariable("VISUAL_CATALOG_QA_PASSWORD")!);
+        var window = new MainWindow(smoke: true, testWithoutAccount: true, apiClient: api);
+        window.Show();
+        try
+        {
+            await WindowsSmoke.WithModal(() => window.ExecuteAsync("visualDescriptions"), async (VisualDescriptionDialog dialog) =>
+            {
+                var types = List(dialog);
+                int[] expected = [6, 5, 6, 10, 4];
+                for (int i = 0; i < expected.Length; i++)
+                {
+                    types.SelectedIndex = i;
+                    var choices = Items<CheckBox>(dialog).ToArray();
+                    check(choices.Length == expected[i], $"Catalog category {i + 1} exposes all {expected[i]} AI choices");
+                    foreach (var choice in choices) choice.IsChecked = true;
+                }
+                types.SelectedIndex = 0;
+                SelectDefault(dialog, "그림 별책 참조");
+                types.SelectedIndex = 2;
+                SelectDefault(dialog, "차트 자세히");
+                types.SelectedIndex = 4;
+                check(Items<CheckBox>(dialog).Select(c => c.Content).Contains("단순")
+                    && !Items<CheckBox>(dialog).Any(c => Equals(c.Content, "줄글")), "Cartoon choices use the live AI catalog");
+                SelectDefault(dialog, "만화 단순");
+                types.SelectedIndex = 3;
+                var last = Choice(dialog, "도표 다른 유형으로 본 골격 둘째");
+                last.BringIntoView();
+                await dialog.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+                dialog.UpdateLayout();
+                var position = last.TranslatePoint(new Point(), dialog);
+                check(last.IsVisible && position.Y >= 0 && position.Y + last.ActualHeight <= dialog.ActualHeight,
+                    "The tenth diagram option scrolls into the visible window");
+                SelectDefault(dialog, "도표 다른 유형으로 본 골격 둘째");
+                await WindowsSmoke.RenderElementAsync(dialog, Path.Combine(directory, "diagram.png"));
+                types.SelectedIndex = 1;
+                SelectDefault(dialog, "표 번호 체계");
+                Press(dialog, "확인");
+            });
+            var saved = window.Session.Options.VisualDescriptions!;
+            check(saved["cartoon"].DefaultOptionNumber == 11 && saved["diagram"].DefaultOptionNumber == 13
+                && saved["table"].DefaultOptionNumber == 5, "Account selections reached the open document with stable numbers");
+            await WindowsSmoke.WithModal(() => window.ExecuteAsync("visualDescriptions"), (VisualDescriptionDialog dialog) =>
+            {
+                List(dialog).SelectedIndex = 1;
+                check(AutomationProperties.GetHelpText(Choice(dialog, "표 번호 체계")) == "현재 기본 설명",
+                    "Reopening settings restores the numbered table default from the server");
+                Press(dialog, "취소");
+                return Task.CompletedTask;
+            });
+            var smj = Path.Combine(directory, "selected.smj");
+            await SmjFile.SaveAsync(smj, SmjFile.Snapshot(window.Session));
+            var reopened = await SmjFile.LoadAsync(smj);
+            check(reopened.Options.VisualDescriptions!["diagram"].DefaultOptionNumber == 13, "SMJ preserves catalog IDs");
+            // Override just this document's table choice; the account still defaults to number 5.
+            var document = new Dictionary<string, VisualDescription>(saved) { ["table"] = new(["행열 바꿈"], "행열 바꿈", [3], 3) };
+            window.ApplyVisualDescriptionPolicy(document);
+            var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=");
+            var job = await new JobClient(api).UploadAsync([new UploadFile("설명-유형.png", png)], window.Session);
+            await File.WriteAllTextAsync(Path.Combine(directory, "job-id.txt"), job.JobId);
+            check(job.TotalPages == 1, "A new upload accepts the document-specific catalog options");
+        }
+        finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
+
+        static void SelectDefault(VisualDescriptionDialog dialog, string name)
+        {
+            var choice = Choice(dialog, name);
+            choice.IsChecked = true;
+            choice.ContextMenu!.Items.OfType<MenuItem>().Single().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        }
+    }
+
     internal static async Task RunAsync(string directory, Action<bool,string> check)
     {
         using var service = new SettingsFixture();
@@ -125,6 +203,9 @@ internal static class WindowsVisualDescriptionDesignChecks
                     }
                     result = Stored;
                     break;
+                case "/api/users/visual-options":
+                    return new HttpResponseMessage(HttpStatusCode.NotFound)
+                    { Content = new StringContent("""{"isSuccess":false,"code":"NOT_FOUND","message":"이전 서버"}""", Encoding.UTF8, "application/json") };
             }
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { isSuccess=true,result }), Encoding.UTF8,"application/json") };
         }

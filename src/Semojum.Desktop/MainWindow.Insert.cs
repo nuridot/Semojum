@@ -29,7 +29,7 @@ public partial class MainWindow
         VisualDescriptions.Validate(policy);
         if (session.IsReadOnly) return;
         EditStructure(() => session.Options = session.Options with { VisualDescriptions = policy
-            .ToDictionary(p => p.Key, p => p.Value with { Options = p.Value.Options.ToArray() }) });
+            .ToDictionary(p => p.Key, p => p.Value with { Options = p.Value.Options.ToArray(), OptionNumbers = p.Value.OptionNumbers?.ToArray() }) });
     }
 
     private void InitializeDraftAvailability()

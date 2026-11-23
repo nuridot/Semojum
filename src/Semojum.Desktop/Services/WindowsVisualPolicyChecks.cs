@@ -55,6 +55,16 @@ internal static class WindowsVisualPolicyChecks
             check(VisualDraftSelection.IsEnabled(new(Type: "table"), options, new("표", "", null, "", null), "transposed")
                 && !VisualDraftSelection.IsEnabled(new(Type: "table"), options, new("표", "", null, "", null), "table_grid"),
                 "QA1110: table choices follow render-mode description toggles");
+            var byId = new BrailleOptions(VisualDescriptions: new() { ["diagram"] = new(["저장 시 이름"], "저장 시 이름", [13], 13) });
+            var renamed = new EditorBlock { Source = "원문", Metadata = new(Type: "diagram", Alternatives:
+                [new("저장 시 이름", "다른 초안", null, null, null, Option: 9), new("바뀐 이름", "13번 본문", null, null, null, Option: 13)]) };
+            check(!VisualDraftSelection.IsEnabled(renamed.Metadata, byId, renamed.Metadata.Alternatives![0])
+                && VisualDraftSelection.ApplyInitial(renamed, byId) && renamed.Source == "13번 본문",
+                "A renamed diagram draft is filtered and selected by its catalog ID");
+            var tablePolicy = new BrailleOptions(VisualDescriptions: new() { ["table"] = new(["번호 체계"], "번호 체계", [5], 5) });
+            var table = new EditorBlock { Source = "표", Metadata = new(Type: "table") };
+            check(VisualDraftSelection.ApplyInitial(table, tablePolicy) && table.Metadata.RenderMode == "numbered",
+                "Catalog table option 5 selects numbered table rendering");
         }
         finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
     }

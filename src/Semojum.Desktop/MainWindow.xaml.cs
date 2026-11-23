@@ -488,7 +488,11 @@ public partial class MainWindow : Window
                     if (await EnsureAccountAsync())
                     {
                         var settings = new SettingsClient(api); var defaults = await settings.DefaultsAsync(documentLifetime.Token);
-                        var visual = new VisualDescriptionDialog(new(defaults.Options.VisualDescriptions ?? VisualDescriptions.Defaults())) { Owner = this };
+                        var catalog = await settings.VisualOptionsAsync(documentLifetime.Token);
+                        var current = defaults.Options.VisualDescriptions ?? VisualDescriptions.Defaults();
+                        if (catalog is null && current.Values.Any(row => row.OptionNumbers is not null))
+                            throw new InvalidOperationException("저장된 설명 유형을 편집하려면 서버의 AI 설명 유형 목록이 필요합니다.");
+                        var visual = new VisualDescriptionDialog(new(current), catalog) { Owner = this };
                         if (visual.ShowDialog() == true)
                         {
                             await settings.SaveDefaultsAsync(defaults with { Options = defaults.Options with { VisualDescriptions = visual.Result } }, documentLifetime.Token);

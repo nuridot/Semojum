@@ -128,6 +128,8 @@ public sealed partial class JobClient(SemojumApiClient api)
             }
             foreach (var pair in LayoutBody(settings.Layout).Concat(OptionsBody(settings.Options)).Where(p => p.Key != "visualDescriptions"))
                 form.Add(new StringContent(pair.Value is string s ? s : JsonSerializer.Serialize(pair.Value)), pair.Key);
+            if (settings.Options.VisualDescriptions is { } visual)
+                form.Add(new StringContent(JsonSerializer.Serialize(visual, JsonSerializerOptions.Web), Encoding.UTF8, "application/json"), "visualDescriptions");
             if (formId is not null) form.Add(new StringContent(formId), "formId");
             form.Add(new StringContent(settings.FooterText), "footerText");
             form.Add(new StringContent(settings.Layout.ShowSourcePageNumber ? "true" : "false"), "insertPageNumber");

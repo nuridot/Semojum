@@ -14,21 +14,19 @@ public sealed class VisualDescriptionDialog : FormDialogBase
     private readonly StackPanel choices = new();
     private readonly List<Action> defaultIndicators = [];
     private readonly Dictionary<string, TextBlock> counts = [];
-    private Dictionary<string, VisualDescription> values;
+    private readonly VisualOptionCatalog catalog;
+    private readonly bool useNumbers;
+    private readonly Dictionary<string, HashSet<int>> enabled = [];
+    private readonly Dictionary<string, int> preferred = [];
     public Dictionary<string, VisualDescription> Result { get; private set; }
 
-    public VisualDescriptionDialog(Dictionary<string, VisualDescription> current)
+    public VisualDescriptionDialog(Dictionary<string, VisualDescription> current, VisualOptionCatalog? catalog = null)
         : base("대체 초안 유형", 680, 442, EditorModalDesign.Icon("form-close", assemblyName: "Semojum.UI.Common"))
     {
         Result = new(current);
-        values = VisualDescriptions.Defaults();
-        foreach (var (key, _) in Categories)
-        {
-            if (!current.TryGetValue(key, out var saved) || saved?.Options is not { } enabled) continue;
-            var supported = VisualDescriptions.Choices[key].Where(enabled.Contains).ToArray();
-            var preferred = supported.Contains(saved.DefaultOption) ? saved.DefaultOption : supported.FirstOrDefault() ?? "";
-            values[key] = new(supported, preferred);
-        }
+        this.catalog = catalog ?? VisualOptionCatalog.Legacy();
+        useNumbers = catalog != null;
+        LoadSelections(current);
         UseControlBorder();
         AlignLabelBaseline();
         Resources.MergedDictionaries.Add(new() { Source = new Uri("/Semojum.Feature.Settings.Wpf;component/Styles/VisualDescription.xaml", UriKind.Relative) });
@@ -64,7 +62,7 @@ public sealed class VisualDescriptionDialog : FormDialogBase
         var head = new DockPanel { Height = 24, Margin = new(0,0,12,8) };
         var restore = Button("기본값", () =>
         {
-            values = VisualDescriptions.Defaults();
+            LoadSelections(VisualDescriptions.Defaults(), restoringDefaults: true);
             UpdateCounts();
             ShowChoices();
             Status.Text = "";
@@ -86,22 +84,49 @@ public sealed class VisualDescriptionDialog : FormDialogBase
         CancelButton();
         FooterButton("확인", () =>
         {
-            var empty = Categories.FirstOrDefault(category => values[category.Key].Options.Length == 0);
+            var empty = Categories.FirstOrDefault(category => enabled[category.Key].Count == 0);
             if (empty.Key is not null)
             {
                 categories.SelectedIndex = Array.FindIndex(Categories, c => c.Key == empty.Key);
                 throw new ArgumentException(empty.Label + "에 사용할 설명 유형을 하나 이상 골라 주세요.");
             }
-            VisualDescriptions.Validate(values);
-            Result = new(values);
+            var result = new Dictionary<string, VisualDescription>();
+            foreach (var (key, _) in Categories)
+            {
+                var selected = this.catalog.Choices[key].Where(item => enabled[key].Contains(item.Option)).ToArray();
+                var choice = selected.First(item => item.Option == preferred[key]);
+                // Keep historical labels readable by earlier clients; the live catalog supplies the displayed text.
+                string SavedLabel(VisualChoice item) => VisualDescriptions.Choices[key]
+                    .FirstOrDefault(label => VisualDescriptions.LegacyNumber(label, key == "table") == item.Option) ?? item.Label;
+                result[key] = new(selected.Select(SavedLabel).ToArray(), SavedLabel(choice),
+                    useNumbers ? selected.Select(item => item.Option).ToArray() : null, useNumbers ? choice.Option : null);
+            }
+            VisualDescriptions.Validate(result);
+            Result = result;
             DialogResult = true;
         }, true);
+    }
+
+    private void LoadSelections(IReadOnlyDictionary<string, VisualDescription> current, bool restoringDefaults = false)
+    {
+        var defaults = VisualDescriptions.Defaults();
+        foreach (var (key, _) in Categories)
+        {
+            var saved = current.TryGetValue(key, out var policy) && policy?.Options != null ? policy : defaults[key];
+            var offered = catalog.Choices[key];
+            var numbers = saved.OptionNumbers?.ToHashSet() ?? saved.Options
+                .Select(label => VisualDescriptions.LegacyNumber(label, key == "table")).OfType<int>().ToHashSet();
+            enabled[key] = offered.Where(row => numbers.Contains(row.Option)).Select(row => row.Option).ToHashSet();
+            if (enabled[key].Count == 0 && (restoringDefaults || !current.ContainsKey(key))) enabled[key].Add(offered[0].Option);
+            int defaultNumber = saved.DefaultOptionNumber ?? VisualDescriptions.LegacyNumber(saved.DefaultOption, key == "table") ?? 0;
+            preferred[key] = enabled[key].Contains(defaultNumber) ? defaultNumber : offered.FirstOrDefault(row => enabled[key].Contains(row.Option))?.Option ?? 0;
+        }
     }
 
     private void UpdateCounts()
     {
         foreach (var (key, _) in Categories)
-            counts[key].Text = $"{values[key].Options.Length}/{VisualDescriptions.Choices[key].Length}";
+            counts[key].Text = $"{enabled[key].Count}/{catalog.Choices[key].Length}";
     }
 
     private void ShowChoices()
@@ -110,16 +135,16 @@ public sealed class VisualDescriptionDialog : FormDialogBase
         choices.Children.Clear();
         if (categories.SelectedIndex < 0) return;
         var (key, label) = Categories[categories.SelectedIndex];
-        foreach (var option in VisualDescriptions.Choices[key])
+        foreach (var option in catalog.Choices[key])
         {
             var row = new Grid { Height = 40, Margin = new(0,choices.Children.Count == 0 ? 0 : 8,0,0) };
-            var choice = new CheckBox { Content = option, FontSize = 14, IsChecked = values[key].Options.Contains(option),
+            var choice = new CheckBox { Content = option.Label, FontSize = 14, IsChecked = enabled[key].Contains(option.Option),
                 Margin = new(0), Template = (ControlTemplate)FindResource("DraftChoice") };
-            AutomationProperties.SetName(choice, label + " " + option);
+            AutomationProperties.SetName(choice, label + " " + option.Label);
             row.Children.Add(choice);
             void SetPreferred()
             {
-                values[key] = values[key] with { DefaultOption = option };
+                preferred[key] = option.Option;
                 RefreshDefaults();
             }
             var preferredCommand = new MenuItem { Header = "기본 설명으로 지정" };
@@ -129,12 +154,12 @@ public sealed class VisualDescriptionDialog : FormDialogBase
             var makeDefault = Button("기본으로 지정", () => { SetPreferred(); return Task.CompletedTask; });
             makeDefault.Margin = new(0,0,8,0); makeDefault.MinHeight = 0; makeDefault.Height = 24;
             makeDefault.HorizontalAlignment = HorizontalAlignment.Right; makeDefault.VerticalAlignment = VerticalAlignment.Center;
-            AutomationProperties.SetName(makeDefault, label + " " + option + " 기본 설명");
+            AutomationProperties.SetName(makeDefault, label + " " + option.Label + " 기본 설명");
             row.Children.Add(makeDefault);
             // Show the secondary action while navigating the row by pointer or keyboard.
             void Refresh()
             {
-                bool selected = values[key].DefaultOption == option;
+                bool selected = preferred[key] == option.Option;
                 preferredCommand.IsEnabled = choice.IsChecked == true;
                 makeDefault.Content = selected ? "기본 설명" : "기본으로 지정";
                 makeDefault.Visibility = choice.IsChecked == true && (row.IsMouseOver || row.IsKeyboardFocusWithin) ? Visibility.Visible : Visibility.Collapsed;
@@ -143,9 +168,10 @@ public sealed class VisualDescriptionDialog : FormDialogBase
             }
             void SelectOptions()
             {
-                var selected = VisualDescriptions.Choices[key].Where(o => o == option ? choice.IsChecked == true : values[key].Options.Contains(o)).ToArray();
-                var preferred = selected.Contains(values[key].DefaultOption) ? values[key].DefaultOption : selected.FirstOrDefault() ?? "";
-                values[key] = new(selected, preferred);
+                if (choice.IsChecked == true) enabled[key].Add(option.Option);
+                else enabled[key].Remove(option.Option);
+                if (!enabled[key].Contains(preferred[key]))
+                    preferred[key] = catalog.Choices[key].FirstOrDefault(item => enabled[key].Contains(item.Option))?.Option ?? 0;
                 Status.Text = "";
                 UpdateCounts();
                 RefreshDefaults();

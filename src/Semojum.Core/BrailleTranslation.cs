@@ -5,7 +5,9 @@ namespace Semojum.Core;
 public sealed record BrailleOptions(bool KoreanGrade1 = false, bool EnglishGrade1 = false,
     bool EnglishDocument = false, string LineBreakUnit = "syllable", string MixedRule = "korean",
     string ConsecutiveSpace = "single", string ChoiceLayout = "merge", Dictionary<string, VisualDescription>? VisualDescriptions = null);
-public sealed record VisualDescription(string[] Options, string DefaultOption);
+public sealed record VisualDescription(string[] Options, string DefaultOption,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int[]? OptionNumbers = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DefaultOptionNumber = null);
 public sealed record DroppedCharacter(string Text, int Count, string Flag);
 public sealed record BrailleDraft(string RenderMode, string Label, string Cells, int[] Breaks,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SourceText = null);
