@@ -19,15 +19,18 @@ public static class ShadowPopupPlacement
 
     private static CustomPopupPlacement[] Place(Popup popup, Size size, Size target, Point offset)
     {
-        // Popup callback sizes use screen coordinates, which can differ from WPF's
-        // reported DPI when the thread's DPI awareness changes after startup.
-        var a = popup.PointToScreen(new Point());
-        var b = popup.PointToScreen(new Point(100, 100));
-        var marginX = Math.Abs(b.X - a.X) / 100 * 20;
-        var marginY = Math.Abs(b.Y - a.Y) / 100 * 20;
+        // WPF supplies the child's rendered bounds in screen pixels. A submenu
+        // and its parent can occupy monitors with different scaling.
+        var marginX = 0d;
+        var marginY = 0d;
+        if (popup.Child is FrameworkElement child)
+        {
+            if (child.ActualWidth > 0) marginX = child.Margin.Left * size.Width / child.ActualWidth;
+            if (child.ActualHeight > 0) marginY = child.Margin.Top * size.Height / child.ActualHeight;
+        }
         return [
-        new(new Point(target.Width - marginX, -marginY), PopupPrimaryAxis.Horizontal),
-        new(new Point(-size.Width - marginX, -marginY), PopupPrimaryAxis.Horizontal)
+            new(new Point(target.Width - marginX, -marginY), PopupPrimaryAxis.Horizontal),
+            new(new Point(-size.Width - marginX, -marginY), PopupPrimaryAxis.Horizontal)
         ];
     }
 }
