@@ -24,7 +24,10 @@ public sealed record BrailleTranslation(string Cells, int[] Breaks, DroppedChara
     public bool NeedsReview => Blocked || Dropped.Length != 0 || UnknownTags?.Length > 0;
 }
 public sealed record BrailleSymbol(string Char, string Cells, string Group);
-public sealed record CellAddress(int BlockId, int Offset);
+public sealed record CellAddress(int BlockId, int Offset)
+{
+    internal char? ReplacedValue { get; init; }
+}
 public sealed record ComposedPage(int? Number, string[] Lines, CellAddress?[][] Cells, CellAddress?[] Ends, string[] Kinds);
 public sealed record ComposedBraille(string Brf, Dictionary<string, int> Replaced, ComposedPage[]? Pages = null, int[]? SpacingUnknownBlockIds = null, int[]? AlignmentUnknownBlockIds = null);
 /// <param name="ReviewFlag">The AI's line-number signal for the element (BE 2026-11-01): "open" unresolved warning, "sug" suggested fix, "note" memo; null when none.</param>

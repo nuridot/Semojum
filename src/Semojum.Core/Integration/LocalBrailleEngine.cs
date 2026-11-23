@@ -51,7 +51,8 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
             foreach (var t in translated)
             {
                 breaks.AddRange(t.Breaks.Select(b => offset + b));
-                trail.AddRange((t.RuleTrail ?? []).Select(r => r with { LineNo = 0, ColumnStart = offset + r.ColumnStart, ColumnEnd = offset + r.ColumnEnd }));
+                trail.AddRange((t.RuleTrail ?? []).Select(r => r.LineNo < 0 ? r :
+                    r with { LineNo = 0, ColumnStart = offset + r.ColumnStart, ColumnEnd = offset + r.ColumnEnd }));
                 offset += t.Cells.Length + 1;
             }
             return new(compositeCells, breaks.ToArray(), translated.SelectMany(t => t.Dropped).ToArray(), translated.Any(t => t.Blocked), [],
@@ -391,7 +392,20 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
         var ends = result.GetProperty("ends").Deserialize<int[]?[][]>() ?? [];
         var kinds = result.GetProperty("kinds").Deserialize<string[][]>() ?? [];
         var numbers = result.GetProperty("numbers").Deserialize<int?[]>() ?? [];
-        CellAddress? Address(int[]? value) => value is { Length: 2 } ? new(value[0], value[1]) : null;
+        var originalBlocks = replaced.Count > 0 ? snapshot.Blocks.ToDictionary(b => b.Id, b => b.Braille) : null;
+        CellAddress? Address(int[]? value)
+        {
+            if (value is not [var id, var offset]) return null;
+            // BRF writes unsupported cells as blanks. Retain what was at this exact offset
+            // during composition so a later edit still invalidates the coordinates.
+            if (originalBlocks is not null && originalBlocks.TryGetValue(id, out var original) && (uint)offset < (uint)original.Length)
+            {
+                var ch = original[offset];
+                if (ch is not (>= '\u2800' and <= '\u283f') && replaced.ContainsKey($"U+{(int)ch:X4}"))
+                    return new(id, offset) { ReplacedValue = ch };
+            }
+            return new(id, offset);
+        }
         var alignmentProtocol = result.TryGetProperty("alignment_protocol", out var protocol) && protocol.TryGetInt32(out var version) && version == 1;
         var alignmentUnknown = !alignmentProtocol ? snapshot.Blocks.Where(b => HasAlignment(b) && SingleLineAlignment(b).Length == 0).Select(b => b.Id).ToArray() : result.TryGetProperty("alignment_unknown", out var unaligned)
             ? unaligned.Deserialize<int[]>() ?? snapshot.Blocks.Where(b => HasAlignment(b) && AlignmentFor(b) is null && SingleLineAlignment(b).Length == 0).Select(b => b.Id).ToArray()

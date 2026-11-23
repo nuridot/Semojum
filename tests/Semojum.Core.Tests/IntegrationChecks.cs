@@ -436,6 +436,15 @@ internal static class IntegrationChecks
         True(evidence.RuleTrail?.Any(r => r.Title.Length > 0 && r.Excerpt.Length > 0 && r.ColumnEnd > r.ColumnStart) == true);
         // 3.4.46 marks engine columns as braille cells of these very cells.
         True(evidence.RuleTrail!.All(r => r.Axis == AppliedRules.BrailleAxis && r.ColumnEnd <= evidence.Cells.Length));
+        var fraction = await engine.TranslateElementAsync(@"\frac{1}{7}", new(Type: "formula", MathPage: true), new());
+        var fractionRule = fraction.RuleTrail!.Single(r => r.Tag == "math_struct");
+        Equal("MCST-수학-1.7", fractionRule.RuleId);
+        True(fractionRule.LineNo == -1 && fractionRule.Axis == AppliedRules.BrailleAxis && fractionRule.Title.Length > 0);
+        const string root = @"<!수식>\sqrt{2}<!/수식>";
+        var repeated = await engine.TranslateElementAsync(root + " " + root, new(), new());
+        Equal(1, repeated.RuleTrail!.Count(r => r.RuleId == "MCST-수학-2.22"));
+        var split = await engine.TranslateElementAsync("시작<!쪽바꿈>" + root, new(), new());
+        True(split.RuleTrail!.Any(r => r.RuleId == "MCST-수학-2.22" && r.LineNo == -1));
 
         var grade1 = await engine.TranslateElementAsync("가", new(), new(KoreanGrade1: true)); Equal("⠈⠣", grade1.Cells.Trim('⠀'));
         var dropped = await engine.TranslateElementAsync("가▶나", new(), new()); True(dropped.NeedsReview); Equal("▶", dropped.Dropped[0].Text);
@@ -503,6 +512,17 @@ internal static class IntegrationChecks
                 if (face.Kinds![row] == "page") True(face.Rows[row].All(c => c is null));
         multi.Blocks[0].Braille = "⠙";
         await Reject<InvalidDataException>(() => { BrailleGrid.FromComposition(composed, multi.Blocks, multi.Layout); return Task.CompletedTask; });
+        var stored = new DocumentSession();
+        var marked = new EditorBlock { Id = 1, Page = 1, Source = "해설", Braille = "⠁⣿⡀⠃", HasManualBraille = true };
+        stored.Add(marked);
+        var withReplacements = await engine.ComposeAsync(SmjFile.Snapshot(stored).Manifest);
+        Equal(1, withReplacements.Replaced["U+28FF"]);
+        var storedGrid = BrailleGrid.FromComposition(withReplacements, stored.Blocks, stored.Layout);
+        var rowWithMarker = storedGrid.SelectMany(f => f.Rows).First(row => row.Any(c => c?.Block == marked));
+        True(rowWithMarker[1] is { Offset: 1, Value: '⠀', IsInsertion: false } && rowWithMarker[1]!.Block == marked);
+        True(rowWithMarker[3] is { Offset: 3, Value: '⠃' } && marked.Braille == "⠁⣿⡀⠃");
+        marked.Braille = "⠁⡀⣿⠃";
+        await Reject<InvalidDataException>(() => { BrailleGrid.FromComposition(withReplacements, stored.Blocks, stored.Layout); return Task.CompletedTask; });
         var inline = await engine.TranslateElementAsync("가<!쪽바꿈><!쪽바꿈>나", new(), new());
         var inlineDoc = new DocumentSession { Layout = new(Columns: 16, Lines: 4, PageNumbers: "출력 안 함", Footer: "출력 안 함") };
         inlineDoc.Add(new EditorBlock { Id = 1, Page = 1, Source = "가<!쪽바꿈><!쪽바꿈>나", Braille = inline.Cells, Translation = inline });
