@@ -3,6 +3,15 @@ namespace Semojum.Core;
 /// <summary>Select and present description drafts without deleting original alternatives.</summary>
 public static class VisualDraftSelection
 {
+    private static int? OptionNumber(string choice, bool table) => table ? choice switch
+    {
+        "풀어쓰기" => 1, "테두리+구분선" => 2, "행열 바꿈" => 3, "테두리만" => 4, _ => null
+    } : choice switch
+    {
+        "생략" => 1, "개조식" => 2, "별책 참조" => 6, "줄글" => 7, "상향식" => 8,
+        "관행형" => 10, "짧은 제목" => 11, "상세" => 12, _ => null
+    };
+
     public static bool IsEnabled(BlockMetadata metadata, BrailleOptions options, AlternativeDraft draft, string? renderMode = null)
     {
         // Older documents without an explicit policy retain all their supplied drafts.
@@ -16,18 +25,15 @@ public static class VisualDraftSelection
             return label is null || policy.Options.Contains(label);
         }
         var name = draft.Label.Trim();
-        if (VisualDescriptions.Choices.TryGetValue(type, out var choices) && choices.Contains(name))
-            return policy.Options.Contains(name);
-        // Current server names consolidate older detailed styles into option 2.
-        return draft.Option switch
-        {
-            1 => policy.Options.Contains("생략"),
-            6 => policy.Options.Contains("별책 참조"),
-            7 => policy.Options.Contains("줄글"),
-            2 => policy.Options.Any(o => o is "짧은 제목" or "개조식" or "상세"),
-            _ when name is "설명" or "기본" => policy.Options.Any(o => o is "짧은 제목" or "개조식" or "상세" or "줄글"),
-            _ => true // Preserve unknown server extensions rather than deleting inaccessible source data.
-        };
+        bool table = type == "table";
+        VisualDescriptions.Choices.TryGetValue(type, out var choices);
+        if (!table && draft.Option == 2 && policy.Options.Any(choice => (choice is "짧은 제목" or "상세") &&
+                metadata.Alternatives?.Any(d => d.Option == OptionNumber(choice, false)) != true))
+            return true; // Older servers supplied only a general description.
+        if (draft.Option is { } number && choices?.Any(choice => OptionNumber(choice, table) == number) == true)
+            return policy.Options.Any(choice => OptionNumber(choice, table) == number);
+        if (choices?.Contains(name) == true) return policy.Options.Contains(name);
+        return name is not ("설명" or "기본") || policy.Options.Any(o => o is "짧은 제목" or "개조식" or "상세" or "줄글");
     }
     public static bool ApplyInitial(EditorBlock block, BrailleOptions options)
     {
@@ -44,14 +50,13 @@ public static class VisualDraftSelection
             if (mode is not null) block.Metadata = metadata = metadata with { RenderMode = mode };
         }
         var drafts = metadata.Alternatives ?? [];
-        // BE 2026-11-01: drafts carry a fixed option number and labels have changed before, so the number pairs first.
-        // Older pages have no number and keep the label rules below. Diagram-only names have no known number yet.
-        int? option = choice switch { "생략" => 1, "별책 참조" => 6, "줄글" => 7, "짧은 제목" or "개조식" or "상세" => 2, _ => null };
+        int? option = OptionNumber(choice, type == "table");
         var selected = option is { } number ? Array.FindIndex(drafts, d => d.Option == number && IsEnabled(metadata, options, d)) : -1;
         if (selected < 0) selected = Array.FindIndex(drafts, d => d.Label.Trim() == choice);
         if (selected < 0 && choice == "생략") selected = Array.FindIndex(drafts, d => d.Label.Trim().EndsWith("생략", StringComparison.Ordinal));
         if (selected < 0 && choice == "별책 참조") selected = Array.FindIndex(drafts, d => d.Label.Contains("참조", StringComparison.Ordinal));
-        // QA4: these legacy description styles were consolidated into the current "설명" / "기본" draft.
+        if (selected < 0 && choice is "짧은 제목" or "상세")
+            selected = Array.FindIndex(drafts, d => d.Option == 2 && IsEnabled(metadata, options, d));
         if (selected < 0 && choice is "짧은 제목" or "개조식" or "상세" or "줄글")
             selected = Array.FindIndex(drafts, d => d.Label.Trim() is "설명" or "기본");
         if (selected < 0) return metadata.Type == "table" && metadata.RenderMode is not null;

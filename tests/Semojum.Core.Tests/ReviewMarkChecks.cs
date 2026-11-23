@@ -14,11 +14,31 @@ internal static class ReviewMarkChecks
         yield return ("Invalid review annotations and incompatible SMJ versions cannot overwrite a file", Invalid);
         yield return ("Server quality issues become whole-block open warnings that a person's edit resolves for good", ServerWarningsAsync);
         yield return ("An AI review_flag of open is the same open warning unless the page report already names the block", ReviewFlagWarnings);
+        yield return ("Routine AI guidance does not mark healthy lines or erase user annotations", InformationalFlags);
     }
 
     private sealed class CellsEngine(string cells) : ITranslationEngine
     {
         public Task<string> TranslateAsync(string text, int blockId, CancellationToken token) => Task.FromResult(cells);
+    }
+
+    private static Task InformationalFlags()
+    {
+        var block = new EditorBlock { ServerId = "figure", Source = "그림", Braille = "⠁" };
+        // IDs written by the 1.0.7 client for the R13 report below.
+        block.ReviewMarks.Add(new("server-7999099ef70d7d90-text", ReviewKind.OpenWarning, ReviewPanel.Text, 0, 2, "그림"));
+        block.ReviewMarks.Add(new("server-7999099ef70d7d90-braille", ReviewKind.OpenWarning, ReviewPanel.Braille, 0, 1, "⠁"));
+        var manual = new ReviewMark("user-confirmed", ReviewKind.HumanConfirmed, ReviewPanel.Text, 0, 2, "그림");
+        block.ReviewMarks.Add(manual);
+        QualityIssue[] advice = [
+            new("review", "R13", "figure", "grade"), new("review", "R19", "figure", "머리글"),
+            new("review", "R10", "figure", "복합 표"), new("review", "R11", "figure", "AI가 쓴 시각자료 설명 — 원본 그림과 대조가 필요합니다")];
+        Check(ServerWarnings.Apply([block], advice) == 0 && block.ReviewMarks.SequenceEqual([manual]),
+            "Legacy automatic guidance disappears from both panels and the user's mark survives");
+        QualityIssue defect = new("review", "R11", "figure", "캡셔닝 실패");
+        Check(ServerWarnings.Apply([block], [..advice, defect]) == 1 && block.ReviewMarks.Count == 3 &&
+              ServerWarnings.Apply([block], [..advice, defect]) == 0, "A caption failure on the same figure still marks both panels exactly once");
+        return Task.CompletedTask;
     }
 
     private static Task ReviewFlagWarnings()
