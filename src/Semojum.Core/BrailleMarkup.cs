@@ -7,6 +7,11 @@ public static partial class BrailleMarkup
     [GeneratedRegex(@"<!(?:쪽바꿈|장바꿈|상단줄|중단줄|하단줄|상단굵은줄|하단굵은줄|표시작|표중앙|표끝|표구분선|표지시작|표지세로|표지끝|묵자쪽번호|점자면번호)>")]
     private static partial Regex Tokens();
     public static string VisibleText(string value) => Tokens().Replace(value, "");
+    public static string PreviewCells(string value)
+    {
+        if (!value.Any(c => c is > '\u2800' and <= '\u28ff')) return "";
+        return new string(value.Where(c => c is >= '\u2800' and <= '\u28ff' or ' ' or '\t' or '\r' or '\n').ToArray());
+    }
     public static string Markers(string value) => string.Join("\n", Tokens().Matches(value).Select(m => m.Value));
     public static int MovePastMarker(string value, int offset, int direction)
     {

@@ -194,6 +194,7 @@ public partial class MainWindow : Window
         }
         finally { switching = false; }
         RefreshEditorStatus();
+        QueuePreview(false);
     }
 
     private void ErrorNotice_Close(object sender, RoutedEventArgs e) { if (!session.HasPendingServerPages && !session.HasPendingRestart) session.ErrorNotice = ""; }
@@ -219,8 +220,7 @@ public partial class MainWindow : Window
         try
         {
             if (SelectionPane.Visibility == Visibility.Visible) PopulateBlockSelection();
-            currentPreviewLine = 0; currentPreviewCells = "";
-            LineStrip.SetPreview(0, ""); detachedPane?.SetLinePreview(0, "");
+            DisplayLinePreview(0, "", false);
             SourceEditor.Document = documents.Source(block);
             SourceEditor.IsReadOnly = session.IsReadOnly || block.Metadata.IsBlocked;
             SourceEditor.CaretOffset = Math.Clamp(block.SourceCaret, 0, SourceEditor.Document.TextLength);
@@ -576,10 +576,10 @@ public partial class MainWindow : Window
         detachedPane.Editor.TextArea.Caret.PositionChanged += (_, _) => RefreshEditorStatus();
         detachedPane.HideRequested += (_, _) => detachedWindow?.Close();
         detachedPane.PreviewCloseRequested += (_, _) => SetLinePreviewVisible(false);
-        detachedPane.SetLinePreviewVisible(false);
+        detachedPane.SetLinePreviewVisible(LinePreviewToggle.IsChecked);
         detachedPane.PanelNumber.Text = Braille.PanelNumber.Text;
         PaintPanelHeaders();
-        detachedPane.SetLinePreview(currentPreviewLine, currentPreviewCells);
+        detachedPane.SetLinePreview(currentPreview.Line, currentPreview.Text, currentPreview.Reverse);
         detachedPane.DetachRequested += (_, _) => detachedWindow?.Close();
         BrailleToggle.IsChecked = true;
         var sourceSize = SourceEditor.FontSize;

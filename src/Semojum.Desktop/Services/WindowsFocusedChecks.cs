@@ -73,6 +73,7 @@ internal static class WindowsFocusedChecks
                     break;
                 case "incremental":
                     await WindowsIncrementalTranslationChecks.RunAsync(Check);
+                    await WindowsLineTranslationDesignChecks.RunEditorAsync(Check);
                     break;
                 case "original":
                     await WindowsOriginalWheelChecks.RunAsync(Check);

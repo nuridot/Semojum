@@ -63,7 +63,14 @@ public partial class MainWindow
             pane.GridView.CommandBindings.Add(new CommandBinding(command,
                 (_, e) => { ReplayHistory(redo); e.Handled = true; },
                 (_, e) => { e.CanExecute = CanReplayHistory(redo); e.Handled = true; }));
-        pane.GridRefreshed += () => { RefreshLinkedSource(); if (lastGrid == pane.GridView) RefreshEditorStatus(); };
+        void QueueBraillePreview()
+        {
+            if (pane.GridView.IsKeyboardFocusWithin || pane.Editor.IsKeyboardFocusWithin) QueuePreview(false);
+        }
+        pane.GridRefreshed += () => { RefreshLinkedSource(); if (lastGrid == pane.GridView) RefreshEditorStatus(); QueueBraillePreview(); };
+        pane.GridView.FaceBrowsed += _ => QueueBraillePreview();
+        pane.Editor.TextArea.Caret.PositionChanged += (_, _) => QueueBraillePreview();
+        pane.Editor.TextChanged += (_, _) => QueueBraillePreview();
         var menu = CreatePanelContextMenu(true); pane.GridView.ContextMenu = menu;
         menu.Opened += (_, _) => { SetActiveEditor(pane.Editor); lastGrid = pane.GridView; RefreshEditorStatus(); UpdateDraftAvailability(); };
         pane.GridView.GotKeyboardFocus += (_, _) => { SetActiveEditor(pane.Editor); lastGrid = pane.GridView; RefreshEditorStatus(); };
@@ -76,6 +83,7 @@ public partial class MainWindow
                 PageEditor.FollowActive();
             }
             lastGrid = pane.GridView; RefreshEditorStatus();
+            QueueBraillePreview();
         };
         pane.ComposeGridAsync = model =>
         {

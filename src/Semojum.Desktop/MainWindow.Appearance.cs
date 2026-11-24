@@ -17,6 +17,7 @@ public partial class MainWindow
         ActivateZoom(panel);
         RefreshLinkedSource();
         RefreshEditorStatus();
+        QueuePreview(false);
     }
 
     private void PaintPanelHeaders()

@@ -32,14 +32,24 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
             : result;
     }
 
-    public async Task<BrailleTranslation> TranslateElementAsync(string text, BlockMetadata metadata, BrailleOptions settings,
-        CancellationToken cancellationToken = default)
+    public Task<BrailleTranslation> TranslateElementAsync(string text, BlockMetadata metadata, BrailleOptions settings,
+        CancellationToken cancellationToken = default) =>
+        TranslateElementAsync(text, metadata, settings, cancellationToken, preserveLayoutMarkers: true);
+
+    public async Task<string> TranslateLinePreviewAsync(string text, BrailleOptions settings, CancellationToken cancellationToken)
+    {
+        var result = await TranslateElementAsync(text, new(), settings, cancellationToken, preserveLayoutMarkers: false).ConfigureAwait(false);
+        return result.Blocked ? "" : BrailleMarkup.PreviewCells(result.Cells);
+    }
+
+    private async Task<BrailleTranslation> TranslateElementAsync(string text, BlockMetadata metadata, BrailleOptions settings,
+        CancellationToken cancellationToken, bool preserveLayoutMarkers)
     {
         // Layout markers belong to composition, not translation (the upstream
         // translator drops them). Translate each surrounding paragraph and retain
         // the marker with explicit logical boundaries in the editable buffer.
         var layoutPattern = @"<!(?:쪽바꿈|장바꿈|상단줄|중단줄|하단줄|상단굵은줄|하단굵은줄|표시작|표중앙|표끝|표구분선|표지시작|표지세로|표지끝)>";
-        if (metadata.Type != "table" && !text.Contains("<!표>", StringComparison.Ordinal) && Regex.IsMatch(text, layoutPattern))
+        if (preserveLayoutMarkers && metadata.Type != "table" && !text.Contains("<!표>", StringComparison.Ordinal) && Regex.IsMatch(text, layoutPattern))
         {
             var pieces = Regex.Split(text, "(" + layoutPattern + ")").Where(p => p.Length > 0).ToArray();
             var translated = new List<BrailleTranslation>();
