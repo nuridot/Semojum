@@ -12,6 +12,7 @@ using System.Windows.Media;
 using Semojum.Core;
 using Semojum.Core.Integration;
 using Semojum.Desktop.Dialogs;
+using Semojum.Feature.Settings;
 using SharpVectors.Converters;
 
 namespace Semojum.Desktop.Services;
@@ -26,6 +27,8 @@ internal static class WindowsVisualDescriptionDesignChecks
         var api = new SemojumApiClient(http, endpoint);
         await api.LoginAsync(Environment.GetEnvironmentVariable("VISUAL_CATALOG_QA_LOGIN")!,
             Environment.GetEnvironmentVariable("VISUAL_CATALOG_QA_PASSWORD")!);
+        var settings = new SettingsClient(api);
+        var catalog = await settings.VisualOptionsAsync(default) ?? throw new InvalidDataException("설명 유형 목록이 없습니다.");
         var window = new MainWindow(smoke: true, testWithoutAccount: true, apiClient: api);
         window.Show();
         try
@@ -33,43 +36,43 @@ internal static class WindowsVisualDescriptionDesignChecks
             await WindowsSmoke.WithModal(() => window.ExecuteAsync("visualDescriptions"), async (VisualDescriptionDialog dialog) =>
             {
                 var types = List(dialog);
-                int[] expected = [6, 5, 6, 10, 4];
-                for (int i = 0; i < expected.Length; i++)
+                string[] keys = ["figure", "table", "chart", "diagram", "cartoon"];
+                for (int i = 0; i < keys.Length; i++)
                 {
                     types.SelectedIndex = i;
                     var choices = Items<CheckBox>(dialog).ToArray();
-                    check(choices.Length == expected[i], $"Catalog category {i + 1} exposes all {expected[i]} AI choices");
+                    check(choices.Select(c => c.Content as string).SequenceEqual(catalog.Choices[keys[i]].Select(c => c.Label)),
+                        $"The {keys[i]} list shows the {choices.Length} labels in catalog order");
                     foreach (var choice in choices) choice.IsChecked = true;
                 }
                 types.SelectedIndex = 0;
-                SelectDefault(dialog, "그림 별책 참조");
+                Items<ComboBox>(dialog).Single().SelectedValue = 6;
                 types.SelectedIndex = 2;
-                SelectDefault(dialog, "차트 자세히");
+                Items<ComboBox>(dialog).Single().SelectedValue = 12;
                 types.SelectedIndex = 4;
-                check(Items<CheckBox>(dialog).Select(c => c.Content).Contains("단순")
-                    && !Items<CheckBox>(dialog).Any(c => Equals(c.Content, "줄글")), "Cartoon choices use the live AI catalog");
-                SelectDefault(dialog, "만화 단순");
+                Items<ComboBox>(dialog).Single().SelectedValue = 11;
                 types.SelectedIndex = 3;
-                var last = Choice(dialog, "도표 다른 유형으로 본 골격 둘째");
+                var last = Items<CheckBox>(dialog).Last();
                 last.BringIntoView();
                 await dialog.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
                 dialog.UpdateLayout();
                 var position = last.TranslatePoint(new Point(), dialog);
                 check(last.IsVisible && position.Y >= 0 && position.Y + last.ActualHeight <= dialog.ActualHeight,
                     "The tenth diagram option scrolls into the visible window");
-                SelectDefault(dialog, "도표 다른 유형으로 본 골격 둘째");
+                Items<ComboBox>(dialog).Single().SelectedValue = 13;
                 await WindowsSmoke.RenderElementAsync(dialog, Path.Combine(directory, "diagram.png"));
                 types.SelectedIndex = 1;
-                SelectDefault(dialog, "표 번호 체계");
+                Items<ComboBox>(dialog).Single().SelectedValue = 5;
                 Press(dialog, "확인");
             });
-            var saved = window.Session.Options.VisualDescriptions!;
-            check(saved["cartoon"].DefaultOptionNumber == 11 && saved["diagram"].DefaultOptionNumber == 13
-                && saved["table"].DefaultOptionNumber == 5, "Account selections reached the open document with stable numbers");
+            var saved = window.Session.Options.VisualOptions!;
+            check(saved["image"].DefaultOption == 6 && saved["chart_graph"].DefaultOption == 12
+                && saved["cartoon"].DefaultOption == 11 && saved["diagram"].DefaultOption == 13
+                && saved["table"].DefaultOption == 5, "Account selections reached the open document with canonical keys and IDs");
             await WindowsSmoke.WithModal(() => window.ExecuteAsync("visualDescriptions"), (VisualDescriptionDialog dialog) =>
             {
                 List(dialog).SelectedIndex = 1;
-                check(AutomationProperties.GetHelpText(Choice(dialog, "표 번호 체계")) == "현재 기본 설명",
+                check(Equals(Items<ComboBox>(dialog).Single().SelectedValue, 5),
                     "Reopening settings restores the numbered table default from the server");
                 Press(dialog, "취소");
                 return Task.CompletedTask;
@@ -77,23 +80,67 @@ internal static class WindowsVisualDescriptionDesignChecks
             var smj = Path.Combine(directory, "selected.smj");
             await SmjFile.SaveAsync(smj, SmjFile.Snapshot(window.Session));
             var reopened = await SmjFile.LoadAsync(smj);
-            check(reopened.Options.VisualDescriptions!["diagram"].DefaultOptionNumber == 13, "SMJ preserves catalog IDs");
-            // Override just this document's table choice; the account still defaults to number 5.
-            var document = new Dictionary<string, VisualDescription>(saved) { ["table"] = new(["행열 바꿈"], "행열 바꿈", [3], 3) };
-            window.ApplyVisualDescriptionPolicy(document);
-            var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=");
-            var job = await new JobClient(api).UploadAsync([new UploadFile("설명-유형.png", png)], window.Session);
-            await File.WriteAllTextAsync(Path.Combine(directory, "job-id.txt"), job.JobId);
-            check(job.TotalPages == 1, "A new upload accepts the document-specific catalog options");
+            check(reopened.Options.VisualOptions!["diagram"].DefaultOption == 13, "SMJ preserves catalog IDs");
+            var basis = (await settings.FormsAsync()).First(f => f.Builtin);
+            var formOptions = basis.Options with { VisualOptions = new() { ["table"] = new([2, 3], 3) } };
+            var form = await settings.SaveFormAsync(null, "대체 초안 QA", basis.FormId, basis.Layout, formOptions);
+            check(form.Options.VisualOptions!["table"].Options.SequenceEqual([2, 3]), "Creating a form stores its numbered options");
+            var forms = await settings.FormsAsync();
+            var editor = new FormEditDialog(settings, forms, form, form.Layout, form.Options, form.BaseFormId) { Owner = window };
+            await WindowsSmoke.WithModal(() => { editor.ShowDialog(); return Task.CompletedTask; }, async (FormEditDialog visible) =>
+            {
+                await WindowsSmoke.WithModal(() => { Press(visible, "대체 초안 유형"); return Task.CompletedTask; }, (VisualDescriptionDialog dialog) =>
+                {
+                    var image = catalog.Choices["figure"];
+                    foreach (var choice in Items<CheckBox>(dialog))
+                        choice.IsChecked = Equals(choice.Content, image.Single(c => c.Option == 6).Label);
+                    Items<ComboBox>(dialog).Single().SelectedValue = 6;
+                    Items<ComboBox>(dialog).Single().SelectedValue = 0;
+                    List(dialog).SelectedIndex = 1;
+                    var option2 = catalog.Choices["table"].Single(c => c.Option == 2);
+                    Items<CheckBox>(dialog).Single(c => Equals(c.Content, option2.Label)).IsChecked = false;
+                    Press(dialog, "확인");
+                    return Task.CompletedTask;
+                });
+                var saveButton = Items<Button>(visible).Single(b => Equals(b.Content, "저장"));
+                for (int i = 0; i < 100 && !saveButton.IsEnabled; i++) await Task.Delay(50);
+                Press(visible, "저장");
+                for (int i = 0; i < 100 && visible.IsVisible; i++) await Task.Delay(50);
+                check(visible.Saved is not null, visible.Saved is not null ? "The form editor saves its own draft choices"
+                    : "양식 저장 실패: " + string.Join(" ", Items<TextBlock>(visible).Select(t => t.Text)));
+            });
+            var listed = (await settings.FormsAsync()).Single(f => f.FormId == form.FormId).Options.VisualOptions!;
+            check(listed["table"].Options.SequenceEqual([3]) && listed["image"].DefaultOption == 0,
+                "A form edit survives listing with AI default zero");
+
+            var jobs = new JobClient(api);
+            var file = new UploadFile("대체초안.txt", Encoding.UTF8.GetBytes("대체 초안 연동 확인"));
+            var uploadDialog = new OpenDocumentDialog(await settings.FormsAsync(), await settings.DefaultsAsync());
+            check(uploadDialog.FormId is null && uploadDialog.Settings.Options.VisualOptions!["table"].DefaultOption == 5,
+                "The upload dialog selects account preferences when the account has its own draft choices");
+            var fromAccount = await jobs.UploadAsync([file], uploadDialog.Settings, formId: uploadDialog.FormId);
+            var model = new DocumentSession { JobId = fromAccount.JobId, OwnerLoginId = api.Account!.LoginId };
+            await jobs.ReadSettingsAsync(model);
+            check(model.Options.VisualOptions!["table"].DefaultOption == 5, "An upload without a form inherits the account setting");
+            uploadDialog.Forms.SelectedItem = uploadDialog.Forms.Items.Cast<BrailleForm>().Single(f => f.FormId == form.FormId);
+            var fromForm = await jobs.UploadAsync([file], uploadDialog.Settings, formId: uploadDialog.FormId);
+            uploadDialog.Close();
+            model.JobId = fromForm.JobId;
+            await jobs.ReadSettingsAsync(model, uploadSettings: window.Session);
+            check(model.Options.VisualOptions!["table"].DefaultOption == 3 && model.Options.VisualOptions["image"].Options.SequenceEqual([6]),
+                "Opening a new upload uses the server's effective form options");
+            model.Options = model.Options with { VisualOptions = new() { ["table"] = new([], 0) } };
+            model.IsTextJob = true;
+            model.Blocks.Add(new EditorBlock { Id = 1, Page = 1, Source = "대체 초안 연동 확인" });
+            await jobs.SaveAsync(SmjFile.Snapshot(model));
+            await jobs.ReadSettingsAsync(model);
+            check(!model.Options.VisualOptions!.ContainsKey("table") && model.Options.VisualOptions["image"].Options.SequenceEqual([6]),
+                "Saving a job clears one category and keeps the omitted category on reopening");
+            check((await settings.DefaultsAsync()).Options.VisualOptions!["table"].DefaultOption == 5,
+                "Editing the form and job leaves the account default intact");
         }
         finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
 
-        static void SelectDefault(VisualDescriptionDialog dialog, string name)
-        {
-            var choice = Choice(dialog, name);
-            choice.IsChecked = true;
-            choice.ContextMenu!.Items.OfType<MenuItem>().Single().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-        }
     }
 
     internal static async Task RunAsync(string directory, Action<bool,string> check)

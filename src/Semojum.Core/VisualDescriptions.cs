@@ -10,10 +10,10 @@ public sealed class VisualOptionCatalog
     {
         var choices = entries.GroupBy(e => e.ElementType switch { "image" => "figure", "chart_graph" => "chart", var type => type })
             .ToDictionary(group => group.Key, group => group.ToArray());
-        if (VisualDescriptions.Choices.Keys.Any(type => !choices.TryGetValue(type, out var rows)
-                || rows.Any(r => r.Option <= 0 || string.IsNullOrWhiteSpace(r.Label))
+        if (choices.Count == 0 || choices.Values.Any(rows => rows.Any(r => r.Option <= 0 || string.IsNullOrWhiteSpace(r.Label))
                 || rows.Select(r => r.Option).Distinct().Count() != rows.Length))
             throw new System.IO.InvalidDataException("AI 설명 유형 목록이 올바르지 않습니다.");
+        foreach (var type in VisualDescriptions.Choices.Keys) choices.TryAdd(type, []);
         Choices = choices;
     }
 
@@ -23,6 +23,28 @@ public sealed class VisualOptionCatalog
 
 public static class VisualDescriptions
 {
+    public static string WireType(string type) => type switch
+    {
+        "figure" => "image", "chart" or "graph" => "chart_graph", _ => type
+    };
+
+    public static Dictionary<string, VisualOptionSetting>? StoredNumbers(BrailleOptions options)
+    {
+        if (options.VisualOptions is not null) return options.VisualOptions;
+        // Earlier local SMJ files kept the selected IDs alongside their labels.
+        var numbered = options.VisualDescriptions?.Where(p => p.Value.OptionNumbers != null)
+            .ToDictionary(p => WireType(p.Key), p => new VisualOptionSetting(p.Value.OptionNumbers!, p.Value.DefaultOptionNumber ?? 0));
+        return numbered is { Count: > 0 } ? numbered : null;
+    }
+
+    // A job save merges by category. Switching to another complete policy must clear old restrictions.
+    public static BrailleOptions ReplaceForJob(BrailleOptions previous, BrailleOptions next)
+    {
+        if (StoredNumbers(next) is not { } numbers || StoredNumbers(previous) is not { } prior) return next;
+        var replacement = new Dictionary<string, VisualOptionSetting>(numbers);
+        foreach (var category in prior.Keys) replacement.TryAdd(category, new([], 0));
+        return next with { VisualOptions = replacement };
+    }
     public static int? LegacyNumber(string choice, bool table) => table ? choice switch
     {
         "풀어쓰기" => 1, "테두리+구분선" => 2, "행열 바꿈" => 3, "테두리만" => 4, _ => null

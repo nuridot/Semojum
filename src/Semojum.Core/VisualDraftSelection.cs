@@ -6,8 +6,22 @@ public static class VisualDraftSelection
     private static int? TableNumber(string mode) => mode switch
     { "unfold" => 1, "table_grid" => 2, "transposed" => 3, "linear" => 4, "numbered" => 5, _ => null };
 
+    private static string WireType(BlockMetadata metadata)
+    {
+        var subtype = VisualDescriptions.WireType(metadata.VisualSubtype ?? "");
+        return subtype is "image" or "chart_graph" or "table" or "diagram" or "cartoon"
+            ? subtype : VisualDescriptions.WireType(metadata.Type);
+    }
+
     public static bool IsEnabled(BlockMetadata metadata, BrailleOptions options, AlternativeDraft draft, string? renderMode = null)
     {
+        if (options.VisualOptions is { } settings)
+        {
+            var key = WireType(metadata);
+            if (!settings.TryGetValue(key, out var setting) || setting.Options.Length == 0) return true;
+            var draftNumber = draft.Option ?? (key == "table" && renderMode != null ? TableNumber(renderMode) : null);
+            return draftNumber.HasValue && setting.Options.Contains(draftNumber.Value);
+        }
         // Older documents without an explicit policy retain all their supplied drafts.
         if (options.VisualDescriptions is null) return true;
         var type = metadata.VisualSubtype is { } subtype && VisualDescriptions.Choices.ContainsKey(subtype) ? subtype : metadata.Type switch
@@ -40,10 +54,20 @@ public static class VisualDraftSelection
         var metadata = block.Metadata;
         var type = metadata.VisualSubtype is { } subtype && VisualDescriptions.Choices.ContainsKey(subtype) ? subtype : metadata.Type switch
         { "image" => "figure", "graph" or "chart_graph" => "chart", var other => other };
-        var policies = options.VisualDescriptions ?? VisualDescriptions.Defaults();
-        if (!policies.TryGetValue(type, out var policy)) return false;
-        var choice = policy.DefaultOption;
-        int? option = policy.DefaultOptionNumber ?? VisualDescriptions.LegacyNumber(choice, type == "table");
+        int? option;
+        VisualDescription? policy = null;
+        if (options.VisualOptions is { } settings)
+        {
+            if (!settings.TryGetValue(WireType(metadata), out var setting) || setting.DefaultOption == 0) return false;
+            option = setting.DefaultOption;
+        }
+        else
+        {
+            var policies = options.VisualDescriptions ?? VisualDescriptions.Defaults();
+            if (!policies.TryGetValue(type, out policy)) return false;
+            option = policy.DefaultOptionNumber ?? VisualDescriptions.LegacyNumber(policy.DefaultOption, type == "table");
+        }
+        var choice = policy?.DefaultOption;
         if (metadata.Type == "table")
         {
             var mode = option switch { 1 => "unfold", 2 => "table_grid", 3 => "transposed", 4 => "linear", 5 => "numbered", _ => null };
@@ -51,8 +75,8 @@ public static class VisualDraftSelection
         }
         var drafts = metadata.Alternatives ?? [];
         var selected = option is { } number ? Array.FindIndex(drafts, d => d.Option == number && IsEnabled(metadata, options, d)) : -1;
-        if (selected < 0) selected = Array.FindIndex(drafts, d => (policy.OptionNumbers is null || d.Option is null) && d.Label.Trim() == choice);
-        if (selected < 0 && policy.OptionNumbers is null)
+        if (selected < 0 && policy != null) selected = Array.FindIndex(drafts, d => (policy.OptionNumbers is null || d.Option is null) && d.Label.Trim() == choice);
+        if (selected < 0 && policy is { OptionNumbers: null })
         {
             if (choice == "생략") selected = Array.FindIndex(drafts, d => d.Label.Trim().EndsWith("생략", StringComparison.Ordinal));
             if (choice == "별책 참조") selected = Array.FindIndex(drafts, d => d.Label.Contains("참조", StringComparison.Ordinal));

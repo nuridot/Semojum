@@ -65,6 +65,24 @@ internal static class WindowsVisualPolicyChecks
             var table = new EditorBlock { Source = "표", Metadata = new(Type: "table") };
             check(VisualDraftSelection.ApplyInitial(table, tablePolicy) && table.Metadata.RenderMode == "numbered",
                 "Catalog table option 5 selects numbered table rendering");
+            var numbered = new BrailleOptions(VisualOptions: new() { ["chart_graph"] = new([13], 0) });
+            renamed.Metadata = renamed.Metadata with { Type = "image", VisualSubtype = "chart_graph", SelectedIndex = 0 };
+            check(!VisualDraftSelection.IsEnabled(renamed.Metadata, numbered, renamed.Metadata.Alternatives![0])
+                && VisualDraftSelection.IsEnabled(renamed.Metadata, numbered, renamed.Metadata.Alternatives[1])
+                && !VisualDraftSelection.ApplyInitial(renamed, numbered) && renamed.Metadata.SelectedIndex == 0,
+                "Numeric filters use the material subtype and zero preserves the AI selection");
+            numbered = numbered with { VisualOptions = new() { ["chart_graph"] = new([13], 13) } };
+            check(VisualDraftSelection.ApplyInitial(renamed, numbered) && renamed.Metadata.SelectedIndex == 1,
+                "A numeric default selects its draft even after a label changes");
+            numbered = numbered with { VisualOptions = new() { ["chart_graph"] = new([], 0) } };
+            check(VisualDraftSelection.IsEnabled(renamed.Metadata, numbered, renamed.Metadata.Alternatives[0])
+                && VisualDraftSelection.IsEnabled(table.Metadata, numbered, new("표", "", null, "", null), "table_grid"),
+                "Empty and omitted categories both allow all drafts");
+            var form = new BrailleOptions(VisualOptions: new() { ["table"] = new([3], 3) });
+            var previous = new BrailleOptions(VisualOptions: new() { ["image"] = new([6], 6) });
+            var replacement = VisualDescriptions.ReplaceForJob(previous, form).VisualOptions!;
+            check(replacement["image"].Options.Length == 0 && replacement["table"].DefaultOption == 3
+                && !form.VisualOptions!.ContainsKey("image"), "Switching forms clears previous job restrictions without changing the form");
         }
         finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
     }

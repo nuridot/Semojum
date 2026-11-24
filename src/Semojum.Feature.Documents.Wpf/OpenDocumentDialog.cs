@@ -23,7 +23,7 @@ public sealed class OpenDocumentDialog : ConversionFormDialog
     private readonly bool serverSettingsAvailable;
     private bool usesProof;
     public string[] Paths { get; private set; } = [];
-    public string? FormId => (Forms.SelectedItem as BrailleForm)?.FormId;
+    public string? FormId => Forms.SelectedItem is BrailleForm { FormId.Length: > 0 } selected ? selected.FormId : null;
     public DocumentSession Settings => new() {
         Layout = usesProof && proof.Model is { } model ? layout with { ProofModel = model.Code, AdvancedAi = model.Code != "MINERU" }
             : layout with { ProofModel = null, AdvancedAi = false },
@@ -42,15 +42,20 @@ public sealed class OpenDocumentDialog : ConversionFormDialog
         FormRow(rows, "점역 양식", SelectField(Forms, "점역 양식"), 162);
         FormRow(rows, "한글", korean, 162); FormRow(rows, "점역 규정", rule, 162); FormRow(rows, "한영 혼용 규정", mixed, 162);
         proof = new(pricing, layout.ProofModel); Section("교열 모델").Children.Add(proof);
-        Forms.ItemsSource = forms; FormPickerDialog.Attach(Forms, this);
+        var preferredForm = forms.FirstOrDefault(f => f.FormId == defaults.FormId);
+        var account = new BrailleForm("", "계정 기본 설정", true, null,
+            (preferredForm?.Layout ?? layout) with { PageNumbers = layout.PageNumbers }, defaults.Options);
+        Forms.ItemsSource = forms.Prepend(account).ToArray(); FormPickerDialog.Attach(Forms, this);
         void SetOptions(BrailleOptions options)
         {
             current = options; korean.FirstSelected = options.KoreanGrade1;
             rule.FirstSelected = !options.EnglishDocument; mixed.FirstSelected = options.MixedRule != "english";
         }
         Forms.SelectionChanged += (_, _) => { if (Forms.SelectedItem is BrailleForm form) { SetOptions(form.Options); layout = form.Layout; } };
-        Forms.SelectedItem = forms.FirstOrDefault(f => f.FormId == defaults.FormId) ?? forms.FirstOrDefault(f => f.FormId == "builtin:GENERAL_BOOK") ?? forms.FirstOrDefault();
-        SetOptions(defaults.Options with { KoreanGrade1 = false });
+        // An explicit form replaces the account's draft settings on multipart uploads.
+        var initial = defaults.Options.VisualOptions is { Count: > 0 } ? account : preferredForm ?? account;
+        Forms.SelectedItem = initial;
+        SetOptions(defaults.Options with { KoreanGrade1 = false, VisualOptions = initial.Options.VisualOptions });
         CancelButton();
         start = FooterButton("변환 시작", () =>
         {

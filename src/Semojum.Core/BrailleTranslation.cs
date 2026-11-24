@@ -4,7 +4,9 @@ namespace Semojum.Core;
 
 public sealed record BrailleOptions(bool KoreanGrade1 = false, bool EnglishGrade1 = false,
     bool EnglishDocument = false, string LineBreakUnit = "syllable", string MixedRule = "korean",
-    string ConsecutiveSpace = "single", string ChoiceLayout = "merge", Dictionary<string, VisualDescription>? VisualDescriptions = null);
+    string ConsecutiveSpace = "single", string ChoiceLayout = "merge", Dictionary<string, VisualDescription>? VisualDescriptions = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, VisualOptionSetting>? VisualOptions = null);
+public sealed record VisualOptionSetting(int[] Options, int DefaultOption = 0);
 public sealed record VisualDescription(string[] Options, string DefaultOption,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int[]? OptionNumbers = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DefaultOptionNumber = null);

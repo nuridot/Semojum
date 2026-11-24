@@ -3,6 +3,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Semojum.Core;
+using Semojum.Feature.Settings;
 
 namespace Semojum.Desktop.Dialogs;
 
@@ -18,14 +19,29 @@ public sealed class VisualDescriptionDialog : FormDialogBase
     private readonly bool useNumbers;
     private readonly Dictionary<string, HashSet<int>> enabled = [];
     private readonly Dictionary<string, int> preferred = [];
+    private readonly HashSet<string> edited = [];
+    public Dictionary<string, VisualOptionSetting>? NumberedResult { get; private set; }
     public Dictionary<string, VisualDescription> Result { get; private set; }
 
-    public VisualDescriptionDialog(Dictionary<string, VisualDescription> current, VisualOptionCatalog? catalog = null)
+    public static async Task<BrailleOptions?> EditAsync(Window owner, SettingsClient client, BrailleOptions options, CancellationToken token)
+    {
+        var catalog = await client.VisualOptionsAsync(token);
+        token.ThrowIfCancellationRequested();
+        var numbered = VisualDescriptions.StoredNumbers(options);
+        if (catalog is null && numbered is not null)
+            throw new InvalidOperationException("저장된 설명 유형을 편집하려면 서버의 AI 설명 유형 목록이 필요합니다.");
+        var dialog = new VisualDescriptionDialog(new(options.VisualDescriptions ?? VisualDescriptions.Defaults()), catalog, numbered) { Owner = owner };
+        return dialog.ShowDialog() == true ? options with { VisualOptions = dialog.NumberedResult, VisualDescriptions = dialog.Result } : null;
+    }
+
+    public VisualDescriptionDialog(Dictionary<string, VisualDescription> current, VisualOptionCatalog? catalog = null,
+        Dictionary<string, VisualOptionSetting>? numbered = null)
         : base("대체 초안 유형", 680, 442, EditorModalDesign.Icon("form-close", assemblyName: "Semojum.UI.Common"))
     {
         Result = new(current);
         this.catalog = catalog ?? VisualOptionCatalog.Legacy();
         useNumbers = catalog != null;
+        if (useNumbers) NumberedResult = numbered is null ? [] : new(numbered);
         LoadSelections(current);
         UseControlBorder();
         AlignLabelBaseline();
@@ -63,6 +79,7 @@ public sealed class VisualDescriptionDialog : FormDialogBase
         var restore = Button("기본값", () =>
         {
             LoadSelections(VisualDescriptions.Defaults(), restoringDefaults: true);
+            if (useNumbers) edited.UnionWith(Categories.Select(c => c.Key));
             UpdateCounts();
             ShowChoices();
             Status.Text = "";
@@ -84,6 +101,17 @@ public sealed class VisualDescriptionDialog : FormDialogBase
         CancelButton();
         FooterButton("확인", () =>
         {
+            if (NumberedResult is not null)
+            {
+                foreach (var key in edited)
+                {
+                    var selected = this.catalog.Choices[key].Where(item => enabled[key].Contains(item.Option)).Select(item => item.Option).ToArray();
+                    var unrestricted = selected.Length == this.catalog.Choices[key].Length && preferred[key] == 0;
+                    NumberedResult[VisualDescriptions.WireType(key)] = new(unrestricted ? [] : selected, preferred[key]);
+                }
+                DialogResult = true;
+                return;
+            }
             var empty = Categories.FirstOrDefault(category => enabled[category.Key].Count == 0);
             if (empty.Key is not null)
             {
@@ -95,11 +123,7 @@ public sealed class VisualDescriptionDialog : FormDialogBase
             {
                 var selected = this.catalog.Choices[key].Where(item => enabled[key].Contains(item.Option)).ToArray();
                 var choice = selected.First(item => item.Option == preferred[key]);
-                // Keep historical labels readable by earlier clients; the live catalog supplies the displayed text.
-                string SavedLabel(VisualChoice item) => VisualDescriptions.Choices[key]
-                    .FirstOrDefault(label => VisualDescriptions.LegacyNumber(label, key == "table") == item.Option) ?? item.Label;
-                result[key] = new(selected.Select(SavedLabel).ToArray(), SavedLabel(choice),
-                    useNumbers ? selected.Select(item => item.Option).ToArray() : null, useNumbers ? choice.Option : null);
+                result[key] = new(selected.Select(item => item.Label).ToArray(), choice.Label);
             }
             VisualDescriptions.Validate(result);
             Result = result;
@@ -112,8 +136,16 @@ public sealed class VisualDescriptionDialog : FormDialogBase
         var defaults = VisualDescriptions.Defaults();
         foreach (var (key, _) in Categories)
         {
-            var saved = current.TryGetValue(key, out var policy) && policy?.Options != null ? policy : defaults[key];
             var offered = catalog.Choices[key];
+            if (NumberedResult != null)
+            {
+                NumberedResult.TryGetValue(VisualDescriptions.WireType(key), out var setting);
+                enabled[key] = offered.Where(row => restoringDefaults || setting?.Options is not { Length: > 0 }
+                    || setting.Options.Contains(row.Option)).Select(row => row.Option).ToHashSet();
+                preferred[key] = !restoringDefaults && setting != null && enabled[key].Contains(setting.DefaultOption) ? setting.DefaultOption : 0;
+                continue;
+            }
+            var saved = current.TryGetValue(key, out var policy) && policy?.Options != null ? policy : defaults[key];
             var numbers = saved.OptionNumbers?.ToHashSet() ?? saved.Options
                 .Select(label => VisualDescriptions.LegacyNumber(label, key == "table")).OfType<int>().ToHashSet();
             enabled[key] = offered.Where(row => numbers.Contains(row.Option)).Select(row => row.Option).ToHashSet();
@@ -135,6 +167,36 @@ public sealed class VisualDescriptionDialog : FormDialogBase
         choices.Children.Clear();
         if (categories.SelectedIndex < 0) return;
         var (key, label) = Categories[categories.SelectedIndex];
+        if (useNumbers) Status.Text = enabled[key].Count == 0 ? "선택한 번호가 없으면 모든 설명 유형을 받습니다." : "";
+        ComboBox? defaultPicker = null;
+        bool refreshingPicker = false;
+        if (useNumbers)
+        {
+            defaultPicker = new ComboBox { DisplayMemberPath = nameof(VisualChoice.Label), SelectedValuePath = nameof(VisualChoice.Option),
+                Margin = new(8,0,0,0), MinWidth = 135 };
+            AutomationProperties.SetName(defaultPicker, label + " 기본 설명");
+            var header = new DockPanel { Margin = new(0,0,0,8) };
+            header.Children.Add(new TextBlock { Text = "기본 설명", VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(defaultPicker);
+            choices.Children.Add(header);
+            defaultPicker.SelectionChanged += (_, _) =>
+            {
+                if (refreshingPicker || defaultPicker.SelectedValue is not int value) return;
+                preferred[key] = value;
+                edited.Add(key);
+                RefreshDefaults();
+            };
+            RefreshPicker();
+        }
+        void RefreshPicker()
+        {
+            if (defaultPicker is null) return;
+            refreshingPicker = true;
+            defaultPicker.ItemsSource = catalog.Choices[key].Where(item => enabled[key].Contains(item.Option))
+                .Prepend(new VisualChoice(key, 0, "AI 기본값")).ToArray();
+            defaultPicker.SelectedValue = preferred[key];
+            refreshingPicker = false;
+        }
         foreach (var option in catalog.Choices[key])
         {
             var row = new Grid { Height = 40, Margin = new(0,choices.Children.Count == 0 ? 0 : 8,0,0) };
@@ -145,6 +207,8 @@ public sealed class VisualDescriptionDialog : FormDialogBase
             void SetPreferred()
             {
                 preferred[key] = option.Option;
+                edited.Add(key);
+                RefreshPicker();
                 RefreshDefaults();
             }
             var preferredCommand = new MenuItem { Header = "기본 설명으로 지정" };
@@ -171,8 +235,10 @@ public sealed class VisualDescriptionDialog : FormDialogBase
                 if (choice.IsChecked == true) enabled[key].Add(option.Option);
                 else enabled[key].Remove(option.Option);
                 if (!enabled[key].Contains(preferred[key]))
-                    preferred[key] = catalog.Choices[key].FirstOrDefault(item => enabled[key].Contains(item.Option))?.Option ?? 0;
-                Status.Text = "";
+                    preferred[key] = useNumbers ? 0 : catalog.Choices[key].FirstOrDefault(item => enabled[key].Contains(item.Option))?.Option ?? 0;
+                edited.Add(key);
+                RefreshPicker();
+                Status.Text = useNumbers && enabled[key].Count == 0 ? "선택한 번호가 없으면 모든 설명 유형을 받습니다." : "";
                 UpdateCounts();
                 RefreshDefaults();
             }

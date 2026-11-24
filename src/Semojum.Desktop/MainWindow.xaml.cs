@@ -353,7 +353,16 @@ public partial class MainWindow : Window
                 case "closeDocument": if (openDocument is not null) await CloseDocumentAsync(openDocument); break;
                 case "defaults": if (await EnsureAccountAsync()) new DefaultsDialog(new(api)) { Owner = this }.ShowDialog(); break;
                 case "forms":
-                    if (await EnsureAccountAsync()) { var form = new FormDialog(new(api), session.Layout, session.Options) { Owner = this }; if (form.ShowDialog() == true && form.Selected is { } selected) { session.Layout = selected.Layout; session.Options = selected.Options; } }
+                    if (await EnsureAccountAsync())
+                    {
+                        var form = new FormDialog(new(api), session.Layout, session.Options) { Owner = this };
+                        if (form.ShowDialog() == true && form.Selected is { } selected && !session.IsReadOnly)
+                            EditStructure(() =>
+                            {
+                                session.Layout = selected.Layout;
+                                session.Options = VisualDescriptions.ReplaceForJob(session.Options, selected.Options);
+                            });
+                    }
                     break;
                 case "sample": SetSession(DocumentSession.Sample(), null, true); break;
                 case "open": await OpenAsync(); break;
@@ -487,16 +496,20 @@ public partial class MainWindow : Window
                 case "visualDescriptions":
                     if (await EnsureAccountAsync())
                     {
-                        var settings = new SettingsClient(api); var defaults = await settings.DefaultsAsync(documentLifetime.Token);
-                        var catalog = await settings.VisualOptionsAsync(documentLifetime.Token);
-                        var current = defaults.Options.VisualDescriptions ?? VisualDescriptions.Defaults();
-                        if (catalog is null && current.Values.Any(row => row.OptionNumbers is not null))
-                            throw new InvalidOperationException("저장된 설명 유형을 편집하려면 서버의 AI 설명 유형 목록이 필요합니다.");
-                        var visual = new VisualDescriptionDialog(new(current), catalog) { Owner = this };
-                        if (visual.ShowDialog() == true)
+                        var owner = session;
+                        var token = documentLifetime.Token;
+                        var settings = new SettingsClient(api); var defaults = await settings.DefaultsAsync(token);
+                        if (session != owner) break;
+                        if (await VisualDescriptionDialog.EditAsync(this, settings, defaults.Options, token) is { } updated)
                         {
-                            await settings.SaveDefaultsAsync(defaults with { Options = defaults.Options with { VisualDescriptions = visual.Result } }, documentLifetime.Token);
-                            ApplyVisualDescriptionPolicy(visual.Result);
+                            await settings.SaveDefaultsAsync(defaults with { Options = updated }, token);
+                            if (session != owner || session.IsReadOnly) break;
+                            if (updated.VisualOptions is { } numbers)
+                            {
+                                EditStructure(() => session.Options = VisualDescriptions.ReplaceForJob(session.Options,
+                                    session.Options with { VisualOptions = numbers }));
+                            }
+                            else ApplyVisualDescriptionPolicy(updated.VisualDescriptions!);
                         }
                     }
                     break;

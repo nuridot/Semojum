@@ -32,7 +32,7 @@ public sealed class SettingsClient(SemojumApiClient api)
         try
         {
             var data = await api.SendAuthenticatedAsync(HttpMethod.Get, "/api/users/visual-options", cancellationToken: ct);
-            var rows = data.GetProperty("options").EnumerateArray().Select(row => new VisualChoice(
+            var rows = data.EnumerateArray().Select(row => new VisualChoice(
                 row.GetProperty("elementType").GetString()!, row.GetProperty("option").GetInt32(), row.GetProperty("label").GetString()!));
             return new VisualOptionCatalog(rows);
         }
