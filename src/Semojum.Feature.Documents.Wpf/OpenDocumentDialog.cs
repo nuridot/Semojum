@@ -53,7 +53,9 @@ public sealed class OpenDocumentDialog : ConversionFormDialog
         }
         Forms.SelectionChanged += (_, _) => { if (Forms.SelectedItem is BrailleForm form) { SetOptions(form.Options); layout = form.Layout; } };
         // An explicit form replaces the account's draft settings on multipart uploads.
-        var initial = defaults.Options.VisualOptions is { Count: > 0 } ? account : preferredForm ?? account;
+        var initial = defaults.Options.VisualOptions is { Count: > 0 }
+            ? account
+            : preferredForm ?? forms.FirstOrDefault(f => f.FormId == "builtin:GENERAL_BOOK") ?? forms.FirstOrDefault() ?? account;
         Forms.SelectedItem = initial;
         SetOptions(defaults.Options with { KoreanGrade1 = false, VisualOptions = initial.Options.VisualOptions });
         CancelButton();
