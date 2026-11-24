@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using ICSharpCode.AvalonEdit;
 using Semojum.Core;
 using Semojum.Core.Integration;
 using Semojum.Desktop.Services;
@@ -12,12 +13,39 @@ public partial class MainWindow
     private long previewGeneration;
     private CancellationTokenSource? debounce;
     private bool pendingSourceTranslation;
-    private int currentPreviewLine;
-    private string currentPreviewCells = "";
+    private (int Line, string Text, bool Reverse) currentPreview = (0, "", false);
+
+    private (int Line, string Text, bool Reverse)? FocusedPreviewLine()
+    {
+        var pane = detachedPane?.IsKeyboardFocusWithin == true ? detachedPane : Braille;
+        if (pane.GridView.IsKeyboardFocusWithin)
+        {
+            var grid = pane.GridView;
+            if (!grid.CoordinatesCurrent || grid.CaretCoordinates is not { } at) return (0, "", true);
+            var face = (BrailleGridFace)grid.Items[at.Face - 1];
+            var row = face.Text is { } printed ? printed[at.Line - 1]
+                : new string(face.Rows[at.Line - 1].Select(cell => cell?.Value ?? '⠀').ToArray()).TrimEnd('⠀');
+            return (at.Line, row, true);
+        }
+        TextEditor? editor = pane.Editor.IsKeyboardFocusWithin ? pane.Editor
+            : PageEditor.Editor.IsKeyboardFocusWithin ? PageEditor.Editor
+            : SourceEditor.IsKeyboardFocusWithin ? SourceEditor : null;
+        if (editor is null) return null;
+        var line = editor.Document.GetLineByNumber(editor.TextArea.Caret.Line);
+        return (line.LineNumber, editor.Document.GetText(line), editor == pane.Editor);
+    }
+
+    private void DisplayLinePreview(int line, string text, bool reverse)
+    {
+        currentPreview = (line, text, reverse);
+        LineStrip.SetPreview(line, text, reverse);
+        detachedPane?.SetLinePreview(line, text, reverse);
+    }
 
     private async void QueuePreview(bool sourceChanged)
     {
-        if (resourcesReleased || smoke || switching || session?.IsReadOnly == true || session?.ActiveBlock is not { } block || engine is not LocalBrailleEngine local) return;
+        if (resourcesReleased || smoke || switching || session?.ActiveBlock is not { } block || engine is not LocalBrailleEngine local) return;
+        sourceChanged &= !session.IsReadOnly;
         pendingSourceTranslation |= sourceChanged;
         if (sourceChanged) translator.Invalidate(block);
         var generation = ++previewGeneration;
@@ -28,22 +56,26 @@ public partial class MainWindow
             await Task.Delay(450, waitToken);
             if (resourcesReleased || ct.IsCancellationRequested || generation != previewGeneration || session != owner || session.ActiveBlock != block) return;
             var translate = pendingSourceTranslation; pendingSourceTranslation = false;
-            if (translate && autoTranslate && translatedRevisions.GetValueOrDefault(block, -1) != block.SourceRevision)
+            if (translate && !owner.IsReadOnly && autoTranslate && translatedRevisions.GetValueOrDefault(block, -1) != block.SourceRevision)
                 await TranslateAsync(block, ChooseTranslation(block), interactive: false);
-            if (generation != previewGeneration || !(SourceEditor.IsKeyboardFocusWithin || PageEditor.Editor.IsKeyboardFocusWithin) || LinePreviewToggle.IsChecked != true) return;
-            var source = PageEditor.Editor.IsKeyboardFocusWithin ? PageEditor.Editor : SourceEditor;
-            var line = source.Document.GetLineByNumber(source.TextArea.Caret.Line);
-            var result = await local.TranslateElementAsync(source.Document.GetText(line), new(), session.Options, ct);
-            if (generation == previewGeneration && session == owner)
+            if (generation != previewGeneration || !LinePreviewToggle.IsChecked || FocusedPreviewLine() is not { } line) return;
+            string text;
+            if (line.Reverse)
             {
-                currentPreviewLine = line.LineNumber; currentPreviewCells = result.Cells;
-                LineStrip.SetPreview(line.LineNumber, result.Cells);
-                detachedPane?.SetLinePreview(line.LineNumber, result.Cells);
+                var cells = BrailleMarkup.PreviewCells(line.Text);
+                text = cells.Length == 0 ? "" : await local.DecodeAsync(cells, owner.Options, ct);
             }
+            else text = await local.TranslateLinePreviewAsync(line.Text, owner.Options, ct);
+            if (generation == previewGeneration && session == owner && !ct.IsCancellationRequested)
+                DisplayLinePreview(line.Line, text, line.Reverse);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) when (ex is IOException or SidecarException or TimeoutException or System.ComponentModel.Win32Exception)
-        { if (generation == previewGeneration) session.Status = "줄번역을 표시하지 못했습니다. 엔진 연결을 확인해 주세요."; }
+        {
+            if (generation != previewGeneration || session != owner) return;
+            if (FocusedPreviewLine() is { } line) DisplayLinePreview(line.Line, "", line.Reverse);
+            session.Status = "줄번역을 표시하지 못했습니다. 엔진 연결을 확인해 주세요.";
+        }
     }
 
     private void LinePreviewToggle_Click(object sender, RoutedEventArgs e)

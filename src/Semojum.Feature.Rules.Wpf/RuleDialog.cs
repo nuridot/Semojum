@@ -351,12 +351,16 @@ public sealed class RuleDialog : CompactDialog
             {
                 if (expanded != null && expanded != item) expanded.IsExpanded = false;
                 expanded = item;
+                excerpt.MaxHeight = double.PositiveInfinity;
+                excerpt.TextTrimming = TextTrimming.None;
                 if (useCatalog) RevealTreeItem(row.RuleId, select: true);
                 if (string.IsNullOrWhiteSpace(node?.Markdown) && !string.IsNullOrEmpty(row.Contents) && row.ExpandedText.StartsWith(row.Contents, StringComparison.Ordinal))
                     excerpt.Visibility = Visibility.Collapsed;
             };
             item.Collapsed += (_, _) =>
             {
+                excerpt.MaxHeight = 40;
+                excerpt.TextTrimming = TextTrimming.CharacterEllipsis;
                 excerpt.Visibility = Visibility.Visible;
                 if (expanded != item) return;
                 expanded = null;

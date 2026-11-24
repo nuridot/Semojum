@@ -27,6 +27,21 @@ public sealed record BrailleForm(string FormId, string Name, bool Builtin, strin
 
 public sealed class SettingsClient(SemojumApiClient api)
 {
+    public async Task<VisualOptionCatalog?> VisualOptionsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var data = await api.SendAuthenticatedAsync(HttpMethod.Get, "/api/users/visual-options", cancellationToken: ct);
+            var rows = data.EnumerateArray().Select(row => new VisualChoice(
+                row.GetProperty("elementType").GetString()!, row.GetProperty("option").GetInt32(), row.GetProperty("label").GetString()!));
+            return new VisualOptionCatalog(rows);
+        }
+        catch (SemojumApiException ex) when (ex.Status == System.Net.HttpStatusCode.NotFound)
+        {
+            return null; // Servers released before the catalog endpoint use their original settings vocabulary.
+        }
+    }
+
     public async Task<ProofPricing> ProofPricingAsync(CancellationToken ct)
     {
         var data = await api.SendAuthenticatedAsync(HttpMethod.Get, "/api/jobs/proof-pricing", cancellationToken: ct);

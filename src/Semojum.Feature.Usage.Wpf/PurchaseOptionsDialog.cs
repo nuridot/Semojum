@@ -131,7 +131,7 @@ public sealed class PurchaseOptionsDialog : MyPageActionDialog
                 if (quote.DiscountPercent is > 0)
                 {
                     var badge = new Border { Background = EditorModalDesign.Color("#DFF6DD"), Padding = new(8, 1, 8, 1), Margin = new(0, 8, 0, 0),
-                        CornerRadius = new(4), HorizontalAlignment = HorizontalAlignment.Left, Child = new TextBlock { Text = $"{quote.DiscountPercent}% 할인", FontSize = 12, Foreground = EditorModalDesign.Color("#107C10") } };
+                        CornerRadius = new(4), HorizontalAlignment = HorizontalAlignment.Left, Child = new TextBlock { Text = $"{quote.DiscountPercent}% 할인", FontSize = 12, Foreground = EditorModalDesign.Color("#0F7B0F") } };
                     content.Children.Add(badge);
                 }
             }

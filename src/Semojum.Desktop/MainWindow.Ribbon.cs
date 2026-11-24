@@ -78,7 +78,14 @@ public partial class MainWindow
             button.MinWidth = minWidth;
             if (small) button.HorizontalAlignment = button.HorizontalContentAlignment = HorizontalAlignment.Left;
             else button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            if (action == "drafts") ribbonDrafts = button;
+            if (action == "drafts")
+            {
+                ribbonDrafts = button;
+                var regularIcon = graphic.Source;
+                var availableIcon = new Uri(regularIcon, "ribbon-image-available.svg");
+                graphic.Source = availableIcon;
+                button.IsEnabledChanged += (_, e) => graphic.Source = (bool)e.NewValue ? availableIcon : regularIcon;
+            }
             if (action.StartsWith("tag:") || action is "undo" or "redo" or "cut" or "paste" or "table" or "memo" or "math" or "symbol" or "headerInsert" or "footerInsert" or "footer" or "layout")
                 ribbonRefresh.Add(() => button.IsEnabled = session is { IsReadOnly: false });
             return button;

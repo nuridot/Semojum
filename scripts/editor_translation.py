@@ -9,6 +9,23 @@ from copy import deepcopy
 import inspect
 import json
 import uuid
+from semojum_braille.encoder.kor_math_rules import latex_rule_ids
+from semojum_braille.encoder.regulations import make_rule
+
+
+def add_formula_rules(request, result, engine):
+    """The desktop uses the text encoder for tagged math. Keep the formula encoder's block-level citations."""
+    text = request.get("text") or ""
+    if "<!수식>" not in text or request.get("type") == "table" or "<!표>" in text or result.get("blocked") or not result.get("cells"):
+        return
+    trail = result["rule_trail"]
+    seen = {rule["rule_id"] for rule in trail if rule.get("tag") == "math_struct"}
+    for formula in engine._LATEX_RE.finditer(text):
+        for rule_id in latex_rule_ids(formula.group(1)):
+            if rule_id not in seen:
+                rule = make_rule(rule_id, tag="math_struct")
+                trail.append({**rule.model_dump(), "axis": "braille"})
+                seen.add(rule_id)
 
 
 def translate_editor(request, engine, upstream):

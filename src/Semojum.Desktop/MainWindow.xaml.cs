@@ -194,6 +194,7 @@ public partial class MainWindow : Window
         }
         finally { switching = false; }
         RefreshEditorStatus();
+        QueuePreview(false);
     }
 
     private void ErrorNotice_Close(object sender, RoutedEventArgs e) { if (!session.HasPendingServerPages && !session.HasPendingRestart) session.ErrorNotice = ""; }
@@ -219,8 +220,7 @@ public partial class MainWindow : Window
         try
         {
             if (SelectionPane.Visibility == Visibility.Visible) PopulateBlockSelection();
-            currentPreviewLine = 0; currentPreviewCells = "";
-            LineStrip.SetPreview(0, ""); detachedPane?.SetLinePreview(0, "");
+            DisplayLinePreview(0, "", false);
             SourceEditor.Document = documents.Source(block);
             SourceEditor.IsReadOnly = session.IsReadOnly || block.Metadata.IsBlocked;
             SourceEditor.CaretOffset = Math.Clamp(block.SourceCaret, 0, SourceEditor.Document.TextLength);
@@ -353,7 +353,16 @@ public partial class MainWindow : Window
                 case "closeDocument": if (openDocument is not null) await CloseDocumentAsync(openDocument); break;
                 case "defaults": if (await EnsureAccountAsync()) new DefaultsDialog(new(api)) { Owner = this }.ShowDialog(); break;
                 case "forms":
-                    if (await EnsureAccountAsync()) { var form = new FormDialog(new(api), session.Layout, session.Options) { Owner = this }; if (form.ShowDialog() == true && form.Selected is { } selected) { session.Layout = selected.Layout; session.Options = selected.Options; } }
+                    if (await EnsureAccountAsync())
+                    {
+                        var form = new FormDialog(new(api), session.Layout, session.Options) { Owner = this };
+                        if (form.ShowDialog() == true && form.Selected is { } selected && !session.IsReadOnly)
+                            EditStructure(() =>
+                            {
+                                session.Layout = selected.Layout;
+                                session.Options = VisualDescriptions.ReplaceForJob(session.Options, selected.Options);
+                            });
+                    }
                     break;
                 case "sample": SetSession(DocumentSession.Sample(), null, true); break;
                 case "open": await OpenAsync(); break;
@@ -487,12 +496,20 @@ public partial class MainWindow : Window
                 case "visualDescriptions":
                     if (await EnsureAccountAsync())
                     {
-                        var settings = new SettingsClient(api); var defaults = await settings.DefaultsAsync(documentLifetime.Token);
-                        var visual = new VisualDescriptionDialog(new(defaults.Options.VisualDescriptions ?? VisualDescriptions.Defaults())) { Owner = this };
-                        if (visual.ShowDialog() == true)
+                        var owner = session;
+                        var token = documentLifetime.Token;
+                        var settings = new SettingsClient(api); var defaults = await settings.DefaultsAsync(token);
+                        if (session != owner) break;
+                        if (await VisualDescriptionDialog.EditAsync(this, settings, defaults.Options, token) is { } updated)
                         {
-                            await settings.SaveDefaultsAsync(defaults with { Options = defaults.Options with { VisualDescriptions = visual.Result } }, documentLifetime.Token);
-                            ApplyVisualDescriptionPolicy(visual.Result);
+                            await settings.SaveDefaultsAsync(defaults with { Options = updated }, token);
+                            if (session != owner || session.IsReadOnly) break;
+                            if (updated.VisualOptions is { } numbers)
+                            {
+                                EditStructure(() => session.Options = VisualDescriptions.ReplaceForJob(session.Options,
+                                    session.Options with { VisualOptions = numbers }));
+                            }
+                            else ApplyVisualDescriptionPolicy(updated.VisualDescriptions!);
                         }
                     }
                     break;
@@ -559,10 +576,10 @@ public partial class MainWindow : Window
         detachedPane.Editor.TextArea.Caret.PositionChanged += (_, _) => RefreshEditorStatus();
         detachedPane.HideRequested += (_, _) => detachedWindow?.Close();
         detachedPane.PreviewCloseRequested += (_, _) => SetLinePreviewVisible(false);
-        detachedPane.SetLinePreviewVisible(false);
+        detachedPane.SetLinePreviewVisible(LinePreviewToggle.IsChecked);
         detachedPane.PanelNumber.Text = Braille.PanelNumber.Text;
         PaintPanelHeaders();
-        detachedPane.SetLinePreview(currentPreviewLine, currentPreviewCells);
+        detachedPane.SetLinePreview(currentPreview.Line, currentPreview.Text, currentPreview.Reverse);
         detachedPane.DetachRequested += (_, _) => detachedWindow?.Close();
         BrailleToggle.IsChecked = true;
         var sourceSize = SourceEditor.FontSize;

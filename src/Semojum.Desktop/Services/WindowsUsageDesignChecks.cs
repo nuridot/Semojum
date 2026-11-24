@@ -280,15 +280,15 @@ internal static class WindowsUsageDesignChecks
             var inspectWriting = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
             inspectWriting.Tick += (_, _) =>
             {
-                if (Application.Current.Windows.OfType<BoardDialog>().FirstOrDefault(w => w.Owner == window && w.IsVisible) is not { } writing) return;
+                if (Application.Current.Windows.OfType<PublicInquiryDialog>().FirstOrDefault(w => w.Owner == window && w.IsVisible) is not { } writing) return;
                 inspectWriting.Stop();
-                maximized = writing.WindowState == WindowState.Maximized && Descendants(writing).OfType<TextBox>().Any(t => t.AcceptsReturn && t.IsVisible);
+                maximized = writing.Standalone && writing.WindowState == WindowState.Maximized && Descendants(writing).OfType<PublicInquiryForm>().Any();
                 writing.Close();
             };
             inspectWriting.Start();
             try { DesktopUsageActions.Create(api, "검수").NewInquiry(window); }
             finally { inspectWriting.Stop(); }
-            check(maximized, "My page New Inquiry opens the authenticated writing form maximized on its owner's monitor");
+            check(maximized, "My Page opens the G7 inquiry page maximized and returns to its owner on cancel");
         }
         finally { window.Close(); }
     }
@@ -305,6 +305,7 @@ internal static class WindowsUsageDesignChecks
             var view = Descendants(window).OfType<MyPageView>().Single();
             T Named<T>(string name) where T : FrameworkElement => (T)view.FindName(name);
             await WaitAsync(() => Named<Button>("EmailAction").IsEnabled && Named<TextBlock>("PlanName").Text == "Standard");
+            await VerifyMemberInquiryAsync(api, window, fixture, check);
             check(Named<TextBlock>("OwnValue").Text == "886,000 / 1,000,000" && Named<TextBlock>("Renewal").Text.Contains("다음 크레딧 지급")
                 && Named<TextBlock>("AlertCount").Text == "2" && Named<TextBlock>("EmailValue").Text.EndsWith("@example.test"),
                 "Personal E1 presents the authenticated wallet, real plan, email and unread count");
@@ -350,6 +351,43 @@ internal static class WindowsUsageDesignChecks
         var deadline = DateTime.UtcNow.AddSeconds(5); while (!predicate() && DateTime.UtcNow < deadline) await Task.Delay(20);
         if (!predicate()) throw new InvalidOperationException("Usage fixture did not load");
     }
+    private static async Task VerifyMemberInquiryAsync(SemojumApiClient api, MyPageWindow page, Fixture fixture, Action<bool, string> check)
+    {
+        var history = new UsageDialog(api, actions: DesktopUsageActions.Create(api, ""), openInquiries: true) { Owner = page };
+        history.Show();
+        try
+        {
+            await WaitAsync(() => fixture.MineRequested);
+            var write = Descendants(history).OfType<Button>().Single(b => Equals(b.Content, "새 문의"));
+            _ = history.Dispatcher.BeginInvoke(new Action(() => write.RaiseEvent(new RoutedEventArgs(Button.ClickEvent))));
+            PublicInquiryDialog? editor = null;
+            await WaitAsync(() => (editor = Application.Current.Windows.OfType<PublicInquiryDialog>().SingleOrDefault(d => d.Owner == history && d.IsVisible)) is not null);
+            var form = Descendants(editor!).OfType<PublicInquiryForm>().Single();
+            check(form.EmailInput.Text == "fixture@example.test" && form.Consent.IsChecked == false, "G7 uses the current profile email and asks for consent");
+            if (Environment.GetEnvironmentVariable("MYPAGE_NEW_INQUIRY_CAPTURE") is { Length: > 0 } capture)
+                await WindowsSmoke.RenderElementAsync(editor!, capture);
+            form.CategoryList.SelectedIndex = 2;
+            form.OrganizationInput.Text = "테스트 기관"; form.TitleInput.Text = "개인 문의 제목"; form.MessageInput.Text = "검증할 본문";
+            form.Consent.IsChecked = true;
+            var send = Descendants(editor!).OfType<Button>().Single(b => Equals(b.Content, "보내기"));
+            // Drive each modal from the dispatcher so the test can inspect and dismiss its child.
+            fixture.RejectNextInquiry = true;
+            send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitAsync(() => Descendants(editor!).OfType<TextBlock>().Any(t => t.Text == "검증용 오류"));
+            check(form.TitleInput.Text == "개인 문의 제목" && form.MessageInput.Text == "검증할 본문", "A rejected member inquiry keeps the G7 draft");
+            _ = history.Dispatcher.BeginInvoke(new Action(() => send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent))));
+            NoticeDialog? receipt = null;
+            await WaitAsync(() => (receipt = Application.Current.Windows.OfType<NoticeDialog>().SingleOrDefault(d => d.Owner == editor && d.IsVisible)) is not null);
+            receipt!.ActionButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitAsync(() => Descendants(history).OfType<TextBlock>().Any(t => t.Text == fixture.InquiryFields?.GetValueOrDefault("content")));
+            var fields = fixture.InquiryFields!;
+            check(history.IsVisible && !editor!.IsVisible && fields["secret"] == "true" && fields["category"] == "BILLING"
+                && fields["title"] == "크레딧 · 결제 문의" && fields["content"] == "제목: 개인 문의 제목\n답 받을 주소: fixture@example.test\n기관명: 테스트 기관\n\n검증할 본문"
+                && fixture.InquiryRequests == 2 && !fixture.Paths.Contains("/api/public/inquiries"),
+                "Signed-in G7 stores contact details only in the private body and reloads the submitted inquiry in My Page");
+        }
+        finally { history.Close(); }
+    }
     private sealed class Fixture : HttpMessageHandler
     {
         internal int JobRequests { get; private set; }
@@ -361,6 +399,9 @@ internal static class WindowsUsageDesignChecks
         internal bool CreditFails;
         internal bool Personal;
         internal bool PagedMovements;
+        internal bool RejectNextInquiry;
+        internal int InquiryRequests;
+        internal Dictionary<string, string>? InquiryFields;
 
         private object Transactions(string query)
         {
@@ -416,6 +457,18 @@ internal static class WindowsUsageDesignChecks
         {
             var path = request.RequestUri!.AbsolutePath;
             Paths.Add(path);
+            if (path == "/api/board/posts" && request.Method == HttpMethod.Post)
+            {
+                if (request.Headers.Authorization?.Parameter != "fixture") throw new InvalidOperationException("Expected member access token");
+                InquiryRequests++;
+                if (RejectNextInquiry)
+                {
+                    RejectNextInquiry = false;
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("""{"isSuccess":false,"code":"TEST","message":"검증용 오류"}""", Encoding.UTF8, "application/json") });
+                }
+                InquiryFields = WindowsPublicInquiryFieldsChecks.FormAsync(request.Content!, token).GetAwaiter().GetResult();
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"isSuccess":true,"result":{"postId":43}}""", Encoding.UTF8, "application/json") });
+            }
             if (path == "/api/users/usage/credit-history" && CreditFails)
             {
                 CreditQueries.Add(request.RequestUri.Query);
@@ -448,6 +501,7 @@ internal static class WindowsUsageDesignChecks
                 "/api/users/usage/credit-history" => CreditHistory(request.RequestUri.Query),
                 "/api/board/posts" => Posts(request.RequestUri.Query),
                 "/api/board/posts/42" => Post(),
+                "/api/board/posts/43" => new { postId = 43, title = InquiryFields!["title"], content = InquiryFields["content"], category = "BILLING", status = "WAITING", mine = true, secret = true, attachments = Array.Empty<object>(), answers = Array.Empty<object>() },
                 _ => new { }
             };
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { isSuccess = true, result }), Encoding.UTF8, "application/json") });
@@ -485,6 +539,8 @@ internal static class WindowsUsageDesignChecks
         private object Posts(string query)
         {
             MineRequested = query.Contains("mine=true", StringComparison.OrdinalIgnoreCase);
+            if (MineRequested && InquiryFields is not null)
+                return new { page = 1, totalCount = 1, notices = Array.Empty<object>(), items = new[] { new { postId = 43, title = InquiryFields["title"], category = "BILLING", secret = true, status = "WAITING" } } };
             return new { page = 1, totalCount = 1, notices = Array.Empty<object>(), items = new[] { new { postId = 42, title = "서버 문의", category = "ACCOUNT", answerCount = 1, author = "검수자", secret = false, createdAt = "2026-10-21", viewCount = 1, status = "ANSWERED" } } };
         }
         private object Post()

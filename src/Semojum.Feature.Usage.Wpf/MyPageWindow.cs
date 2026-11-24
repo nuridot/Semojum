@@ -13,6 +13,7 @@ public sealed class MyPageWindow : CompactDialog
     public string? FileName { get; private set; }
     public bool LogoutRequested { get; private set; }
     public bool CredentialsRevoked { get; private set; }
+    internal string? ReplyEmail { get; set; }
 
     public MyPageWindow(SemojumApiClient api, string workInfo, UsageActions actions)
         : base("마이페이지 - 누리닷", 1440, 1000, editor: true)

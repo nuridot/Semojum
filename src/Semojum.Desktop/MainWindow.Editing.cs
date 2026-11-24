@@ -80,6 +80,7 @@ public partial class MainWindow
                 SourceEditor.CaretOffset = Math.Clamp(block.SourceCaret, 0, SourceEditor.Document.TextLength);
             RefreshLinkedSource();
             RefreshSourcePosition();
+            if (PageEditor.Editor.IsKeyboardFocusWithin) QueuePreview(false);
         };
         PageEditor.Editor.TextArea.SelectionChanged += (_, _) => RefreshLinkedSource();
         // Selection and caret callbacks can run while the page projection is

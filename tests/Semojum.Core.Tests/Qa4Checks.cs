@@ -215,6 +215,16 @@ internal static class Qa4Checks
         policies["chart"] = new(["개조식"], "개조식"); Check(VisualDraftSelection.ApplyInitial(block, options) && block.Source == "<!주>설명<!/주>");
         var table = new EditorBlock { Id = 2, Source = "<!표>표<!/표>", Metadata = new(Type: "table") };
         Check(VisualDraftSelection.ApplyInitial(table, new()) && table.Metadata.RenderMode == "table_grid");
+        AlternativeDraft[] numbered = [new("서버 A", "일반", null, null, null, 2), new("서버 B", "짧게", null, null, null, 11), new("서버 C", "길게", null, null, null, 12)];
+        graph.Metadata = graph.Metadata with { Alternatives = numbered };
+        policies["chart"] = new(["상세"], "상세");
+        Check(!VisualDraftSelection.IsEnabled(graph.Metadata, options, numbered[0]) && !VisualDraftSelection.IsEnabled(graph.Metadata, options, numbered[1]));
+        Check(VisualDraftSelection.ApplyInitial(graph, options) && graph.Source == "길게");
+        AlternativeDraft[] tableDrafts = [new("표 A", "풀기", null, null, null, 1), new("표 B", "테두리만", null, null, null, 4)];
+        table.Metadata = table.Metadata with { Alternatives = tableDrafts };
+        policies["table"] = new(["테두리만"], "테두리만");
+        Check(!VisualDraftSelection.IsEnabled(table.Metadata, options, tableDrafts[0]) && VisualDraftSelection.ApplyInitial(table, options) && table.Source == "테두리만" && table.Metadata.RenderMode == "linear");
+        policies["chart"] = new(["개조식"], "개조식");
         var session = new DocumentSession { Options = options }; session.Add(block);
         var path = Path.Combine(Path.GetTempPath(), "visual-policy-" + Guid.NewGuid().ToString("N") + ".smj");
         try

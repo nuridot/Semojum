@@ -157,7 +157,8 @@ internal static class WindowsMemoHoverChecks
                 check(opened && bubble is { IsVisible: true } && bubble.Owner == main && !bubble.ShowActivated && !bubble.IsActive && !bubble.IsKeyboardFocusWithin
                     && !ComponentDispatcher.IsThreadModal && ReferenceEquals(Keyboard.FocusedElement, focused)
                     && bubble.MemoItems.Items.Cast<LineMemo>().Select(m => m.Body).SequenceEqual([body]),
-                    $"Hovering the {name} memo marker opens its thread as a non-modal bubble without taking focus");
+                    $"Hovering the {name} memo marker opens its thread as a non-modal bubble without taking focus " +
+                    $"(opened={opened}, active={bubble?.IsActive}, keyboardInside={bubble?.IsKeyboardFocusWithin}, focusPreserved={ReferenceEquals(Keyboard.FocusedElement, focused)}, modal={ComponentDispatcher.IsThreadModal})");
                 if (bubble is null) return;
                 Raise(marker, Mouse.MouseLeaveEvent);
                 var closed = await ClosesAfterAsync(bubble);
@@ -182,6 +183,15 @@ internal static class WindowsMemoHoverChecks
             Raise(reentered, Mouse.MouseLeaveEvent);
             var bubbleLeft = await ClosesAfterAsync(reentered);
             check(bubbleLeft >= 250 && hover.Current is null, $"Leaving the bubble closes it 0.3s later (closed after {bubbleLeft}ms)");
+
+            check(page.HoverLine(0, page.SlotPadding + 8) && hover.Current is not null, "A memo preview can be opened for replying");
+            var writing = hover.Current!;
+            writing.Activate(); writing.ReplyInput.Focus();
+            Raise(page, Mouse.MouseLeaveEvent);
+            await Task.Delay(450);
+            check(writing.IsVisible && writing.ReplyInput.IsKeyboardFocused,
+                "The user can focus the reply field and keep writing after moving off the marker");
+            hover.Close();
 
             check(page.HoverLine(0, page.SlotPadding + 8) && hover.Current is not null, "The memo bubble opens before the marker is clicked");
             var hovered = hover.Current!; MemoThreadDialog? modal = null; var modalShown = false; var bubbleClosed = false;

@@ -73,6 +73,7 @@ internal static class WindowsFocusedChecks
                     break;
                 case "incremental":
                     await WindowsIncrementalTranslationChecks.RunAsync(Check);
+                    await WindowsLineTranslationDesignChecks.RunEditorAsync(Check);
                     break;
                 case "original":
                     await WindowsOriginalWheelChecks.RunAsync(Check);
@@ -94,11 +95,14 @@ internal static class WindowsFocusedChecks
                 case "tablememo":
                     await WindowsQa1110TableChecks.RunPreviewAsync(Check);
                     await WindowsMemoDeleteChecks.RunAsync(directory, Check);
+                    await WindowsMemoHoverChecks.RunAsync(Check);
                     await WindowsMemoFrameChecks.RunAsync(directory, Check);
                     await WindowsMemoRestoreChecks.RunAsync(directory, Check);
                     await WindowsTableDockChecks.RunAsync(directory, Check);
                     break;
                 case "drafts":
+                    if (Environment.GetEnvironmentVariable("VISUAL_CATALOG_QA_ORIGIN") is { Length: > 0 } catalogOrigin)
+                    { await WindowsVisualDescriptionDesignChecks.RunLiveAsync(catalogOrigin, directory, Check); break; }
                     await WindowsDraftDockChecks.RunAsync(Check);
                     await WindowsDraftPendingChecks.RunAsync(Check);
                     await WindowsVisualPolicyChecks.RunAsync(Check);

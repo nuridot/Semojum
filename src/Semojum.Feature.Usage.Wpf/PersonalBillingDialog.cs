@@ -21,9 +21,22 @@ public sealed class PersonalBillingDialog : CompactDialog
     private readonly Button more;
     private long? before;
 
-    private sealed record Order(Guid Id, DateTimeOffset Date, string Kind, long Credits, long Total, string State, bool HasInvoice)
+    internal readonly record struct OrderDates(DateTimeOffset HistoryDate, DateTimeOffset? PaidDate)
     {
-        public string Label => $"{Date.ToLocalTime():yyyy-MM-dd HH:mm}   {(Kind == "PLAN" ? "요금제" : "추가 구매")}   {Credits:N0} 크레딧   {Total:N0}원   {State switch {
+        public string? InvoiceDate => PaidDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+        public static OrderDates Read(JsonElement order)
+        {
+            var korea = TimeZoneInfo.FindSystemTimeZoneById("Korea Standard Time");
+            DateTimeOffset? paid = order.TryGetProperty("paidAt", out var value) && value.ValueKind == JsonValueKind.String
+                && value.TryGetDateTimeOffset(out var instant) ? TimeZoneInfo.ConvertTime(instant, korea) : null;
+            return new(paid ?? TimeZoneInfo.ConvertTime(order.GetProperty("createdAt").GetDateTimeOffset(), korea), paid);
+        }
+    }
+
+    private sealed record Order(Guid Id, OrderDates Dates, string Kind, long Credits, long Total, string State, bool HasInvoice)
+    {
+        public string Label => $"{Dates.HistoryDate:yyyy-MM-dd HH:mm}   {(Kind == "PLAN" ? "요금제" : "추가 구매")}   {Credits:N0} 크레딧   {Total:N0}원   {State switch {
             "DRAFT" => "주문안", "CANCELLED" => "취소", "PAID" => "결제 완료", "REFUNDED" => "환불", _ => State }}";
     }
 
@@ -87,7 +100,7 @@ public sealed class PersonalBillingDialog : CompactDialog
     private async Task LoadHistoryAsync()
     {
         var data = await Send(HttpMethod.Get, Billing + "/orders");
-        var rows = data.EnumerateArray().Select(o => new Order(o.GetProperty("id").GetGuid(), o.GetProperty("createdAt").GetDateTimeOffset(),
+        var rows = data.EnumerateArray().Select(o => new Order(o.GetProperty("id").GetGuid(), OrderDates.Read(o),
             o.GetProperty("kind").GetString()!, o.GetProperty("credits").GetInt64(), o.GetProperty("amountKrw").GetInt64(),
             o.GetProperty("status").GetString()!, o.GetProperty("hasInvoice").GetBoolean())).ToArray();
         orders.ItemsSource = rows; invoices.ItemsSource = rows.Where(o => o.HasInvoice).ToArray();
@@ -109,6 +122,6 @@ public sealed class PersonalBillingDialog : CompactDialog
     private async Task DownloadInvoiceAsync()
     {
         if (invoices.SelectedItem is not Order { HasInvoice: true } item) throw new ArgumentException("내려받을 청구서를 선택해 주세요.");
-        await PersonalInvoiceDialog.SavePdfAsync(this, api, accountSession, item.Id, item.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), Lifetime.Token);
+        await PersonalInvoiceDialog.SavePdfAsync(this, api, accountSession, item.Id, item.Dates.InvoiceDate, Lifetime.Token);
     }
 }

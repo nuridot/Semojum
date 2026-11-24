@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Reflection;
 using Semojum.Desktop.Controls;
 using Semojum.Core;
 using SharpVectors.Converters;
@@ -10,6 +11,68 @@ namespace Semojum.Desktop.Services;
 
 internal static class WindowsLineTranslationDesignChecks
 {
+    internal static async Task RunEditorAsync(Action<bool, string> check)
+    {
+        var model = new DocumentSession();
+        var manual = "⠉\n⠊⠗⠚⠒⠑⠟⠈⠍⠁\n" + new string('⠫', model.Layout.Columns) + "⠉";
+        var block = new EditorBlock { Id = 1, Page = 1, Source = "가 나\n<!쪽바꿈>\n<!임의태그>\n가<!묵자쪽번호>나\n<!수식>x+1<!/수식>",
+            Braille = manual, HasManualBraille = true };
+        model.Add(block);
+        var window = new MainWindow(testWithoutAccount: true, startEmpty: true);
+        typeof(MainWindow).GetMethod("SetSession", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, [model, null, true, false]);
+        window.Show();
+        try
+        {
+            var editor = window.PageEditor.Editor;
+            editor.Focus();
+            await Expect("줄 점역", "⠀⠀⠫⠀⠉", "Text focus previews the current source line, including its paragraph indent and word space");
+            editor.CaretOffset = editor.Document.GetLineByNumber(2).Offset;
+            await Expect("줄 점역", "", "A page-break tag has no cells in the preview");
+            editor.CaretOffset = editor.Document.GetLineByNumber(4).Offset;
+            await Expect("줄 점역", "⠀⠀⠫⠉", "A deferred layout field cannot leak print text into forward preview");
+            editor.CaretOffset = editor.Document.GetLineByNumber(3).Offset;
+            await Expect("줄 점역", "", "An unsupported tag alone does not display the engine's failure notice as braille");
+            editor.CaretOffset = editor.Document.GetLineByNumber(5).Offset;
+            await Expect("줄 점역", "⠀⠀⠭⠢⠼⠁", "A supported math tag still produces its braille cells");
+            var grid = window.Braille.GridView;
+            check(await window.Braille.EnsureCurrentGridAsync(model), "The real braille grid has composed lines");
+            grid.Focus();
+            await Expect("줄 역점역", "나", "Braille focus decodes the manually edited grid row independently of the source");
+            var next = grid.Items.Cast<BrailleGridFace>().SelectMany(f => f.Rows).SelectMany(row => row)
+                .First(c => c?.Block == block && c.Offset == 2)!;
+            grid.Point(next, false);
+            await Expect("줄 역점역", "대한민국", "Moving the braille caret decodes the new row");
+            window.ToggleDetached();
+            await Until(() => window.DetachedPane!.PreviewStrip.LineLabel.Text == "줄 역점역"
+                && window.DetachedPane.PreviewStrip.Cells.Text.Trim() == "대한민국", "Detached braille mirrors the decoded line");
+            var detached = window.DetachedPane!;
+            check(await detached.EnsureCurrentGridAsync(model), "Detached grid has current physical rows");
+            detached.GridView.Focus();
+            var wrapped = detached.GridView.Items.Cast<BrailleGridFace>().SelectMany(f => f.Rows).SelectMany(row => row)
+                .First(c => c?.Block == block && c.Offset == manual.Length - 1)!;
+            detached.GridView.Point(wrapped, false);
+            await Until(() => detached.PreviewStrip.IsVisible && detached.PreviewStrip.Cells.Text.Trim() == "나"
+                && window.LineStrip.Cells.Text.Trim() == "나", "Detached caret movement decodes only the current soft-wrapped row in both strips");
+            window.ToggleDetached();
+            window.Activate();
+            editor.Focus();
+            editor.CaretOffset = 0;
+            await Expect("줄 점역", "⠀⠀⠫⠀⠉", "Returning to text restores forward preview");
+            check(block.HasManualBraille && block.Braille == manual, "Previewing either direction preserves the edited braille");
+        }
+        finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
+
+        Task Expect(string label, string content, string name) => Until(() => window.LineStrip.LineLabel.Text == label
+            && window.LineStrip.Cells.Text.Trim(' ') == content, name);
+        async Task Until(Func<bool> ready, string name)
+        {
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            while (!ready() && timer.Elapsed < TimeSpan.FromSeconds(12)) await Task.Delay(40);
+            check(ready(), name + (ready() ? "" : $" (displayed {window.LineStrip.LineLabel.Text}: [{window.LineStrip.Cells.Text}])"));
+        }
+    }
+
     internal static void Run(Window owner, Action<bool, string> check)
     {
         var pane = new BraillePane { Width = 820, Height = 420 }; pane.SetLinePreview(7, "⠼⠉⠀⠦⠊⠴"); pane.SetLinePreviewVisible(true);

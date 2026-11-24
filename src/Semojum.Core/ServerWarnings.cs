@@ -4,8 +4,8 @@ using System.Text;
 namespace Semojum.Core;
 
 /// <summary>
-/// Server quality issues (<c>critical_errors</c> and <c>review_flags</c>) shown alike as open warnings over their
-/// whole block: the server names only the element, never a character range. Each issue becomes a text mark and a
+/// Actionable server quality issues are shown as open warnings over their
+/// whole block. The server identifies the element. Each issue becomes a text mark and a
 /// braille mark whose ids derive from the block and the issue, so the same report never adds it twice. A person's
 /// edit to either text resolves the block's warnings by making them stale; the stale marks stay in the .smj so the
 /// same report cannot reopen them. Issues without an element stay in the page status only.
@@ -22,24 +22,42 @@ public static class ServerWarnings
     /// <summary>Adds the open warnings a page's report describes, skipping any already known, open or resolved.</summary>
     public static int Apply(IEnumerable<EditorBlock> blocks, IEnumerable<QualityIssue> issues)
     {
-        var added = 0; var pageBlocks = blocks.Where(b => b.ServerId is not null).ToArray();
-        var reported = issues.Where(i => i.ElementId is not null).ToArray();
-        // BE 2026-11-01 review_flag "open" is the same unresolved warning; it adds one only when the report does not already name the block.
-        // "sug" and "note" carry no text or range, so they stay in the block metadata only.
-        var flagged = pageBlocks.Where(b => b.Metadata.ReviewFlag == "open" && !reported.Any(i => i.ElementId == b.ServerId))
-            .Select(b => new QualityIssue("review", "review_flag", b.ServerId, "안 풀린 경고"));
-        foreach (var issue in reported.Concat(flagged))
-            foreach (var block in pageBlocks.Where(b => b.ServerId == issue.ElementId))
+        var added = 0;
+        var byElement = issues.Where(i => i.ElementId is not null).ToLookup(i => i.ElementId);
+        foreach (var block in blocks)
+        {
+            if (block.ServerId is not { } id) continue;
+            var blockIssues = byElement[id];
+            // Older SMJ files can contain generated warnings for informational entries.
+            // Remove only IDs derived from those entries, preserving the user's marks.
+            foreach (var info in blockIssues.Where(IsInformational))
             {
-                var key = Key(block.ServerId!, issue);
+                var key = Key(id, info);
+                for (var i = block.ReviewMarks.Count - 1; i >= 0; --i)
+                    if (IsServerWarning(block.ReviewMarks[i]) && KeyOf(block.ReviewMarks[i].Id) == key)
+                        block.ReviewMarks.RemoveAt(i);
+            }
+            var warnings = blockIssues.Where(i => !IsInformational(i));
+            if (block.Metadata.ReviewFlag == "open" && !warnings.Any())
+                warnings = [new QualityIssue("review", "review_flag", id, "안 풀린 경고")];
+            foreach (var issue in warnings)
+            {
+                var key = Key(id, issue);
                 string text = Id(key, ReviewPanel.Text), braille = Id(key, ReviewPanel.Braille);
                 if (block.ReviewMarks.Any(m => m.Id == text || m.Id == braille)) continue;
                 if (block.Source.Length > 0) block.ReviewMarks.Add(new(text, ReviewKind.OpenWarning, ReviewPanel.Text, 0, block.Source.Length, block.Source));
                 if (block.Braille.Length > 0) block.ReviewMarks.Add(new(braille, ReviewKind.OpenWarning, ReviewPanel.Braille, 0, block.Braille.Length, block.Braille));
                 if (block.Source.Length > 0 || block.Braille.Length > 0) added++;
             }
+        }
         return added;
     }
+
+    // The AI quality report includes general guidance on every matching element. Those
+    // entries remain available in the report. Other R11 reasons include caption failure.
+    private static bool IsInformational(QualityIssue issue) => issue.Severity == "review" &&
+        (issue.Type is "R10" or "R13" or "R19" ||
+         issue is { Type: "R11", Message: "AI가 쓴 시각자료 설명 — 원본 그림과 대조가 필요합니다" });
 
     /// <summary>A person changed the block: its open warnings are resolved and kept as stale records.</summary>
     internal static void Resolve(EditorBlock block)

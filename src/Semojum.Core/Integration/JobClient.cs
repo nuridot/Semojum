@@ -126,8 +126,12 @@ public sealed partial class JobClient(SemojumApiClient api)
                 { ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".pdf" => "application/pdf", ".txt" => "text/plain", _ => "application/octet-stream" });
                 form.Add(content, "file", DisplayFileName.Normalize(Path.GetFileName(file.FileName)));
             }
-            foreach (var pair in LayoutBody(settings.Layout).Concat(OptionsBody(settings.Options)).Where(p => p.Key != "visualDescriptions"))
+            foreach (var pair in LayoutBody(settings.Layout).Concat(OptionsBody(settings.Options)).Where(p => p.Key is not ("visualDescriptions" or "visualOptions")))
                 form.Add(new StringContent(pair.Value is string s ? s : JsonSerializer.Serialize(pair.Value)), pair.Key);
+            // The current upload handler inherits these settings from formId or the account.
+            // Also include the document override as a JSON form field for servers that bind it.
+            if (VisualDescriptions.StoredNumbers(settings.Options) is { } visual)
+                form.Add(new StringContent(JsonSerializer.Serialize(visual, JsonSerializerOptions.Web), Encoding.UTF8, "application/json"), "visualOptions");
             if (formId is not null) form.Add(new StringContent(formId), "formId");
             form.Add(new StringContent(settings.FooterText), "footerText");
             form.Add(new StringContent(settings.Layout.ShowSourcePageNumber ? "true" : "false"), "insertPageNumber");
@@ -178,15 +182,17 @@ public sealed partial class JobClient(SemojumApiClient api)
     {
         var data = await api.SendAuthenticatedAsync(HttpMethod.Get, JobPath(model.JobId!, "options"), cancellationToken: ct);
         if (data.TryGetProperty("layoutOptions", out var l)) model.Layout = ReadLayout(l);
-        if (data.TryGetProperty("brailleOptions", out var b)) model.Options = ReadOptions(b);
+        var serverOptions = data.TryGetProperty("brailleOptions", out var b) ? ReadOptions(b) : null;
+        if (serverOptions is not null) model.Options = serverOptions;
         model.FooterText = Text(data, "footerText") ?? "";
-        // The upload dialog is the source of truth for this new local document. Server B-06 omits
-        // settings such as even pages and number ranges; its defaults must not erase the user's choices.
-        // Opening an existing server job has no local override and continues to use server values.
+        // Keep local-only layout settings (even pages and number ranges). Numbered draft options
+        // come from the effective job configuration, including defaults inherited from its form.
         if (uploadSettings is not null)
         {
             model.Layout = uploadSettings.Layout with { NumberRanges = uploadSettings.Layout.NumberRanges?.ToArray() };
-            model.Options = uploadSettings.Options;
+            model.Options = serverOptions?.VisualOptions is { } effective
+                ? uploadSettings.Options with { VisualOptions = effective, VisualDescriptions = serverOptions.VisualDescriptions }
+                : uploadSettings.Options;
             model.FooterText = uploadSettings.FooterText;
             model.FooterRanges = uploadSettings.FooterRanges.ToArray();
         }
@@ -298,7 +304,8 @@ public sealed partial class JobClient(SemojumApiClient api)
         ["brailleRule"] = o.EnglishDocument ? "english" : "korean", ["mixedRule"] = o.MixedRule,
         ["consecutiveSpace"] = o.ConsecutiveSpace, ["lineBreakUnit"] = o.LineBreakUnit, ["choiceLayout"] = o.ChoiceLayout
         };
-        if (o.VisualDescriptions is not null) result["visualDescriptions"] = o.VisualDescriptions;
+        if (VisualDescriptions.StoredNumbers(o) is { } numbered) result["visualOptions"] = numbered;
+        else if (o.VisualDescriptions is not null) result["visualDescriptions"] = o.VisualDescriptions;
         return result;
     }
     public static PageLayout ReadLayout(JsonElement l) => new(Number(l, "cellsPerLine", 32), Number(l, "linesPerPage", 26), Number(l, "braillePageStart", 1),
@@ -311,7 +318,9 @@ public sealed partial class JobClient(SemojumApiClient api)
         Text(o, "brailleRule") == "english", Text(o, "lineBreakUnit") ?? "syllable", Text(o, "mixedRule") ?? "korean",
         Text(o, "consecutiveSpace") ?? "single", Text(o, "choiceLayout") ?? "merge",
         o.TryGetProperty("visualDescriptions", out var v) && v.ValueKind == JsonValueKind.Object
-            ? v.Deserialize<Dictionary<string, VisualDescription>>(new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null);
+            ? v.Deserialize<Dictionary<string, VisualDescription>>(JsonSerializerOptions.Web) : null,
+        o.TryGetProperty("visualOptions", out var numbered) && numbered.ValueKind == JsonValueKind.Object
+            ? numbered.Deserialize<Dictionary<string, VisualOptionSetting>>(JsonSerializerOptions.Web) : null);
     private static JobCreated Created(JsonElement e) => new(Required(e, "jobId"), Number(e, "totalPages"), Required(e, "status"));
     private static AlternativeDraft[] ReadDrafts(JsonElement text, JsonElement braille)
     {

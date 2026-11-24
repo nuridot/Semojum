@@ -251,7 +251,7 @@ public partial class BraillePane : UserControl, IDisposable
         var pages = Enumerable.Range(1, GridView.Items.Count).ToArray();
         FacePageBar.SetPages(pages, GridView.CoordinatesCurrent ? pages : [], selectedFace);
     }
-    public void SetLinePreview(int line, string cells) => PreviewStrip.SetPreview(line, cells);
+    public void SetLinePreview(int line, string text, bool reverse = false) => PreviewStrip.SetPreview(line, text, reverse);
     public void SetLinePreviewVisible(bool visible) => PreviewStrip.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     private void Hide_Click(object sender, RoutedEventArgs e) => HideRequested?.Invoke(this, EventArgs.Empty);
     private void HandleKeyDown(object sender, KeyEventArgs e)

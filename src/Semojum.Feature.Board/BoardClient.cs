@@ -94,7 +94,7 @@ public sealed class BoardClient(SemojumApiClient api) : IBoardListSource
     public Task ReadAllAsync(CancellationToken ct = default) => api.SendAuthenticatedAsync(HttpMethod.Patch, "/api/board/notifications/read-all", cancellationToken: ct);
     /// <summary>A null category sends none: a new post becomes 「점역 결과」 and an edited post keeps its category.</summary>
     public async Task<(long Id, BoardPost? Post)> SaveAsync(long? id, string title, string content, bool secret,
-        long[] keepAttachmentIds, UploadFile[] files, string? category = null, CancellationToken ct = default)
+        long[] keepAttachmentIds, UploadFile[] files, string? category = null, CancellationToken ct = default, Guid? expectedSession = null)
     {
         if (string.IsNullOrWhiteSpace(title) || title.Trim().Length > 100 || string.IsNullOrWhiteSpace(content) || content.Length > 10000)
             throw new ArgumentException("제목 1–100자, 본문 1–10,000자를 입력해 주세요.");
@@ -114,7 +114,7 @@ public sealed class BoardClient(SemojumApiClient api) : IBoardListSource
             return body;
         };
         var result = await api.SendAuthenticatedAsync(id is null ? HttpMethod.Post : HttpMethod.Put,
-            "/api/board/posts" + (id is null ? "" : "/" + id), factory, ct);
+            "/api/board/posts" + (id is null ? "" : "/" + id), factory, ct, expectedSession);
         return (result.GetProperty("postId").GetInt64(), id is null ? null : Read<BoardPost>(result));
     }
 }

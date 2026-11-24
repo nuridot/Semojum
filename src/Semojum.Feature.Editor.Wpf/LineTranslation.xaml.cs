@@ -8,6 +8,7 @@ public partial class LineTranslation : UserControl
 {
     public event EventHandler? CloseRequested;
     private int sourceLine;
+    private bool showingPrint;
 
     public LineTranslation()
     {
@@ -15,12 +16,20 @@ public partial class LineTranslation : UserControl
         UpdateNavigation();
     }
 
-    public void SetPreview(int line, string cells)
+    public void SetPreview(int line, string text, bool reverse = false)
     {
-        if (line == sourceLine && cells == Cells.Text) return;
+        if (line == sourceLine && text == Cells.Text && reverse == showingPrint) return;
         sourceLine = line;
-        LineLabel.ToolTip = line > 0 ? $"텍스트 {line}줄의 점역 미리보기" : "점역 미리보기";
-        Cells.Text = cells;
+        showingPrint = reverse;
+        LineLabel.Text = reverse ? "줄 역점역" : "줄 점역";
+        LineLabel.ToolTip = line > 0 ? $"{(reverse ? "점자" : "텍스트")} {line}줄" : LineLabel.Text;
+        Cells.SetResourceReference(TextBlock.FontFamilyProperty, reverse ? "InterfaceFont" : "BraillePlainFont");
+        var unit = reverse ? "텍스트 줄" : "점자 줄";
+        NextLine.ToolTip = "다음 " + unit;
+        PreviousLine.ToolTip = "이전 " + unit;
+        System.Windows.Automation.AutomationProperties.SetName(NextLine, "다음 " + unit);
+        System.Windows.Automation.AutomationProperties.SetName(PreviousLine, "이전 " + unit);
+        Cells.Text = text;
         Viewport.ScrollToTop();
     }
 

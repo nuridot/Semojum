@@ -18,7 +18,7 @@ public sealed class OptionsEditor : StackPanel
     private readonly bool grouped;
     private StackPanel? currentGroup;
     private bool englishGrade1;
-    private Dictionary<string, VisualDescription> visual = [];
+    private BrailleOptions current = new();
     public OptionsEditor(bool grouped = false)
     {
         this.grouped = grouped;
@@ -49,11 +49,13 @@ public sealed class OptionsEditor : StackPanel
         rule.SelectedIndex = value.EnglishDocument ? 1 : 0; mixed.SelectedIndex = value.MixedRule == "english" ? 1 : 0;
         spaces.SelectedIndex = value.ConsecutiveSpace == "keep" ? 0 : 1; wrap.SelectedIndex = value.LineBreakUnit == "word" ? 1 : 0;
         choices.SelectedIndex = value.ChoiceLayout == "onePerLine" ? 0 : 1;
-        visual = new(value.VisualDescriptions ?? VisualDescriptions.Defaults());
+        current = value;
     }
-    public BrailleOptions Value => new(korean.SelectedIndex == 0, englishGrade1, rule.SelectedIndex == 1,
-        wrap.SelectedIndex == 1 ? "word" : "syllable", mixed.SelectedIndex == 1 ? "english" : "korean",
-        spaces.SelectedIndex == 0 ? "keep" : "single", choices.SelectedIndex == 0 ? "onePerLine" : "merge", new(visual));
+    public BrailleOptions Value => current with {
+        KoreanGrade1 = korean.SelectedIndex == 0, EnglishGrade1 = englishGrade1, EnglishDocument = rule.SelectedIndex == 1,
+        LineBreakUnit = wrap.SelectedIndex == 1 ? "word" : "syllable", MixedRule = mixed.SelectedIndex == 1 ? "english" : "korean",
+        ConsecutiveSpace = spaces.SelectedIndex == 0 ? "keep" : "single", ChoiceLayout = choices.SelectedIndex == 0 ? "onePerLine" : "merge"
+    };
 }
 
 public sealed class DefaultsDialog : ConversionFormDialog
@@ -93,8 +95,9 @@ public sealed class DefaultsDialog : ConversionFormDialog
         forms.SelectionChanged += (_, _) => { if (forms.SelectedItem is BrailleForm f) SetOptions(f.Options); };
         var restore = FooterButton("기본값 복원", () =>
         {
+            var numbered = current.VisualOptions is not null;
             forms.SelectedItem = forms.Items.Cast<BrailleForm>().FirstOrDefault(f => f.FormId == "builtin:GENERAL_BOOK");
-            SetOptions(new()); pageLine.FirstSelected = true;
+            SetOptions(new(VisualOptions: numbered ? [] : null)); pageLine.FirstSelected = true;
         });
         var footer = (Border)Actions.Parent;
         Actions.Children.Remove(restore); footer.Child = null;
@@ -283,6 +286,11 @@ public sealed class FormEditDialog : ConversionFormDialog
         delete.IsEnabled = personal is not null;
         delete.ToolTip = personal is null ? "기본 양식은 지울 수 없습니다." : "사용자 양식 지우기";
         ToolTipService.SetShowOnDisabled(delete, true);
+        FooterButton("대체 초안 유형", async () =>
+        {
+            if (await VisualDescriptionDialog.EditAsync(this, client, options, Lifetime.Token) is { } edited)
+                options = edited;
+        });
         CancelButton();
         FooterButton("저장", async () =>
         {
