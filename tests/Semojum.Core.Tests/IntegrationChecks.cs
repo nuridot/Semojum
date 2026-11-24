@@ -427,6 +427,17 @@ internal static class IntegrationChecks
         var engine = new LocalBrailleEngine(sidecar);
         var grade2 = await engine.TranslateElementAsync("가", new(), new()); Equal("⠫", grade2.Cells.Trim('⠀'));
         Equal("3.4.46", sidecar.EngineVersion);
+        foreach (var (source, expected) in new[]
+        {
+            ("가\r\n", "⠀⠀⠫\n"), ("가\n", "⠀⠀⠫\n"), ("가\r", "⠀⠀⠫\n"),
+            ("가 \r\n", "⠀⠀⠫⠀\n"), ("가\r\n\r\n나", "⠀⠀⠫\n\n⠉")
+        })
+        {
+            var block = await engine.TranslateElementAsync(source, new(), new());
+            Equal(expected, block.Cells);
+            var page = await engine.TranslatePageAsync([(source, new BlockMetadata())], new());
+            Equal(expected, page.Single().Cells);
+        }
         await PageBlankLines(engine, sidecar, grade2);
         await HeaderAlignment(engine, sidecar);
         await LineAlignmentChecks.VerifyCarryAsync(engine);

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Windows.Documents;
 using System.Windows.Threading;
 using Semojum.Core;
 using Semojum.Core.Integration;
@@ -77,6 +78,22 @@ internal static class WindowsIncrementalTranslationChecks
                     "Incremental: pending source translation completes during independent page browsing without losing edits");
             }
             finally { heartbeat.Stop(); }
+
+            var editor = window.PageEditor.Editor;
+            var last = model.Blocks[^1]; // The second source page contains only this block.
+            editor.Focus();
+            editor.Select(0, editor.Document.TextLength);
+            editor.TextArea.PerformTextInput("가");
+            EditingCommands.EnterParagraphBreak.Execute(null, editor.TextArea);
+            check(last.Source == "가\r\n", "Windows Enter after 가 stores one CRLF in the source");
+            await Until(() => last.Translation?.SourceText == last.Source, "The edited line is translated after Enter");
+            check(last.Braille == "⠀⠀⠫\n", "Windows Enter adds only a newline to the editable braille");
+            await window.Braille.EnsureCurrentGridAsync(model);
+            var cells = window.Braille.GridView.Items.Cast<BrailleGridFace>().SelectMany(face => face.Rows)
+                .SelectMany(row => row).OfType<GridCell>().Where(c => c.Block == last && !c.IsInsertion);
+            check(string.Concat(cells.Select(c => c.Value)) == "⠀⠀⠫", "The grid has no extra editable cell after 가");
+            var brf = await engine.BuildBrfAsync(model);
+            check(brf.Split(['\r', '\n', '\f']).Contains("  $"), "The exported BRF line for 가 ends at its last dot");
         }
         finally { await window.ReleaseResourcesAsync(); window.PrepareSmokeShutdown(); window.Close(); }
     }

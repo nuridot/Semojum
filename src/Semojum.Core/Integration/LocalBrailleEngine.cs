@@ -19,6 +19,9 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
     // translate_page answers per page request; the engine is deterministic, so only changed pages are asked again.
     private readonly Dictionary<string, (int Before, int After)[]> pageSpacing = new(StringComparer.Ordinal);
     private const int ElementLimit = 1000;
+    // The engine reads LF as a line break, but translates CR as a blank braille cell.
+    private static string EngineText(string source) => source.Replace("\r\n", "\n").Replace('\r', '\n');
+
     public async Task<string> TranslateAsync(string text, int blockId, CancellationToken cancellationToken) =>
         (await TranslateElementAsync(text, new(), options?.Invoke() ?? new(), cancellationToken)).Cells;
 
@@ -76,24 +79,25 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
                 throw new SidecarException("표의 표시 텍스트가 바뀌었습니다. 편집 → 표 구조 편집에서 칸 내용을 수정해 주세요.", "TABLE_STRUCTURE_CHANGED");
             response = await sidecar.InvokeAsync("table", new
             {
-                table_source = metadata.TableSource, render_mode = metadata.RenderMode ?? "",
-                tn_text = metadata.TranslatorNote ?? "", box_level = metadata.TableBoxLevel,
+                table_source = EngineText(metadata.TableSource), render_mode = metadata.RenderMode ?? "",
+                tn_text = EngineText(metadata.TranslatorNote ?? ""), box_level = metadata.TableBoxLevel,
                 korean_grade = settings.KoreanGrade1 ? 1 : 2, english_grade = settings.EnglishGrade1 ? 1 : 2, math_page = metadata.MathPage,
                 blank_lines = false, draft_text = true
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            var largeText = text.Length > ElementLimit && metadata.Type != "table" && !text.Contains("<!표>", StringComparison.Ordinal);
+            var source = EngineText(text);
+            var largeText = source.Length > ElementLimit && metadata.Type != "table" && !source.Contains("<!표>", StringComparison.Ordinal);
             response = await sidecar.InvokeAsync(largeText ? "translate_editor" : "translate", new
             {
-                text = metadata.Type == "formula" && !text.Contains("<!수식>", StringComparison.Ordinal) ? $"<!수식>{text}<!/수식>" : text,
+                text = metadata.Type == "formula" && !source.Contains("<!수식>", StringComparison.Ordinal) ? $"<!수식>{source}<!/수식>" : source,
                 type = text.Contains("<!표>", StringComparison.Ordinal) ? "table" : metadata.Type switch
                 { "formula" => "text", "image" or "figure" or "chart_graph" or "diagram" or "cartoon" => "caption", _ => metadata.Type },
                 heading_level = metadata.HeadingLevel,
                 korean_grade = settings.KoreanGrade1 ? 1 : 2, english_grade = settings.EnglishGrade1 ? 1 : 2,
                 split_choices = settings.ChoiceLayout == "onePerLine", math_page = metadata.MathPage,
-                render_mode = metadata.RenderMode ?? "", tn_text = metadata.TranslatorNote ?? "", box_level = metadata.TableBoxLevel,
+                render_mode = metadata.RenderMode ?? "", tn_text = EngineText(metadata.TranslatorNote ?? ""), box_level = metadata.TableBoxLevel,
                 // Block braille stays the bare element body so source lines, review marks and cell positions never shift.
                 // The page's layout blank lines come from translate_page when the page is composed (ComposeAsync).
                 blank_lines = false, source_map = true, draft_text = true, line_alignment = true
@@ -202,9 +206,9 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
             // Visual types keep their own names here: blank lines around visuals and the no-gap rule between consecutive ones need them.
             return new
             {
-                id = order.ToString(System.Globalization.CultureInfo.InvariantCulture), text,
+                id = order.ToString(System.Globalization.CultureInfo.InvariantCulture), text = EngineText(text),
                 type = table || text.Contains("<!표>", StringComparison.Ordinal) ? "table" : m.Type == "formula" ? "text" : m.Type,
-                heading_level = m.HeadingLevel, render_mode = m.RenderMode ?? "", tn_text = m.TranslatorNote ?? "", box_level = m.TableBoxLevel
+                heading_level = m.HeadingLevel, render_mode = m.RenderMode ?? "", tn_text = EngineText(m.TranslatorNote ?? ""), box_level = m.TableBoxLevel
             };
         }).ToArray(),
         korean_grade = settings.KoreanGrade1 ? 1 : 2, english_grade = settings.EnglishGrade1 ? 1 : 2,
@@ -213,7 +217,7 @@ public sealed class LocalBrailleEngine(BrailleSidecar sidecar, Func<BrailleOptio
 
     private static bool OverLimit(SmjBlock b)
     {
-        static bool Over(string text) => Regex.Replace(text, "<!/?[^>]+>", "").Length > ElementLimit;
+        static bool Over(string text) => Regex.Replace(EngineText(text), "<!/?[^>]+>", "").Length > ElementLimit;
         return Over(b.Source) || b.Metadata.Type == "table" && b.Metadata.TableSource is { } table && Over(table);
     }
 
