@@ -10,6 +10,14 @@ namespace Semojum.Desktop.Services;
 /// <summary>Figma's 32 DIP title bar, with native Windows move/resize/system commands.</summary>
 public static class WindowFrame
 {
+    public static SvgViewbox CreateBrandSymbol()
+    {
+        var symbol = new SvgViewbox { Width = 16, Height = 16, Stretch = Stretch.Uniform,
+            Source = new Uri("pack://application:,,,/Semojum.UI.Common;component/Assets/Brand/nuridot-symbol.svg") };
+        System.Windows.Automation.AutomationProperties.SetName(symbol, "누리닷 로고");
+        return symbol;
+    }
+
     public static void Apply(Window window, bool editor = false, bool mainEditor = false, bool help = false)
     {
         // Other editor-framed windows have their own designs; node 263:6661 is the main editor.
@@ -54,12 +62,8 @@ public static class WindowFrame
         {
             Caption("—", "최소화", () => SystemCommands.MinimizeWindow(window), "min");
             Caption("□", "최대화 / 복원", () => { if (window.WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(window); else SystemCommands.MaximizeWindow(window); }, "max");
-            var logo = new Border { Width = 16, Height = 16, Margin = new(12, 0, 8, 0), CornerRadius = new(4),
-                Background = new SolidColorBrush(Color.FromRgb(0, 95, 184)),
-                Child = new TextBlock { Text = "S", FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 12,
-                    Foreground = Brushes.White, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-            };
-            System.Windows.Automation.AutomationProperties.SetName(logo, "누리닷 로고");
+            var logo = CreateBrandSymbol();
+            logo.Margin = new(12, 0, 8, 0);
             if (mainEditor) System.Windows.Automation.AutomationProperties.SetAutomationId(logo, "EditorCaptionLogo");
             DockPanel.SetDock(logo, Dock.Left); heading.Children.Add(logo);
         }

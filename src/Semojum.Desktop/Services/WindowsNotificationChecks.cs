@@ -373,6 +373,7 @@ internal static class WindowsNotificationChecks
         {
             var path = request.RequestUri!.AbsolutePath; string result;
             if (path.EndsWith("/login")) result = "{\"accessToken\":\"fixture\",\"refreshToken\":\"fixture\",\"role\":\"ROLE_USER\"}";
+            else if (path == "/api/auth/social/providers") result = "[]";
             else if (path == "/api/board/posts") { BoardLists++; result = "{\"page\":1,\"totalCount\":0,\"notices\":[],\"items\":[]}"; }
             else if (path == "/api/board/notifications")
             {

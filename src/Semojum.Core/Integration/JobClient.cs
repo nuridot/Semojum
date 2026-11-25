@@ -132,6 +132,7 @@ public sealed partial class JobClient(SemojumApiClient api)
             // Also include the document override as a JSON form field for servers that bind it.
             if (VisualDescriptions.StoredNumbers(settings.Options) is { } visual)
                 form.Add(new StringContent(JsonSerializer.Serialize(visual, JsonSerializerOptions.Web), Encoding.UTF8, "application/json"), "visualOptions");
+            if (settings.Layout.ProofModel is { } proofModel) form.Add(new StringContent(proofModel), "proofModel");
             if (formId is not null) form.Add(new StringContent(formId), "formId");
             form.Add(new StringContent(settings.FooterText), "footerText");
             form.Add(new StringContent(settings.Layout.ShowSourcePageNumber ? "true" : "false"), "insertPageNumber");
@@ -168,9 +169,22 @@ public sealed partial class JobClient(SemojumApiClient api)
     public Task<JobRestart> RetryAsync(string jobId, CancellationToken ct = default, object? analyticsContext = null) => RestartAsync(jobId, "retry", "retriedPages", ct, analyticsContext);
     /// <summary>BE 2026-10-27 (기획 10-1): re-queues pages blocked by CREDIT_EXHAUSTED once credits are available.</summary>
     public Task<JobRestart> ResumeAsync(string jobId, CancellationToken ct = default, object? analyticsContext = null) => RestartAsync(jobId, "resume", "resumedPages", ct, analyticsContext);
+    public async Task<JobRestart> ReconvertAsync(string jobId, PageReconversion selection, CancellationToken ct = default, object? analyticsContext = null)
+    {
+        var result = await api.SendAuthenticatedAsync(HttpMethod.Post, JobPath(jobId, "pages/reconvert"),
+            new { pages = selection.Pages, proofModel = selection.ProofModel, analyticsContext }, ct);
+        var restart = ReadRestart(result, jobId, "reconvertedPages");
+        if (restart.JobId != jobId || !selection.Pages.ToHashSet().SetEquals(restart.Pages) || Text(result, "proofModel") != selection.ProofModel)
+            throw new InvalidDataException("서버가 확인한 재변환 작업, 쪽 또는 교열 단계가 요청과 다릅니다.");
+        return restart;
+    }
     private async Task<JobRestart> RestartAsync(string jobId, string action, string field, CancellationToken ct, object? analyticsContext)
     {
         var result = await api.SendAuthenticatedAsync(HttpMethod.Post, JobPath(jobId, action), analyticsContext is null ? null : new { analyticsContext }, ct);
+        return ReadRestart(result, jobId, field);
+    }
+    private static JobRestart ReadRestart(JsonElement result, string jobId, string field)
+    {
         if (!result.TryGetProperty(field, out var list) || list.ValueKind != JsonValueKind.Array)
             throw new InvalidDataException("서버가 재개 대상 쪽을 확인해 주지 않았습니다.");
         var pages = list.EnumerateArray().Select(p => p.GetInt32()).ToArray();
@@ -196,6 +210,8 @@ public sealed partial class JobClient(SemojumApiClient api)
             model.FooterText = uploadSettings.FooterText;
             model.FooterRanges = uploadSettings.FooterRanges.ToArray();
         }
+        if (Text(data, "proofModel") is { } proofModel)
+            model.Layout = model.Layout with { ProofModel = proofModel, AdvancedAi = proofModel != "MINERU" };
     }
 
     public async Task<RemotePage> PageAsync(string jobId, int page, int firstLocalId, CancellationToken ct = default)
@@ -292,7 +308,6 @@ public sealed partial class JobClient(SemojumApiClient api)
             ["editScope"] = l.EditScope, ["advancedAi"] = l.AdvancedAi
         };
         if (ServerContract.PageNumberLine(l.PageNumbers) is { } line) body["pageNumberLine"] = line;
-        if (l.ProofModel is not null) body["proofModel"] = l.ProofModel;
         if (ServerContract.FooterPages(l.Footer) is { } footerPages) body["footerPages"] = footerPages;
         return body;
     }

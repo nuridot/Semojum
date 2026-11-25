@@ -1,4 +1,4 @@
-param([Parameter(Mandatory = $true)][ValidateSet('Register', 'Unregister')][string]$Action)
+﻿param([Parameter(Mandatory = $true)][ValidateSet('Register', 'Unregister')][string]$Action)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'smj-association-core.ps1')
 
@@ -44,15 +44,15 @@ class CurrentUserAssociationStore {
     }
 }
 
-$executable = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'Semojum.Mockup.exe'))
+$executable = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '누리닷.exe'))
 $store = [CurrentUserAssociationStore]::new()
 if ($Action -eq 'Register') {
-    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw "Semojum.Mockup.exe was not found beside this script: $executable" }
+    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw "스크립트와 같은 폴더에서 누리닷.exe를 찾지 못했습니다." }
     Register-SmjAssociation $store $executable
-    Write-Host 'Registered Semojum as an Open with candidate for .smj. Choose the default app in Windows Settings if desired.'
+    Write-Host '.smj 파일의 연결 프로그램 목록에 누리닷을 추가했습니다. Windows 설정에서 기본 앱을 선택할 수 있습니다.'
 } else {
     Unregister-SmjAssociation $store $executable
-    Write-Host 'Removed matching Semojum association values if present. Windows default-app choices were not changed.'
+    Write-Host '누리닷 파일 연결 해제를 마쳤습니다.'
 }
 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SemojumAssociationNotify { [DllImport("shell32.dll")] public static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2); }'
 [SemojumAssociationNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)

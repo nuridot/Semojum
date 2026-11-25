@@ -49,7 +49,7 @@ public sealed class AccountDialog : Window
         Caption("max", "최대화 / 복원", () => { var owner = CaptionOwner(); if (owner.WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(owner); else SystemCommands.MaximizeWindow(owner); });
         Caption("close", "닫기", () => SystemCommands.CloseWindow(CaptionOwner()));
         var brand = new StackPanel { Orientation = Orientation.Horizontal };
-        brand.Children.Add(new Border { Width = 16, Height = 16, CornerRadius = new(4), Background = Brush("#005FB8"), Child = new TextBlock { Text = "S", FontSize = 12, TextAlignment = TextAlignment.Center, Foreground = Brushes.White } });
+        brand.Children.Add(WindowFrame.CreateBrandSymbol());
         brand.Children.Add(new TextBlock { Text = "누리닷", FontSize = 12, Foreground = Brush("#5F5F5F"), Margin = new(8,0,0,0), VerticalAlignment = VerticalAlignment.Center });
         var navigation = new Button { Content = brand, Style = (Style)FindResource("ToolButton"), MinWidth = 0, MinHeight = 0, Height = 32,
             HorizontalAlignment = HorizontalAlignment.Left, Padding = new(0), Margin = new(12,0,0,0), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent,
@@ -67,6 +67,7 @@ public sealed class AccountDialog : Window
         scroll.Content = group;
         var fields = new StackPanel(); var card = new Border { Child = fields }; AccountFormElements.StyleCard(card); group.Children.Add(card);
         AutomationProperties.SetAutomationId(card, "LoginCard"); fields.Children.Add(AccountFormElements.Logo());
+        var social = new SocialLoginButtons(); fields.Children.Add(social);
         var login = new TextBox(); fields.Children.Add(AccountFormElements.Field("아이디", login));
         var password = embeddedPassword = new PasswordBox(); fields.Children.Add(AccountFormElements.Field("비밀번호", password));
         var error = new TextBlock { Text = initialMessage ?? "" }; AccountFormElements.StyleFeedback(error); fields.Children.Add(error);
@@ -75,6 +76,10 @@ public sealed class AccountDialog : Window
             Margin = new(0,16,0,0), Style = AccountFormElements.CheckStyle() };
         AutomationProperties.SetName(remember, "로그인 상태 유지"); fields.Children.Add(remember);
         if (credentials is null) remember.ToolTip = "이 창에서는 로그인 정보를 저장하지 않습니다.";
+        var cancelBrowser = AccountFormElements.ActionButton("브라우저 로그인 취소", false);
+        cancelBrowser.Visibility = Visibility.Collapsed; fields.Children.Insert(fields.Children.IndexOf(submit), cancelBrowser);
+        CancellationTokenSource? browserAttempt = null;
+        cancelBrowser.Click += (_, _) => browserAttempt?.Cancel();
         var legalLinks = new Grid { Height = 20, Margin = new(0,16,0,0) };
         void LegalLink(string title, LegalDocumentKind kind, bool right)
         {
@@ -119,6 +124,7 @@ public sealed class AccountDialog : Window
         var signUp = Command("회원가입", () => OpenEmailForm(true));
         var reset = Command("비밀번호 찾기", () => OpenEmailForm(false));
         var announcements = Command("공지사항", () => host.ShowNotices(ActiveOwner(), api)); announcements.Icon = DesignIcon("login-bell.svg", 16);
+
         menu.Opened += (_, _) =>
         {
             var onLogin = ReferenceEquals(scroll.Content, group);
@@ -144,13 +150,67 @@ public sealed class AccountDialog : Window
         screen.Children.Add(version);
         var lifetime = new CancellationTokenSource(); embeddedLifetime = lifetime;
         Closed += (_, _) => { lifetime.Cancel(); password.Clear(); };
-        submit.Click += async (_, _) =>
+        bool loadingProviders = false;
+
+        async Task LoadProvidersAsync()
         {
+            if (loadingProviders || lifetime.IsCancellationRequested) return;
+            loadingProviders = true;
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                timeout.CancelAfter(TimeSpan.FromSeconds(8));
+                var clients = await api.GetSocialProvidersAsync(timeout.Token);
+                if (lifetime.IsCancellationRequested) return;
+                social.ShowProviders(clients, client => SignInAsync(client));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or SemojumApiException or OperationCanceledException or System.Text.Json.JsonException or ObjectDisposedException)
+            {
+                if (!lifetime.IsCancellationRequested) social.ShowRetry(LoadProvidersAsync);
+            }
+            finally { loadingProviders = false; }
+        }
+        async Task<AccountIdentity?> SignInSocialAsync(SocialClient client, bool keep)
+        {
+            password.Clear();
+            SocialAuthorization authorization;
+            using (var attempt = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token))
+            {
+                browserAttempt = attempt; cancelBrowser.Visibility = Visibility.Visible;
+                AccountFormElements.SetFeedback(error, "기본 브라우저에서 로그인을 완료해 주세요.", information: true);
+                cancelBrowser.Focus();
+                try { authorization = await SocialBrowserLogin.AuthorizeAsync(client, host.OpenSocialBrowser, attempt.Token); }
+                catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
+                {
+                    AccountFormElements.SetFeedback(error, "소셜 로그인을 취소했습니다.", information: true);
+                    return null;
+                }
+                finally { browserAttempt = null; cancelBrowser.Visibility = Visibility.Collapsed; }
+            }
+            lifetime.Token.ThrowIfCancellationRequested();
+            ActiveOwner().Activate();
+            AccountFormElements.SetFeedback(error, "로그인 정보를 확인하고 있습니다.", information: true);
+            var result = await api.LoginSocialAsync(client.Provider, authorization.Code, authorization.Verifier, authorization.RedirectUri, keep, lifetime.Token);
+            if (result.Account is { } account) return account;
+            lifetime.Token.ThrowIfCancellationRequested();
+            var signup = new SocialSignupDialog(result.Signup!) { Owner = ActiveOwner() };
+            if (signup.ShowDialog() != true)
+            {
+                AccountFormElements.SetFeedback(error, "회원가입을 취소했습니다.", information: true);
+                return null;
+            }
+            return await api.SignupSocialAsync(result.Signup!, SignupAgreements.TermsVersion, SignupAgreements.PrivacyVersion,
+                signup.MarketingVersion, keep, lifetime.Token);
+        }
+        submit.Click += async (_, _) => await SignInAsync(null);
+        async Task SignInAsync(SocialClient? client)
+        {
+            if (!submit.IsEnabled || lifetime.IsCancellationRequested) return;
             var keepSignedIn = remember.IsChecked == true;
             AccountFormElements.SetFeedback(error, "");
-            if (login.Text.Trim().Length == 0 || password.Password.Length == 0)
+            if (client is null && (login.Text.Trim().Length == 0 || password.Password.Length == 0))
             { error.Text = "아이디와 비밀번호를 입력해 주세요."; (login.Text.Trim().Length == 0 ? (Control)login : password).Focus(); return; }
-            submit.IsEnabled = false; remember.IsEnabled = false; error.Text = "";
+            social.IsEnabled = submit.IsEnabled = remember.IsEnabled = false;
             try
             {
                 SessionCredential? previous = null;
@@ -161,7 +221,11 @@ public sealed class AccountDialog : Window
                     { error.Text = "저장된 로그인 정보를 확인하지 못했습니다. 다시 시도해 주세요."; return; }
                 }
                 // The same choice that stores the refresh token for automatic login asks the server for the 30-day session.
-                var account = await api.LoginAsync(login.Text.Trim(), password.Password, credentials is not null && keepSignedIn, lifetime.Token);
+                var keep = credentials is not null && keepSignedIn;
+                var account = client is null ? await api.LoginAsync(login.Text.Trim(), password.Password, keep, lifetime.Token)
+                    : await SignInSocialAsync(client, keep);
+                if (account is null) return;
+                AccountFormElements.SetFeedback(error, "");
                 password.Clear();
                 if (lifetime.IsCancellationRequested)
                 {
@@ -203,20 +267,31 @@ public sealed class AccountDialog : Window
                     else { password.Focus(); password.SelectAll(); }
                     return;
                 }
-                error.Text = ex.Message;
+                AccountFormElements.SetFeedback(error, ex.Code switch
+                {
+                    "SOCIAL4002" => "인증 코드가 만료되었거나 사용할 수 없습니다. 소셜 로그인을 다시 시작해 주세요.",
+                    "SOCIAL4004" or "SOCIAL4092" => "가입 요청이 만료되었거나 이미 사용되었습니다. 소셜 로그인을 다시 시작해 주세요.",
+                    "SOCIAL4005" => "약관 버전이 변경되었습니다. 최신 앱에서 약관을 확인한 뒤 다시 동의해 주세요.",
+                    "SOCIAL4091" => SocialConflictMessage(ex),
+                    _ => ex.Message
+                });
                 if (ex.Details is { ValueKind: System.Text.Json.JsonValueKind.Object } d)
                 {
                     if (d.TryGetProperty("remainingAttempts", out var remaining)) error.Text += $"\n남은 시도: {remaining}";
                     if (d.TryGetProperty("unlockAt", out var unlock)) error.Text += $"\n다시 시도할 수 있는 시각: {unlock}";
                 }
             }
-            catch (HttpRequestException) { error.Text = "서버에 연결하지 못했습니다. 인터넷 연결 상태를 확인하고 다시 시도해 주세요."; }
+            catch (HttpRequestException) { AccountFormElements.SetFeedback(error, "서버에 연결하지 못했습니다. 인터넷 연결 상태를 확인하고 다시 시도해 주세요."); }
             catch (ArgumentException ex) { error.Text = ex.Message; }
-            catch (Exception) { error.Text = "로그인 응답을 처리하지 못했습니다. 다시 시도해 주세요."; }
-            finally { submit.IsEnabled = true; remember.IsEnabled = credentials is not null; }
-        };
+            catch (TimeoutException ex) { AccountFormElements.SetFeedback(error, ex.Message); }
+            catch (InvalidOperationException ex) when (client is not null) { AccountFormElements.SetFeedback(error, ex.Message); }
+            catch (System.Net.Sockets.SocketException) { AccountFormElements.SetFeedback(error, "로그인 응답을 받을 수 없습니다. 다른 누리닷 로그인 창을 닫고 다시 시도해 주세요."); }
+            catch (System.ComponentModel.Win32Exception) { AccountFormElements.SetFeedback(error, "기본 브라우저를 열 수 없습니다. Windows 기본 브라우저 설정을 확인해 주세요."); }
+            catch (Exception) { AccountFormElements.SetFeedback(error, "로그인 응답을 처리하지 못했습니다. 다시 시도해 주세요."); }
+            finally { social.IsEnabled = submit.IsEnabled = true; remember.IsEnabled = credentials is not null; }
+        }
         Loaded += (_, _) => WindowBounds.Fit(this);
-        screen.Loaded += (_, _) => login.Focus();
+        screen.Loaded += async (_, _) => { login.Focus(); await LoadProvidersAsync(); };
     }
 
     public async Task<bool> ShowEmbeddedAsync(Semojum.UI.Common.IEmbeddedScreenHost host, bool allowCancel = false)
@@ -245,6 +320,17 @@ public sealed class AccountDialog : Window
             embeddedResult = null;
             Close();
         }
+    }
+
+    private static string SocialConflictMessage(SemojumApiException error)
+    {
+        if (error.Details is not { ValueKind: System.Text.Json.JsonValueKind.Object } details ||
+            !details.TryGetProperty("existingLoginMethods", out var methods) || methods.ValueKind != System.Text.Json.JsonValueKind.Array)
+            return error.Message;
+        var names = methods.EnumerateArray().Where(item => item.ValueKind == System.Text.Json.JsonValueKind.String)
+            .Select(item => item.GetString() switch { "PASSWORD" => "아이디와 비밀번호", "GOOGLE" => "Google", "KAKAO" => "카카오", "NAVER" => "네이버", _ => null })
+            .Where(name => name is not null).ToArray();
+        return names.Length == 0 ? error.Message : $"이 이메일로 가입한 계정이 있습니다. 기존 로그인 방법({string.Join(", ", names)})으로 로그인한 뒤 설정에서 계정을 연결해 주세요.";
     }
 
     private static Brush Brush(string value) => (Brush)new BrushConverter().ConvertFromString(value)!;

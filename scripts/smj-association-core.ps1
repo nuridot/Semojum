@@ -1,14 +1,16 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
 function Get-SmjAssociationValues([string]$Executable) {
     if (-not [System.IO.Path]::IsPathRooted($Executable) -or $Executable.IndexOfAny([char[]]@('"', "`r", "`n")) -ge 0) {
         throw 'The executable path must be absolute and cannot contain quotes or line breaks.'
     }
     $prog = 'Software\Classes\Semojum.WorkFile.1'
+    # Same-folder legacy launchers belong to this installation. Keep the ProgID used by Windows UserChoice.
+    $legacy = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Executable), 'Semojum.Mockup.exe')
     return @(
-        @{ Path = $prog; Name = ''; Value = 'Semojum work file' },
-        @{ Path = "$prog\DefaultIcon"; Name = ''; Value = '"' + $Executable + '",0' },
-        @{ Path = "$prog\shell\open\command"; Name = ''; Value = '"' + $Executable + '" "%1"' }
+        @{ Path = $prog; Name = ''; Value = '누리닷 작업 파일'; Previous = 'Semojum work file' },
+        @{ Path = "$prog\DefaultIcon"; Name = ''; Value = '"' + $Executable + '",0'; Previous = '"' + $legacy + '",0' },
+        @{ Path = "$prog\shell\open\command"; Name = ''; Value = '"' + $Executable + '" "%1"'; Previous = '"' + $legacy + '" "%1"' }
     )
 }
 
@@ -18,10 +20,10 @@ function Register-SmjAssociation($Store, [string]$Executable) {
     $openWith = 'Software\Classes\.smj\OpenWithProgids'
     $command = "$prog\shell\open\command"
     # An existing ProgID belongs to another registration unless its command is ours.
-    if ($Store.KeyExists($prog) -and -not $Store.ValueExists($command, '') -and -not $Store.IsEmptyTree($prog)) { throw 'The Semojum file handler already exists without a matching command; no changes were made.' }
+    if ($Store.KeyExists($prog) -and -not $Store.ValueExists($command, '') -and -not $Store.IsEmptyTree($prog)) { throw '누리닷 파일 연결에 등록된 실행 경로를 확인할 수 없습니다.' }
     foreach ($entry in $values) {
-        if ($Store.ValueExists($entry.Path, $entry.Name) -and ($Store.Kind($entry.Path, $entry.Name) -ne 'String' -or $Store.Read($entry.Path, $entry.Name) -ine $entry.Value)) {
-            throw 'An existing Semojum file handler belongs to a different installation or was modified; no changes were made.'
+        if ($Store.ValueExists($entry.Path, $entry.Name) -and ($Store.Kind($entry.Path, $entry.Name) -ne 'String' -or $Store.Read($entry.Path, $entry.Name) -notin @($entry.Value, $entry.Previous))) {
+            throw '누리닷 파일 연결이 다른 설치 경로를 사용하거나 등록 정보가 변경되었습니다.'
         }
     }
     foreach ($entry in @(@{ Path = $prog; Name = 'AllowSilentDefaultTakeOver' }, @{ Path = $openWith; Name = 'Semojum.WorkFile.1' })) {
@@ -41,7 +43,7 @@ function Unregister-SmjAssociation($Store, [string]$Executable) {
     $prog = 'Software\Classes\Semojum.WorkFile.1'
     $openWith = 'Software\Classes\.smj\OpenWithProgids'
     $command = "$prog\shell\open\command"
-    if (-not $Store.ValueExists($command, '') -or $Store.Kind($command, '') -ne 'String' -or $Store.Read($command, '') -ine $values[2].Value) { return }
+    if (-not $Store.ValueExists($command, '') -or $Store.Kind($command, '') -ne 'String' -or $Store.Read($command, '') -notin @($values[2].Value, $values[2].Previous)) { return }
     if ($Store.ValueExists($openWith, 'Semojum.WorkFile.1') -and $Store.Kind($openWith, 'Semojum.WorkFile.1') -eq 'None' -and @($Store.Read($openWith, 'Semojum.WorkFile.1')).Count -eq 0) {
         $Store.RemoveValue($openWith, 'Semojum.WorkFile.1')
     }
@@ -49,7 +51,7 @@ function Unregister-SmjAssociation($Store, [string]$Executable) {
         $Store.RemoveValue($prog, 'AllowSilentDefaultTakeOver')
     }
     foreach ($entry in $values) {
-        if ($Store.ValueExists($entry.Path, $entry.Name) -and $Store.Kind($entry.Path, $entry.Name) -eq 'String' -and $Store.Read($entry.Path, $entry.Name) -ieq $entry.Value) {
+        if ($Store.ValueExists($entry.Path, $entry.Name) -and $Store.Kind($entry.Path, $entry.Name) -eq 'String' -and $Store.Read($entry.Path, $entry.Name) -in @($entry.Value, $entry.Previous)) {
             $Store.RemoveValue($entry.Path, $entry.Name)
         }
     }

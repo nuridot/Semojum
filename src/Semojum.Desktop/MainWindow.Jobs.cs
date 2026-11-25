@@ -143,24 +143,18 @@ public partial class MainWindow
     private async Task ReconvertOriginalAsync()
     {
         var owner = session;
-        if (owner.JobId is not { } source || owner.IsTextJob == true || owner.IsReadOnly || owner.HasPendingRestart || owner.HasPendingServerPages || fileBusy)
+        if (owner.JobId is null || owner.IsTextJob == true || owner.IsReadOnly || owner.HasPendingRestart || owner.HasPendingServerPages ||
+            fileBusy || owner.Progress is not null || openDocument is not { } context || context.PageSyncInProgress > 0 || context.ServerSaveInProgress)
             throw new InvalidOperationException("서버 원본이 있고 변환을 마친 작업에서 사용할 수 있습니다.");
-        var account = api.SessionMarker;
-        var ct = documentLifetime.Token;
-        var available = owner.PageStatuses.Where(p => p.Value is "COMPLETED" or "NEEDS_REVIEW").Select(p => p.Key).ToHashSet();
-        if (available.Count == 0) throw new InvalidOperationException("다시 변환할 수 있는 쪽이 없습니다.");
-        var pricing = await new SettingsClient(api).ProofPricingAsync(ct);
-        if (!ReferenceEquals(owner, session) || ct.IsCancellationRequested) return;
-        if (owner.IsDirty && (!await SaveAsync(false) || owner.IsDirty || !ReferenceEquals(session, owner))) return;
-        var dialog = new PageReconversionDialog(DisplayedOriginalPage, available, pricing, async (pages, model, requestId) =>
-        {
-            if (!ReferenceEquals(owner, session) || owner.JobId != source || owner.IsDirty) throw new InvalidOperationException("문서가 변경되었습니다. 다시 선택해 주세요.");
-            var result = await api.SendAuthenticatedAsync(HttpMethod.Post, $"/api/jobs/{Uri.EscapeDataString(source)}/reconversions",
-                new { requestId, pages, proofModel = model }, ct, account);
-            return result.GetProperty("jobId").GetString() ?? throw new InvalidDataException("재변환 작업 번호가 없습니다.");
-        }, pages => owner.Blocks.Any(b => pages.Contains(b.Page) && (b.HasManualBraille || b.SourceRevision > 0 || b.Memos.Count > 0)), owner.Layout.ProofModel) { Owner = this };
-        if (dialog.ShowDialog() == true && dialog.CreatedJob is { } child)
-            await LoadJobAsync(child, Path.GetFileNameWithoutExtension(owner.Title) + " (쪽 다시 변환).smj", restorePage: DisplayedOriginalPage);
+        var available = owner.PageStatuses.Where(p => JobStatus.IsSucceededPage(p.Value) || JobStatus.IsFailedPage(p.Value)).Select(p => p.Key).ToHashSet();
+        if (available.Count == 0) throw new InvalidOperationException("재변환할 수 있는 쪽이 없습니다.");
+        var currentModel = owner.Layout.ProofModel ?? (owner.Layout.AdvancedAi ? "SONNET" : "MINERU");
+        bool HasEdits(int page) => owner.Blocks.Any(b => b.Page == page && (b.HasManualBraille ||
+            b.SourceRevision > 1 || b.MetadataRevision > 1 || b.Memos.Count > 0 || b.ReviewMarks.Count > 0 || b.Memo.Length > 0 ||
+            (b.AiBaseline?.Text ?? b.Metadata.OriginalSource) is { } original && original != b.Source));
+        var dialog = new PageReconversionDialog(DisplayedOriginalPage, available, HasEdits, currentModel) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.Selection is { } selection && session == owner)
+            await RestartJobAsync(owner, retry: true, selection);
     }
 
     private async Task UploadAsync(string[]? previousPaths = null)
@@ -188,11 +182,7 @@ public partial class MainWindow
             settingsTimeout.CancelAfter(TimeSpan.FromSeconds(8));
             try { forms = await client.FormsAsync(settingsTimeout.Token); defaults = await client.DefaultsAsync(settingsTimeout.Token); }
             catch (Exception ex) when (ex is HttpRequestException or SemojumApiException || ex is OperationCanceledException && !documentLifetime.IsCancellationRequested) { available = false; }
-            ProofPricing? pricing = null;
-            try { if (available) pricing = await client.ProofPricingAsync(settingsTimeout.Token); }
-            catch (Exception ex) when (ex is HttpRequestException or SemojumApiException or System.Text.Json.JsonException or KeyNotFoundException or InvalidDataException ||
-                ex is OperationCanceledException && !documentLifetime.IsCancellationRequested) { }
-            var dialog = new OpenDocumentDialog(forms, defaults, available, pricing) { Owner = this };
+            var dialog = new OpenDocumentDialog(forms, defaults, available) { Owner = this };
             if (!available)
             {
                 var notice = FileNotices.ServerSettingsUnavailable();
@@ -286,7 +276,12 @@ public partial class MainWindow
         return result;
     }
 
-    private async Task MonitorJobAsync(OpenDocument context, JobStatus status, int? restorePage, bool applyInitialChoices = false, HashSet<int>? replacePages = null)
+    // Compare persisted page content, ignoring caret movement while the worker runs.
+    private static string CaptureReconversionPage(IEnumerable<EditorBlock> blocks) =>
+        System.Text.Json.JsonSerializer.Serialize(SmjFile.CaptureBlocks(blocks).Select(b => b with { SourceCaret = 0, BrailleCaret = 0 }));
+
+    private async Task MonitorJobAsync(OpenDocument context, JobStatus status, int? restorePage, bool applyInitialChoices = false, HashSet<int>? replacePages = null,
+        IReadOnlyDictionary<int, string>? reconversionOriginals = null)
     {
         var model = context.Model; var ct = context.JobLifetime.Token;
         context.PageSyncInProgress++;
@@ -358,12 +353,24 @@ public partial class MainWindow
                     }
                     var keepLocalPage = replacePages?.Contains(page.Key) == true && model.Blocks.Any(b => b.Page == page.Key
                         && (b.ServerId is not null || !b.Metadata.IsBlocked || b.Source.Length > 0 || b.Braille.Length > 0 || b.Memos.Count > 0 || b.ReviewMarks.Count > 0));
+                    if (reconversionOriginals is not null && reconversionOriginals.TryGetValue(page.Key, out var original))
+                    {
+                        if (!missingResult) await CacheOriginalAsync(model, result, ct);
+                        var existing = model.Blocks.Where(b => b.Page == page.Key).ToArray();
+                        // The worker restores its previous baseline when a successful page cannot be reconverted.
+                        if (result.Blocks.FirstOrDefault()?.AiBaseline is { } returned && existing.Any(b => b.AiBaseline?.VersionId == returned.VersionId))
+                        { loadedPages.Add(page.Key); MarkPageChecked(page.Key); continue; }
+
+                        var returnedMemos = result.Blocks.SelectMany(b => b.Memos).Select(m => m.ServerId).OfType<long>().ToHashSet();
+                        keepLocalPage = CaptureReconversionPage(existing) != original || existing.Any(b =>
+                            b.Memo.Length > 0 || b.ReviewMarks.Count > 0 || b.Memos.Any(m => m.ServerId is not long id || !returnedMemos.Contains(id)));
+                    }
                     if (keepLocalPage && !noReplacement)
                     {
                         // Both versions remain available: never replace local work or record the new server baseline as if it had been applied.
                         foreach (var block in result.Blocks.Where(b => b.Braille.Length == 0 && !b.Metadata.IsBlocked))
                             await jobTranslator.TranslateAsync(block, ManualEditDecision.Keep, TimeSpan.FromSeconds(35), ct);
-                        await CacheOriginalAsync(model, result, ct);
+                        if (reconversionOriginals is null) await CacheOriginalAsync(model, result, ct);
                         result = result with { Blocks = UniqueReceivedBlocks(model, result.Blocks, ref nextId) };
                         model.SetPendingServerPage(new PendingServerPage(page.Key, SmjFile.CaptureBlocks(result.Blocks),
                             result.ServerBlocks ?? [], result.Quality ?? [], result.OcrConfidenceAverage, result.OriginalType, result.Status));
@@ -375,7 +382,7 @@ public partial class MainWindow
                     if (!missingResult)
                     {
                         JobClient.Remember(model, result);
-                        await CacheOriginalAsync(model, result, ct);
+                        if (reconversionOriginals is null) await CacheOriginalAsync(model, result, ct);
                     }
                     if (!context.OriginalKindKnown && result.OriginalType is not null)
                     {
@@ -487,15 +494,11 @@ public partial class MainWindow
         var owner = session;
         var page = DisplayedOriginalPage;
         if (!OriginalRetryButton.IsEnabled || owner?.IsConversionFailed(page) != true) return;
-        if (owner.PageStatuses.Keys.Count(owner.IsConversionFailed) > 1 &&
-            NoticeDialog.Choose(this, "실패한 쪽을 다시 변환할까요?", "이 작업에서 다시 변환할 수 있는 실패 쪽을 모두 요청합니다.",
-                ["다시 변환", "취소"]) != 0) return;
-        if (session != owner || page != DisplayedOriginalPage || !owner.IsConversionFailed(page)) return;
-        try { await RestartJobAsync(owner, retry: true); }
+        try { await ReconvertOriginalAsync(); }
         catch (Exception ex) { if (session == owner) ShowError(ex); }
     }
 
-    private async Task RestartJobAsync(DocumentSession model, bool retry)
+    private async Task RestartJobAsync(DocumentSession model, bool retry, PageReconversion? reconversion = null)
     {
         if (resourcesReleased || session != model || openDocument is not { } context || model.JobId is not { } jobId || model.IsReadOnly) return;
         if (!await EnsureAccountAsync() || resourcesReleased || session != model || openDocument != context || model.JobId != jobId || model.IsReadOnly) return;
@@ -506,14 +509,21 @@ public partial class MainWindow
         if (model.HasPendingServerPages || model.HasPendingRestart)
         { model.ErrorNotice = "보관된 재개 결과를 먼저 확인해 주세요. 로컬 교정과 서버 결과는 유지됩니다."; return; }
         var ct = context.JobLifetime.Token;
-        var candidatePages = model.PageStatuses.Where(p => JobStatus.IsFailedPage(p.Value)).Select(p => p.Key).Order().ToArray();
+        var candidatePages = reconversion?.Pages ?? model.PageStatuses.Where(p => JobStatus.IsFailedPage(p.Value)).Select(p => p.Key).Order().ToArray();
+        Dictionary<int, string>? originals = null;
+        if (reconversion is not null)
+        {
+            var blocksByPage = model.Blocks.ToLookup(b => b.Page);
+            originals = reconversion.Pages.ToDictionary(page => page, page => CaptureReconversionPage(blocksByPage[page]));
+        }
         model.PendingRestart = new PendingRestart(true, candidatePages);
         model.ErrorNotice = "서버 재개 요청의 결과를 확인하는 중입니다. 확인 전에는 서버 저장을 할 수 없습니다.";
         context.PageSyncInProgress++;
         var requestAccepted = false;
         try
         {
-            var restart = retry ? await jobs.RetryAsync(model.JobId, ct, EventContext(model)) : await jobs.ResumeAsync(model.JobId, ct, EventContext(model));
+            var restart = reconversion is not null ? await jobs.ReconvertAsync(jobId, reconversion, ct, EventContext(model))
+                : retry ? await jobs.RetryAsync(model.JobId, ct, EventContext(model)) : await jobs.ResumeAsync(model.JobId, ct, EventContext(model));
             requestAccepted = true;
             if (restart.Pages.Length == 0)
             {
@@ -524,9 +534,9 @@ public partial class MainWindow
             }
             model.PendingRestart = new PendingRestart(false, restart.Pages);
             model.CreditNotice = "";
-            model.Status = $"{(retry ? "실패한 쪽 다시 변환" : "이어서 처리")} 요청 · {restart.Pages.Length}쪽 ({string.Join(", ", restart.Pages)}) · 차감 내역은 마이페이지 사용량에서 확인해 주세요.";
+            model.Status = $"{(reconversion is not null ? "쪽 재변환" : retry ? "실패한 쪽 다시 변환" : "이어서 처리")} 요청 · {restart.Pages.Length}쪽 ({string.Join(", ", restart.Pages)}) · 차감 내역은 마이페이지 사용량에서 확인해 주세요.";
             var status = await jobs.StatusAsync(model.JobId, ct);
-            _ = MonitorJobAsync(context, status, null, replacePages: restart.Pages.ToHashSet());
+            _ = MonitorJobAsync(context, status, null, replacePages: restart.Pages.ToHashSet(), reconversionOriginals: originals);
         }
         catch (OperationCanceledException) { if (model.PendingRestart is { Unconfirmed: true }) model.ErrorNotice = UnconfirmedRestartNotice; }
         catch (SemojumApiException ex)
@@ -534,6 +544,7 @@ public partial class MainWindow
             if (!requestAccepted && (int)ex.Status is >= 400 and < 500) { model.PendingRestart = null; if (!model.HasPendingServerPages) model.ErrorNotice = ""; }
             if (model.PendingRestart is { Unconfirmed: true }) model.ErrorNotice = UnconfirmedRestartNotice;
             var notice = ex.Code == "CREDIT4001" ? FileNotices.NoCredits()
+                : reconversion is not null ? new NoticeDialog("쪽을 재변환하지 못했습니다.", $"{ex.Message} ({ex.Code})", ["닫기"], error: true, width: 480, height: 178)
                 : retry ? FileNotices.RetryFailed($"{ex.Message} ({ex.Code})")
                 : new NoticeDialog("이어서 처리하지 못했습니다.", $"{ex.Message} ({ex.Code})", ["닫기"], error: true, width: 480, height: 178);
             notice.Owner = this; notice.ShowDialog();

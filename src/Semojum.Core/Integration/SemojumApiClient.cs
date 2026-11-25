@@ -111,8 +111,13 @@ public sealed partial class SemojumApiClient
             || tokens.Role is not ("ROLE_USER" or "ROLE_ADMIN" or "ROLE_ORG_ADMIN")) throw InvalidResponse();
         var account = new AccountIdentity(tokens.MemberType == "PERSONAL" && loginId.Contains('@') ? loginId.Trim().ToLowerInvariant() : loginId,
             tokens.Role, tokens.AdminScope, tokens.Alias, tokens.MemberType);
-        Volatile.Write(ref ownedCredential, new SessionCredential(loginId, tokens.RefreshToken));
-        Volatile.Write(ref session, new Session(Guid.NewGuid(), account, tokens.AccessToken, tokens.RefreshToken));
+        return StartSession(account, tokens.AccessToken, tokens.RefreshToken);
+    }
+
+    private AccountIdentity StartSession(AccountIdentity account, string accessToken, string refreshToken)
+    {
+        Volatile.Write(ref ownedCredential, new SessionCredential(account.LoginId, refreshToken));
+        Volatile.Write(ref session, new Session(Guid.NewGuid(), account, accessToken, refreshToken));
         return account;
     }
 

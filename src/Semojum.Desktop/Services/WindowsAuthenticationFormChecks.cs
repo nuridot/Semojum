@@ -66,10 +66,13 @@ internal static class WindowsAuthenticationFormChecks
                 owner.Width = width; owner.Height = height; await Layout();
                 var dx = (width-1440)/2; var dy = (height-1000)/2;
                 var card = WithId<Border>("LoginCard");
-                At(card,510+dx,287+dy,420,410,"A1 login card");
-                At(Named<TextBox>(card,"아이디").Parent as Border ?? throw new InvalidOperationException(),571+dx,412+dy,298,40,"A1 login ID");
-                At(ButtonIn(card,"로그인"),571+dx,544+dy,298,40,"A1 primary action");
-                At(Named<Button>(owner,"문의하기"),670+dx,713+dy,100,32,"A1 public inquiry");
+                At(card,510+dx,195+dy,420,594,"A1 login card");
+                At(Named<Button>(card,"Google로 계속하기"),571+dx,300+dy,298,40,"A1 Google");
+                At(Named<Button>(card,"카카오 로그인"),571+dx,348+dy,300,41,"A1 Kakao");
+                At(Named<Button>(card,"네이버 로그인"),571+dx,397+dy,300,39,"A1 Naver");
+                At(Named<TextBox>(card,"아이디").Parent as Border ?? throw new InvalidOperationException(),571+dx,504+dy,298,40,"A1 login ID");
+                At(ButtonIn(card,"로그인"),571+dx,636+dy,298,40,"A1 primary action");
+                At(Named<Button>(owner,"문의하기"),670+dx,805+dy,100,32,"A1 public inquiry");
                 await Capture($"auth-login-{width}x{height}");
                 await Navigate("회원가입");
                 var signup = WithId<Border>("SignupCard");
@@ -110,7 +113,7 @@ internal static class WindowsAuthenticationFormChecks
             }
             var loginCard = WithId<Border>("LoginCard");
             Click(ButtonIn(loginCard,"로그인")); await Layout();
-            check(fake.Paths.Count == 0 && Children(loginCard).OfType<TextBlock>().Any(t => t.IsVisible && t.Text.Contains("아이디와 비밀번호를 입력")),
+            check(fake.Paths.All(path => path == "/api/auth/social/providers") && Children(loginCard).OfType<TextBlock>().Any(t => t.IsVisible && t.Text.Contains("아이디와 비밀번호를 입력")),
                 "A1 required-field feedback appears inside the card without sending a login attempt");
             await Capture("auth-login-validation");
 
@@ -168,6 +171,7 @@ internal static class WindowsAuthenticationFormChecks
                     && (!agreements.TryGetProperty("marketingVersion", out var marketing) || marketing.ValueKind == JsonValueKind.Null);
             }
             var result = path switch {
+                "/api/auth/social/providers" => """[{"provider":"NAVER","clientId":"n"},{"provider":"KAKAO","clientId":"k"},{"provider":"GOOGLE","clientId":"g"}]""",
                 "/api/auth/email/signup/verify" => """{"accessToken":"test","refreshToken":"test","role":"ROLE_USER"}""",
                 "/api/auth/password/reset/confirm" => "null",
                 "/api/auth/email/signup" or "/api/auth/password/reset" or "/api/auth/password/reset/resend" => """{"verificationToken":"test","expiresInSeconds":300,"resendAfterSeconds":0,"maxAttempts":5}""",

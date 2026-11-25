@@ -187,16 +187,7 @@ internal static class WindowsRibbonWorkflowChecks
 
     private static void CheckReconversionDialog(Window owner, Action<bool, string> check)
     {
-        int calls = 0;
-        string? model = null;
-        int[] sentPages = [];
-        var dialog = new PageReconversionDialog(3, new HashSet<int> { 3, 5 },
-            new(100, 120, [new("MINERU", 0), new("HAIKU", 10)]),
-            (pages, selectedModel, _) =>
-            {
-                calls++; sentPages = pages; model = selectedModel;
-                return Task.FromResult("child-job");
-            }, pages => pages.Contains(3)) { Owner = owner };
+        var dialog = new PageReconversionDialog(3, new HashSet<int> { 3, 5 }, page => page == 3) { Owner = owner };
         Exception? failure = null;
         var prompts = new List<string>();
         void Answer(int choice)
@@ -215,11 +206,11 @@ internal static class WindowsRibbonWorkflowChecks
             {
                 Children<RadioButton>(dialog).Single(r => Equals(r.Content, "쪽 지정")).IsChecked = true;
                 Children<TextBox>(dialog).Single(t => t.ToolTip is string).Text = "3, 5";
-                Children<RadioButton>(dialog).Single(r => AutomationProperties.GetName(r) == "중급 Haiku").IsChecked = true;
-                var submit = Children<Button>(dialog).Single(b => Equals(b.Content, "다시 변환"));
+                Children<RadioButton>(dialog).Single(r => AutomationProperties.GetName(r) == "중급").IsChecked = true;
+                var submit = Children<Button>(dialog).Single(b => Equals(b.Content, "재변환"));
                 Answer(1);
                 submit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                check(calls == 0 && dialog.IsVisible, "Canceling the overwrite returns to reconversion without creating a job");
+                check(dialog.Selection is null && dialog.IsVisible, "Canceling the overwrite returns to reconversion without creating a job");
                 Answer(0);
                 submit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
@@ -228,8 +219,8 @@ internal static class WindowsRibbonWorkflowChecks
         }), DispatcherPriority.ApplicationIdle);
         var accepted = dialog.ShowDialog();
         if (failure is not null) throw new InvalidOperationException("Reconversion interaction failed", failure);
-        check(accepted == true && calls == 1 && model == "HAIKU" && sentPages.SequenceEqual([3, 5]) && dialog.CreatedJob == "child-job",
-            "Explicit overwrite creates one child job with the chosen pages and model");
+        check(accepted == true && dialog.Selection is { ProofModel: "HAIKU", Pages: [3, 5] },
+            "Explicit overwrite confirms the chosen pages and model for the current job");
         check(prompts.Count == 2 && prompts.All(p => p.StartsWith("3쪽에", StringComparison.Ordinal)),
             "Reconversion warns only about the manually edited page in the selection");
     }

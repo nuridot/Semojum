@@ -6,11 +6,6 @@ using Semojum.Core.Integration;
 namespace Semojum.Feature.Settings;
 
 public sealed record AccountDefaults(BrailleOptions Options, string? FormId, string PageNumberLine);
-public sealed record ProofPrice(string Code, int ExtraCredits)
-{
-    public override string ToString() => $"{Code switch { "MINERU" => "MinerU", "HAIKU" => "Haiku", "SONNET" => "Sonnet", "OPUS" => "Opus", _ => Code }} · 쪽당 추가 +{ExtraCredits:N0}";
-}
-public sealed record ProofPricing(int TextCredits, int VisualCredits, ProofPrice[] Models);
 public sealed record AccountOutputOptions(string PaperSize, int LinesPerPage, int CellsPerLine, int BraillePageStart, string PageNumberLine, bool Duplex, string LineBreakUnit)
 {
     public void Validate()
@@ -42,16 +37,6 @@ public sealed class SettingsClient(SemojumApiClient api)
         }
     }
 
-    public async Task<ProofPricing> ProofPricingAsync(CancellationToken ct)
-    {
-        var data = await api.SendAuthenticatedAsync(HttpMethod.Get, "/api/jobs/proof-pricing", cancellationToken: ct);
-        var baseRates = data.GetProperty("pageCredits");
-        var models = data.GetProperty("models").EnumerateArray().Select(m => new ProofPrice(m.GetProperty("code").GetString()!, m.GetProperty("extraCredits").GetInt32())).ToArray();
-        var fees = new ProofPricing(baseRates.GetProperty("PAGE_LAYOUT_TEXT").GetInt32(), baseRates.GetProperty("PAGE_LAYOUT_VISUAL").GetInt32(), models);
-        if (fees.TextCredits < 0 || fees.VisualCredits < 0 || models.Length == 0 || models.Any(m => m.ExtraCredits < 0 || m.Code is not ("MINERU" or "HAIKU" or "SONNET" or "OPUS")))
-            throw new System.IO.InvalidDataException("교열 모델 요금표가 올바르지 않습니다.");
-        return fees;
-    }
     private static AccountOutputOptions ReadOutput(JsonElement data)
     {
         var options = new AccountOutputOptions(data.GetProperty("paperSize").GetString() ?? "", data.GetProperty("linesPerPage").GetInt32(),

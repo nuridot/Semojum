@@ -8,6 +8,7 @@ namespace Semojum.Feature.Account.Wpf;
 public interface IAccountScreenHost
 {
     Version Version { get; }
+    void OpenSocialBrowser(Uri address) => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(address.AbsoluteUri) { UseShellExecute = true });
     void ShowNotices(Window owner, SemojumApiClient api);
     void ShowInquiry(Window owner, SemojumApiClient api);
     NoticeDialog LoginRejected(SemojumApiException error);

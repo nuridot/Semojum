@@ -9,6 +9,16 @@ public sealed record PendingUpdate(string Version, Dictionary<string, string> Ha
 /// <summary>Stages a complete portable app beside previous versions; never overwrites the running app or user documents.</summary>
 public static class PortableUpdate
 {
+    public const string DesktopLauncher = "누리닷.exe";
+    public const string EngineLauncher = "누리닷 점역 엔진.exe";
+    private const string LegacyLauncher = "Semojum.Mockup.exe";
+    public static string? GetPackageLauncher(IReadOnlyDictionary<string, string> hashes)
+    {
+        if (hashes.ContainsKey(DesktopLauncher))
+            return hashes.ContainsKey("engine/" + EngineLauncher) ? DesktopLauncher : null;
+        return hashes.ContainsKey(LegacyLauncher) && hashes.ContainsKey("engine/semojum-engine.exe") ? LegacyLauncher : null;
+    }
+
     private const long MaximumBytes = 1024L * 1024 * 1024;
     public static Task<PendingUpdate> StageAsync(string zipPath, string root, Version version, CancellationToken ct = default) =>
         StageAsync(zipPath, root, version, null, ct);
@@ -48,8 +58,8 @@ public static class PortableUpdate
                 }
                 hashes.Add(relative, await HashAsync(path, ct));
             }
-            foreach (var required in new[] { "Semojum.Mockup.exe", "Semojum.Mockup.dll", "Semojum.Mockup.runtimeconfig.json", "engine/semojum-engine.exe" })
-                if (!hashes.ContainsKey(required)) throw new InvalidDataException("완전한 Windows 앱 ZIP이 아닙니다: " + required);
+            if (GetPackageLauncher(hashes) is null || !hashes.ContainsKey("Semojum.Mockup.dll") || !hashes.ContainsKey("Semojum.Mockup.runtimeconfig.json"))
+                throw new InvalidDataException("누리닷 실행에 필요한 파일이 업데이트 ZIP에 없습니다.");
             var actual = AssemblyName.GetAssemblyName(Path.Combine(staging, "Semojum.Mockup.dll"));
             if (actual.Name != "Semojum.Mockup" || actual.Version?.ToString(3) != version.ToString(3)) throw new InvalidDataException("다운로드한 앱의 버전이 서버 안내와 다릅니다.");
             var destination = Path.Combine(root, version.ToString(3));

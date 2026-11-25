@@ -25,12 +25,12 @@ public sealed class OpenDocumentDialog : ConversionFormDialog
     public string[] Paths { get; private set; } = [];
     public string? FormId => Forms.SelectedItem is BrailleForm { FormId.Length: > 0 } selected ? selected.FormId : null;
     public DocumentSession Settings => new() {
-        Layout = usesProof && proof.Model is { } model ? layout with { ProofModel = model.Code, AdvancedAi = model.Code != "MINERU" }
+        Layout = usesProof ? layout with { ProofModel = proof.Code, AdvancedAi = proof.Code != "MINERU" }
             : layout with { ProofModel = null, AdvancedAi = false },
         Options = current with { KoreanGrade1 = korean.FirstSelected, EnglishDocument = !rule.FirstSelected, MixedRule = mixed.FirstSelected ? "korean" : "english" } };
 
-    public OpenDocumentDialog(BrailleForm[] forms, AccountDefaults defaults, bool serverSettingsAvailable = true, ProofPricing? pricing = null)
-        : base("점역 옵션", 600, 714)
+    public OpenDocumentDialog(BrailleForm[] forms, AccountDefaults defaults, bool serverSettingsAvailable = true)
+        : base("점역 옵션", 600, 566)
     {
         this.serverSettingsAvailable = serverSettingsAvailable;
         current = defaults.Options; layout = new(PageNumbers: defaults.PageNumberLine == "every" ? "모든 페이지" : "홀수 페이지");
@@ -41,7 +41,7 @@ public sealed class OpenDocumentDialog : ConversionFormDialog
         FileNames.Foreground = EditorModalDesign.Color("#8A8A8A");
         FormRow(rows, "점역 양식", SelectField(Forms, "점역 양식"), 162);
         FormRow(rows, "한글", korean, 162); FormRow(rows, "점역 규정", rule, 162); FormRow(rows, "한영 혼용 규정", mixed, 162);
-        proof = new(pricing, layout.ProofModel); Section("교열 모델").Children.Add(proof);
+        proof = new(); Section("교열 모델").Children.Add(proof);
         var preferredForm = forms.FirstOrDefault(f => f.FormId == defaults.FormId);
         var account = new BrailleForm("", "계정 기본 설정", true, null,
             (preferredForm?.Layout ?? layout) with { PageNumbers = layout.PageNumbers }, defaults.Options);
@@ -129,7 +129,7 @@ public sealed class OpenDocumentDialog : ConversionFormDialog
         usesProof = !local && !textFile && serverSettingsAvailable;
         int? count = Path.GetExtension(Paths[0]).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png" ? Paths.Length : null;
         SetFileNames(count);
-        proof.Configure(count, local || textFile ? "0 크레딧" : null, usesProof);
+        proof.IsEnabled = usesProof;
         start.Content = local ? "열기" : "변환 시작";
         start.IsEnabled = local || serverSettingsAvailable;
         Forms.IsEnabled = korean.IsEnabled = rule.IsEnabled = mixed.IsEnabled = !local && serverSettingsAvailable;
@@ -155,7 +155,7 @@ public sealed class OpenDocumentDialog : ConversionFormDialog
             var pdf = await Windows.Data.Pdf.PdfDocument.LoadFromFileAsync(file).AsTask(Lifetime.Token);
             if (!ReferenceEquals(Paths, selected) || Lifetime.IsCancellationRequested) return;
             int count = checked((int)pdf.PageCount);
-            SetFileNames(count); proof.Configure(count, enabled: usesProof);
+            SetFileNames(count);
         }
         catch (OperationCanceledException) { }
         // Windows.Data.Pdf can return unmapped HRESULTs for encrypted or malformed files.

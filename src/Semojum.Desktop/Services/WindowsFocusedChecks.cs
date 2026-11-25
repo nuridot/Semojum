@@ -161,6 +161,7 @@ internal static class WindowsFocusedChecks
                     await WindowsUpdateSafetyChecks.RunAsync(Check);
                     await WindowsAccountChecks.RunAsync(Check);
                     WindowsLoginDesignChecks.Run(Check);
+                    await WindowsSocialLoginChecks.RunAsync(Check);
                     await WindowsLoginLegalChecks.RunAsync(Check, directory);
                     await WindowsAuthenticationFormChecks.RunAsync(Check, directory);
                     await WindowsAccountChecks.CheckLogoutCancellationAsync(Check);

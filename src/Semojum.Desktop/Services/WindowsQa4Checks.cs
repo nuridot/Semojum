@@ -114,6 +114,7 @@ internal static class WindowsQa4Checks
         await WindowsInstitutionVisualChecks.RunAsync(check);
         Stage("login design start");
         WindowsLoginDesignChecks.Run(check);
+        await WindowsSocialLoginChecks.RunAsync(check);
         Stage("login design complete; network message start");
         WindowsAccountChecks.CheckLoginNetworkMessage(owner, check);
         Stage("network message complete; institution login start");

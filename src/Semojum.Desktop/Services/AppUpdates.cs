@@ -63,7 +63,7 @@ public static class AppUpdates
         {
             try
             {
-                var start = new ProcessStartInfo(Path.Combine(ready.Value.Directory, "Semojum.Mockup.exe")) { WorkingDirectory = ready.Value.Directory, UseShellExecute = false };
+                var start = new ProcessStartInfo(Path.Combine(ready.Value.Directory, ready.Value.Launcher)) { WorkingDirectory = ready.Value.Directory, UseShellExecute = false };
                 foreach (var arg in args) start.ArgumentList.Add(arg);
                 return Process.Start(start) is not null;
             }
@@ -74,7 +74,7 @@ public static class AppUpdates
     internal static async Task<bool> IsReadyAtAsync(string root, Version current, Version expected)
         => (await ValidatedPendingAsync(root, current)) is { } ready && ready.Version.ToString(3) == expected.ToString(3);
 
-    private static async Task<(Version Version, string Directory)?> ValidatedPendingAsync(string root, Version current)
+    private static async Task<(Version Version, string Directory, string Launcher)?> ValidatedPendingAsync(string root, Version current)
     {
         var path = Path.Combine(root, "pending.json");
         if (!File.Exists(path)) return null;
@@ -84,7 +84,8 @@ public static class AppUpdates
             var pending = JsonSerializer.Deserialize<PendingUpdate>(await File.ReadAllTextAsync(path));
             if (pending is null || pending.Hashes is null || !Version.TryParse(pending.Version, out var version) || version <= current) return null;
             var directory = Path.Combine(root, version.ToString(3));
-            foreach (var required in new[] { "Semojum.Mockup.exe", "Semojum.Mockup.dll", "engine/semojum-engine.exe" }) if (!pending.Hashes.ContainsKey(required)) return null;
+            var launcher = PortableUpdate.GetPackageLauncher(pending.Hashes);
+            if (launcher is null || !pending.Hashes.ContainsKey("Semojum.Mockup.dll")) return null;
             foreach (var item in pending.Hashes)
             {
                 PortableUpdate.ValidatePath(item.Key);
@@ -92,7 +93,7 @@ public static class AppUpdates
             }
             var dll = AssemblyName.GetAssemblyName(Path.Combine(directory, "Semojum.Mockup.dll"));
             if (dll.Name != "Semojum.Mockup" || dll.Version?.ToString(3) != version.ToString(3)) return null;
-            return (version, directory);
+            return (version, directory, launcher);
         }
         catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or BadImageFormatException or System.ComponentModel.Win32Exception) { return null; }
     }

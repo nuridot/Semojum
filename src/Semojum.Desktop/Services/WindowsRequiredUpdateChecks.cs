@@ -20,7 +20,8 @@ internal static class WindowsRequiredUpdateChecks
         internal readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
-            if (request.RequestUri!.AbsolutePath.EndsWith("/login"))
+            if (request.RequestUri!.AbsolutePath == "/api/auth/social/providers") return Task.FromResult(Json("[]"));
+            if (request.RequestUri.AbsolutePath.EndsWith("/login"))
                 return Task.FromResult(Json("{\"accessToken\":\"a\",\"refreshToken\":\"r\",\"role\":\"ROLE_USER\"}"));
             Started.TrySetResult(); return Version.Task.WaitAsync(token);
         }
