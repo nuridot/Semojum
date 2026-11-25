@@ -1,4 +1,4 @@
-param([string]$Output = 'artifacts/engine')
+﻿param([string]$Output = 'artifacts/engine')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $build = Join-Path $root 'artifacts/engine-build'
@@ -33,7 +33,10 @@ Copy-Item "$source/semojum_braille/third_party" $Output -Recurse -Force
 if ($LASTEXITCODE -ne 0) { throw 'Engine license collection failed.' }
 & $python -m pip freeze | Out-File (Join-Path $Output 'build-dependencies.txt') -Encoding utf8
 # Smoke the actual frozen executable; a successful Python import is insufficient.
-$ping = '{"op":"ping","id":1}' | & (Join-Path $Output 'semojum-engine.exe')
+$launcher = Join-Path $Output '누리닷 점역 엔진.exe'
+# Released Windows updaters still require engine/semojum-engine.exe in their ZIP manifest.
+Copy-Item -LiteralPath (Join-Path $Output 'semojum-engine.exe') -Destination $launcher -Force
+$ping = '{"op":"ping","id":1}' | & $launcher
 if ($LASTEXITCODE -ne 0) { throw 'Frozen engine failed to start.' }
 $response = $ping | ConvertFrom-Json
 if ($response.version -ne '3.4.46' -or $response.protocol -ne 1) { throw 'Frozen engine handshake mismatch.' }

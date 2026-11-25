@@ -12,6 +12,7 @@ internal static class AcceptanceChecks
         yield return ("Version metadata accepts absent downloads but rejects unsafe and malformed addresses", Versions);
         yield return ("Uploaded local-only settings survive successful and failed jobs and SMJ reopen", UploadSettings);
         yield return ("Image multipart retains ordered filenames, MIME types and every input byte", ImageMultipart);
+        yield return ("Proofing tiers survive multipart upload, reopening and saving and apply to selected pages", ProofingLevels);
         yield return ("Credit exhaustion is read without conflating blocked pages with successful pages", CreditStatus);
         yield return ("Six-dot presets support the specified physical keys including comma", SixDotPresets);
         yield return ("Six-dot custom digit and punctuation keys survive account preference reload", SixDotCustomKeys);
@@ -84,6 +85,55 @@ internal static class AcceptanceChecks
         }));
         var api = new SemojumApiClient(http); await api.LoginAsync("fixture", "fixture");
         await new JobClient(api).UploadAsync(files, new());
+    }
+    private static async Task ProofingLevels()
+    {
+        string level = "MINERU";
+        using var http = new HttpClient(new Handler(async request =>
+        {
+            switch (request.RequestUri!.AbsolutePath)
+            {
+                case "/api/auth/login": return Login();
+                case "/api/jobs":
+                    var body = (MultipartFormDataContent)request.Content!;
+                    var part = body.Single(p => p.Headers.ContentDisposition!.Name!.Trim('"') == "proofModel");
+                    Check(await part.ReadAsStringAsync() == level);
+                    return Ok(new { jobId = "fixture", totalPages = 1, status = "PENDING" });
+                case "/api/jobs/fixture/options":
+                    return Ok(new { proofModel = level, layoutOptions = new { advancedAi = true } });
+                case "/api/jobs/fixture/save":
+                    using (var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()))
+                    {
+                        Check(json.RootElement.GetProperty("proofModel").GetString() == level &&
+                            !json.RootElement.GetProperty("layoutOptions").TryGetProperty("proofModel", out _));
+                        return Ok(new { jobId = "fixture", savedPages = json.RootElement.GetProperty("pages").GetArrayLength(), failedPages = Array.Empty<int>() });
+                    }
+                case "/api/jobs/fixture/pages/reconvert":
+                    using (var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()))
+                    {
+                        Check(json.RootElement.GetProperty("proofModel").GetString() == "SONNET" &&
+                            json.RootElement.GetProperty("pages").EnumerateArray().Select(p => p.GetInt32()).SequenceEqual([3, 5, 6, 7]));
+                        return Ok(new { jobId = "fixture", status = "IN_PROGRESS", totalPages = 8, reconvertedPages = new[] { 3, 5, 6, 7 }, proofModel = "SONNET" });
+                    }
+                default: throw new Exception("Unexpected proofing request " + request.RequestUri.AbsolutePath);
+            }
+        }));
+        var api = new SemojumApiClient(http);
+        await api.LoginAsync("fixture", "fixture");
+        var jobs = new JobClient(api);
+        foreach (var code in new[] { "MINERU", "HAIKU", "SONNET", "OPUS" })
+        {
+            level = code;
+            await jobs.UploadAsync([new("test.png", [1])], new() { Layout = new(ProofModel: code, AdvancedAi: code != "MINERU") });
+            var model = new DocumentSession { JobId = "fixture", OwnerLoginId = "fixture", JobStatus = "COMPLETED", IsTextJob = false };
+            await jobs.ReadSettingsAsync(model);
+            Check(model.Layout.ProofModel == code && model.Layout.AdvancedAi == (code != "MINERU"));
+            model.Add(new EditorBlock { Id = 1, ServerId = "t1", Page = 1, Source = "점역" });
+            await jobs.SaveAsync(SmjFile.Snapshot(model));
+        }
+        var pages = ReconversionPages.Parse("3, 5–7, 6", Enumerable.Range(1, 8).ToHashSet());
+        var restarted = await jobs.ReconvertAsync("fixture", new(pages, "SONNET"));
+        Check(restarted.JobId == "fixture" && restarted.Pages.SequenceEqual(pages));
     }
     private static async Task CreditStatus()
     {

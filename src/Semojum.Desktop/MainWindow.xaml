@@ -355,7 +355,7 @@
       <Border x:Name="OriginalPanel" BorderBrush="{StaticResource Line}" BorderThickness="0" Background="White">
         <Border.ContextMenu>
           <ContextMenu Style="{StaticResource FinalContextMenu}">
-            <MenuItem Header="다시 변환" Tag="reconvert" Click="Action_Click" Style="{StaticResource FinalContextItem}">
+            <MenuItem Header="재변환" Tag="reconvert" Click="Action_Click" Style="{StaticResource FinalContextItem}">
               <MenuItem.Icon><svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/braille-context-recon.svg" Width="16" Height="16" Stretch="None"/></MenuItem.Icon>
             </MenuItem>
           </ContextMenu>
@@ -404,7 +404,7 @@
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
               <svg:SvgViewbox Source="pack://application:,,,/Semojum.Mockup;component/Assets/Figma/page-failure-24.svg" Width="24" Height="24"/>
               <TextBlock x:Name="FailureReasonText" Margin="0,16" TextWrapping="Wrap" TextAlignment="Center" Foreground="#1A1A1A" FontSize="14"/>
-              <Button x:Name="OriginalRetryButton" Style="{StaticResource PrimaryButton}" Content="다시 변환" Width="88" Height="32" MinHeight="0" Padding="0" HorizontalAlignment="Center" Click="OriginalRetry_Click"/>
+              <Button x:Name="OriginalRetryButton" Style="{StaticResource PrimaryButton}" Content="재변환" Width="88" Height="32" MinHeight="0" Padding="0" HorizontalAlignment="Center" Click="OriginalRetry_Click"/>
             </StackPanel>
           </Border>
         </Border>

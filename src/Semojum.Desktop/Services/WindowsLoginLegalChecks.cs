@@ -37,6 +37,7 @@ internal static class WindowsLoginLegalChecks
             try
             {
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                var requestsOnOpen = handler.Requests;
                 var input = Descendants(owner).OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "아이디");
                 var password = Descendants(owner).OfType<PasswordBox>().Single();
                 input.Text = "legal-fixture"; password.Password = "unchanged-fixture";
@@ -106,7 +107,7 @@ internal static class WindowsLoginLegalChecks
                     check(opened && owner.IsVisible && input.Text == "legal-fixture" && password.Password == "unchanged-fixture",
                         "Closing legal text preserves the login screen and entered credentials");
                 }
-                check(handler.Requests == 0, "Reading terms and privacy makes no API or authentication requests");
+                check(handler.Requests == requestsOnOpen, "Reading terms and privacy makes no additional API or authentication requests");
             }
             finally
             {

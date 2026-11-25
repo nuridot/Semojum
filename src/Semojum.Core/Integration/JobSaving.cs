@@ -120,6 +120,7 @@ public sealed partial class JobClient
             ["layoutOptions"] = LayoutBody(m.Layout), ["brailleOptions"] = OptionsBody(m.Options),
             ["insertPageNumber"] = m.Layout.ShowSourcePageNumber, ["footerText"] = m.FooterText, ["pages"] = plan.Pages
         };
+        if (m.Layout.ProofModel is { } proofModel) body["proofModel"] = proofModel;
         if (plan.TotalPages.HasValue) body["totalPages"] = plan.TotalPages.Value;
         var data = await api.SendAuthenticatedAsync(HttpMethod.Post, JobPath(jobId, "save"), body, ct);
         var failed = data.GetProperty("failedPages").Deserialize<int[]>() ?? throw new InvalidDataException("서버 저장 결과가 없습니다.");

@@ -1,4 +1,4 @@
-# 세모점 Windows 편집기
+# 누리닷 Windows 편집기
 
 [Service 서비스 기획](https://app.notion.com/p/3a643813bc2e801aa2b9eaf48dde8f2e)을 최우선으로, Notion V3.1 API·기능정의서 V2를 대조하여 기존 WPF 시안에 실제 점역 엔진과 작업 파일·서버 연결을 구현하고 있습니다. **전체 설계 구현이 끝난 상태는 아닙니다.** 2026-10-27 QA 4차 반영과 검증 결과는 [QA 4차 결과](docs/qa4-2026-10-27.md)에 구분합니다.
 
@@ -15,7 +15,7 @@ $env:SEMOJUM_ENGINE_PYTHON = 'C:\path\to\venv\Scripts\python.exe'
 dotnet run --project src/Semojum.Desktop -c Release
 ```
 
-배포 ZIP은 `Semojum.Mockup.exe`와 `engine` 폴더를 포함합니다. 실행 파일 이름은 기존 배포와의 호환을 위해 유지합니다. 배포 폴더 전체를 사용해야 하며 Python·.NET 별도 설치는 필요하지 않습니다. 엔진 파일이 없거나 시작에 실패하면 오류를 표시합니다. 샘플 점자로 대신 채우지 않습니다.
+배포 ZIP은 `누리닷.exe`와 `engine` 폴더를 포함합니다. 배포 폴더 전체를 사용해야 하며 Python·.NET 별도 설치는 필요하지 않습니다. 엔진 파일이 없거나 시작에 실패하면 오류를 표시합니다. 샘플 점자로 대신 채우지 않습니다.
 
 macOS/Linux에서는 핵심 로직 검사와 Windows 교차 빌드만 할 수 있습니다. WPF 실행은 Windows에서 검증합니다.
 
@@ -55,7 +55,7 @@ macOS/Linux에서는 핵심 로직 검사와 Windows 교차 빌드만 할 수 �
 dotnet build Semojum.sln -c Release
 dotnet run --project tests/Semojum.Core.Tests -c Release
 ./scripts/publish.ps1
-./artifacts/Semojum-win-x64/Semojum.Mockup.exe --smoke-test ./artifacts/smoke
+./artifacts/Nuridot-win-x64/누리닷.exe --smoke-test ./artifacts/smoke
 ```
 
 `SEMOJUM_ENGINE_PYTHON`이 있으면 실제 v3.4.46 테스트를 추가 실행하고, 없으면 그 검사는 SKIP으로 표시합니다. `--smoke-test`는 네트워크와 분리된 고정 샘플로 WPF 창·편집 버퍼·저장을 검사합니다. Windows CI는 실제 엔진 검사와 UI 검사를 별도로 실행합니다. 물리 키보드 동시 입력, 한국어 IME, 보조기기와 여러 DPI는 별도 장비 검증이 필요합니다.

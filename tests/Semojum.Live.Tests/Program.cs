@@ -97,7 +97,7 @@ try
             state.TextJobId = created.JobId; Persist(); Log("CREATED text job " + created.JobId);
         }
         textModel.JobId = state.TextJobId;
-        var first = new EditorBlock { Id = 1, Page = 1, Heading = "실서버 저장 검증", Source = "세모점 저장 검증입니다.\n<!주>검사용 문서입니다.<!/주>" };
+        var first = new EditorBlock { Id = 1, Page = 1, Heading = "실서버 저장 검증", Source = "누리닷 저장 검증입니다.\n<!주>검사용 문서입니다.<!/주>" };
         var second = new EditorBlock { Id = 2, Page = 1, Heading = "수식 검증", Source = "<!수식>x+1=2<!/수식>" };
         textModel.Add(first); textModel.Add(second);
         foreach (var block in textModel.Blocks)

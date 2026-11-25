@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         run: |
           $env:SEMOJUM_ENGINE_PYTHON = Join-Path $PWD 'artifacts/engine-build/venv/Scripts/python.exe'
-          $env:SEMOJUM_ENGINE_EXECUTABLE = Join-Path $PWD 'artifacts/Semojum-win-x64/engine/semojum-engine.exe'
+          $env:SEMOJUM_ENGINE_EXECUTABLE = Join-Path $PWD 'artifacts/Nuridot-win-x64/engine/누리닷 점역 엔진.exe'
           & $env:SEMOJUM_ENGINE_PYTHON tests/engine/test_editor_composition.py
           if ($LASTEXITCODE -ne 0) { throw "Composition parity checks failed." }
           & $env:SEMOJUM_ENGINE_PYTHON tests/engine/test_editor_translation.py
@@ -51,7 +51,7 @@ jobs:
         run: |
           $output = Join-Path $PWD 'artifacts/smoke'
           $started = Get-Date
-          $process = Start-Process 'artifacts/Semojum-win-x64/Semojum.Mockup.exe' -ArgumentList @('--smoke-test', $output) -PassThru
+          $process = Start-Process 'artifacts/Nuridot-win-x64/누리닷.exe' -ArgumentList @('--smoke-test', $output) -PassThru
           if (-not $process.WaitForExit(600000)) {
             $process.Kill()
             $process.WaitForExit()
@@ -69,13 +69,13 @@ jobs:
       - name: Save Windows app
         uses: actions/upload-artifact@v4
         with:
-          name: Semojum-win-x64
-          path: artifacts/Semojum-win-x64.zip
+          name: Nuridot-win-x64
+          path: artifacts/Nuridot-win-x64.zip
       - name: Save Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: Semojum-win-x64-msi
-          path: artifacts/Semojum-win-x64.msi
+          name: Nuridot-win-x64-msi
+          path: artifacts/Nuridot-win-x64.msi
       - name: Save UI verification
         if: always()
         uses: actions/upload-artifact@v4

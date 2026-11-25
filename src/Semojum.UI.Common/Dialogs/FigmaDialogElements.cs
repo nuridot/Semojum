@@ -25,7 +25,7 @@ public static class FigmaDialogElements
     public static ControlTemplate SurfaceTemplate(double radius, bool stretchContent = false)
         => SurfaceTemplate(radius, stretchContent, useControlInsets: false);
 
-    internal static ControlTemplate SurfaceTemplate(double radius, bool stretchContent, bool useControlInsets)
+    public static ControlTemplate SurfaceTemplate(double radius, bool stretchContent, bool useControlInsets)
     {
         var root = new FrameworkElementFactory(typeof(Grid));
         var outer = new FrameworkElementFactory(typeof(Border), "FocusOuter"); outer.SetValue(Border.CornerRadiusProperty, new CornerRadius(radius + 3));

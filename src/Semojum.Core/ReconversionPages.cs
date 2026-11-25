@@ -1,10 +1,12 @@
 namespace Semojum.Core;
 
+public sealed record PageReconversion(int[] Pages, string ProofModel);
+
 public static class ReconversionPages
 {
     public static int[] Parse(string input, IReadOnlySet<int> available)
     {
-        if (available.Count == 0 || string.IsNullOrWhiteSpace(input)) throw new ArgumentException("다시 변환할 쪽을 입력해 주세요.");
+        if (available.Count == 0 || string.IsNullOrWhiteSpace(input)) throw new ArgumentException("재변환할 쪽을 입력해 주세요.");
         var numbers = new SortedSet<int>();
         foreach (var segment in input.Replace('–', '-').Split(','))
         {
@@ -17,9 +19,10 @@ public static class ReconversionPages
             {
                 if (!available.Contains((int)n)) throw Invalid();
                 numbers.Add((int)n);
+                if (numbers.Count > 1000) throw new ArgumentException("한 번에 최대 1,000쪽까지 재변환할 수 있습니다.");
             }
         }
         return numbers.ToArray();
     }
-    private static ArgumentException Invalid() => new("변환을 마친 원본 쪽을 ‘3, 5–7’처럼 입력해 주세요.");
+    private static ArgumentException Invalid() => new("재변환할 원본 쪽을 ‘3, 5–7’처럼 입력해 주세요.");
 }

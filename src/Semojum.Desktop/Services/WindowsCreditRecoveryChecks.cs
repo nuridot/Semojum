@@ -654,12 +654,21 @@ internal static class WindowsCreditRecoveryChecks
         owner.RememberFailureReason(2, "NETWORK_ERROR");
         window.OriginalRetryButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var timeout = DateTime.UtcNow.AddSeconds(8);
-        while (DateTime.UtcNow < timeout && (owner.HasPendingRestart || !owner.Blocks.Any(b => b.Page == 2 && b.Source == "recovered page")))
+        while (DateTime.UtcNow < timeout && (owner.HasPendingRestart || !owner.Status.Contains("Ctrl+S") || !owner.Blocks.Any(b => b.Page == 2 && b.Source == "recovered page")))
             await Task.Delay(25);
         check(fixture.RetryRequests == 1 && !owner.IsConversionFailed(2) && !owner.PageFailureReasons.ContainsKey(2) && !window.OriginalFailure.IsVisible
             && !owner.HasPendingRestart && owner.Blocks.Any(b => b.Page == 2 && b.Source == "recovered page")
             && owner.Blocks.Contains(before) && before.Source.Contains("local correction") && owner.Blocks.Contains(after),
             "Retry posts once, restores the successful page, clears its reason and preserves both neighbouring blocks");
+        var previousResult = owner.Blocks.Single(b => b.Page == 2);
+        gotoOriginal.Invoke(window, [2]);
+        await window.ExecuteAsync("reconvert");
+        timeout = DateTime.UtcNow.AddSeconds(8);
+        while (DateTime.UtcNow < timeout && owner.HasPendingRestart) await Task.Delay(25);
+        check(fixture.RetryRequests == 2 && owner.Blocks.Any(b => b.Page == 2 && b.Source == "updated page") &&
+            !owner.Blocks.Contains(previousResult) && !owner.HasPendingServerPages && owner.Blocks.Contains(before) && owner.Blocks.Contains(after) &&
+            owner.Layout.ProofModel != "OPUS" && ReferenceEquals(owner, window.Session),
+            $"A completed page uses the selected tier in place (requests {fixture.RetryRequests}, pending {owner.HasPendingRestart}, held {owner.HasPendingServerPages}, page {owner.Blocks.First(b => b.Page == 2).Source}, status {owner.Status})");
     }
 
     private sealed record Observation(bool Credit, bool Error, bool First, bool Later, bool BlockedPlaceholder,
@@ -682,6 +691,11 @@ internal static class WindowsCreditRecoveryChecks
                 {
                     Descendants(dialog).OfType<TextBox>().Single().Text = "credit-test";
                     Descendants(dialog).OfType<Button>().Single(b => b.Content?.ToString() == "확인").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                }
+                else if (dialog is PageReconversionDialog reconvert && mode == "network-retry")
+                {
+                    Descendants(reconvert).OfType<RadioButton>().Single(r => Equals(r.Content, "최고급")).IsChecked = true;
+                    Descendants(reconvert).OfType<Button>().Single(b => Equals(b.Content, "재변환")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 }
                 else if (dialog is NoticeDialog notice)
                 {
@@ -826,11 +840,15 @@ internal static class WindowsCreditRecoveryChecks
             if (path.EndsWith("/login")) return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"accessToken\":\"fixture\",\"refreshToken\":\"fixture\",\"role\":\"ROLE_USER\"}}");
             if (path.EndsWith("/options")) return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{}}");
             if (path.EndsWith("/status")) return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"totalPages\":3,\"completedPages\":3,\"overallStatus\":\"" + ((mode is "resume-success" or "network-retry") && resumed ? "COMPLETED" : "FAILED") + "\",\"creditExhausted\":" + (mode is "missing-without-credit" or "network-retry" || (mode is "resume-success" or "network-retry") && resumed ? "false" : "true") + ",\"pages\":{\"1\":\"COMPLETED\",\"2\":\"" + ((mode is "resume-success" or "network-retry") && resumed ? "COMPLETED" : "BLOCKED") + "\",\"3\":\"COMPLETED\"}}}");
-            if (path.EndsWith("/retry") && mode == "network-retry" && request.Method == HttpMethod.Post)
+            if (path == "/api/jobs/credit-test/pages/reconvert" && mode == "network-retry" && request.Method == HttpMethod.Post)
             {
+                using var body = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult());
+                if (body.RootElement.GetProperty("proofModel").GetString() != "OPUS" ||
+                    !body.RootElement.GetProperty("pages").EnumerateArray().Select(n => n.GetInt32()).SequenceEqual([2]))
+                    throw new InvalidOperationException("Unexpected reconversion model or page selection");
                 RetryRequests++;
                 resumed = true;
-                return Reply(HttpStatusCode.OK, """{"isSuccess":true,"result":{"jobId":"credit-test","status":"IN_PROGRESS","totalPages":3,"retriedPages":[2]}}""");
+                return Reply(HttpStatusCode.OK, """{"isSuccess":true,"result":{"jobId":"credit-test","status":"IN_PROGRESS","totalPages":3,"reconvertedPages":[2],"proofModel":"OPUS"}}""");
             }
             if (path.EndsWith("/resume")) { resumed = true; return Reply(HttpStatusCode.OK, "{\"isSuccess\":true,\"result\":{\"jobId\":\"credit-test\",\"status\":\"IN_PROGRESS\",\"totalPages\":3,\"resumedPages\":[2]}}"); }
             if (path.EndsWith("/events")) return Reply(HttpStatusCode.NotFound, "{}");
@@ -838,7 +856,7 @@ internal static class WindowsCreditRecoveryChecks
             {
                 page2Requests++;
                 if (mode == "network-retry")
-                    return resumed ? Page("COMPLETED", "recovered page", "pdf")
+                    return resumed ? Page("COMPLETED", RetryRequests == 1 ? "recovered page" : "updated page", "pdf")
                         : Reply(HttpStatusCode.OK, """{"isSuccess":true,"result":{"status":"FAILED","pageStatus":"BLOCKED","blockedReason":"NETWORK_ERROR","original":{"type":"pdf"},"result":null}}""");
                 if (mode == "blocked-500") return Reply(HttpStatusCode.InternalServerError, "{\"isSuccess\":false,\"code\":\"COMMON5000\",\"message\":\"server error\"}");
                 if (mode == "blocked-other-404") return Reply(HttpStatusCode.NotFound, "{\"isSuccess\":false,\"code\":\"COMMON4003\",\"message\":\"unknown job\"}");

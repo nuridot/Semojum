@@ -110,7 +110,7 @@ internal static class WindowsLoginDesignChecks
                 if (remember)
                 {
                     var icons = children.OfType<SharpVectors.Converters.SvgViewbox>().ToArray();
-                    foreach (var (asset, size) in new[] { ("login-check.svg", 12d), ("login-mail.svg", 16d),
+                    foreach (var (asset, size) in new[] { ("nuridot-symbol.svg", 16d), ("login-check.svg", 12d), ("login-mail.svg", 16d),
                         ("login-caption-min.svg", 16d), ("login-caption-max.svg", 16d), ("login-caption-close.svg", 16d) })
                     {
                         var icon = icons.SingleOrDefault(i => i.Source?.ToString().EndsWith("/" + asset, StringComparison.Ordinal) == true);
@@ -212,7 +212,9 @@ internal static class WindowsLoginDesignChecks
         internal bool? KeepLoggedIn;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
-            if (request.RequestUri!.AbsolutePath == "/api/auth/login" && request.Content is { } content)
+            if (request.RequestUri!.AbsolutePath == "/api/auth/social/providers")
+                return new(HttpStatusCode.OK) { Content = new StringContent("""{"isSuccess":true,"result":[]}""", Encoding.UTF8, "application/json") };
+            if (request.RequestUri.AbsolutePath == "/api/auth/login" && request.Content is { } content)
             {
                 using var body = System.Text.Json.JsonDocument.Parse(await content.ReadAsStringAsync(token));
                 KeepLoggedIn = body.RootElement.TryGetProperty("keepLoggedIn", out var keep) && keep.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False ? keep.GetBoolean() : null;

@@ -24,7 +24,7 @@ internal static class WindowsUploadSafetyChecks
             using var handler = new Fixture(); using var http = new HttpClient(handler); var api = new SemojumApiClient(http); await api.LoginAsync("fixture", "fixture");
             var window = new MainWindow(api); window.Show();
             var extra = Path.Combine(a, "extra.png");
-            var matchingEstimate = false;
+            var matchingSelection = false;
             var errors = new List<string>(); var settingsShown = 0; var orderShown = 0; var stage = 0;
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
             timer.Tick += (_, _) =>
@@ -55,8 +55,8 @@ internal static class WindowsUploadSafetyChecks
                 if (settings is not null && stage == 6)
                 {
                     stage = 7;
-                    matchingEstimate = settings.Paths.SequenceEqual([other, first, extra]) && settings.FileNames.Text.EndsWith(" · 3쪽")
-                        && Descendants(settings).OfType<TextBlock>().Any(t => t.Text == "300 크레딧");
+                    matchingSelection = settings.Paths.SequenceEqual([other, first, extra]) && settings.FileNames.Text.EndsWith(" · 3쪽")
+                        && settings.Settings.Layout.ProofModel == "MINERU";
                     Descendants(settings).OfType<Button>().Single(b => Equals(b.Content, "변환 시작")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     return;
                 }
@@ -86,7 +86,7 @@ internal static class WindowsUploadSafetyChecks
                 await File.WriteAllBytesAsync(other, [3]); await File.WriteAllBytesAsync(extra, [4]); stage = 5;
                 window.OriginalUpload.UploadArea.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitFor(() => errors.Count >= 3);
-                check(matchingEstimate, "The conversion options count and price the final ordered selection from the image browser");
+                check(matchingSelection, "The conversion options retain the final image order, page count and basic proofing tier");
                 check(handler.Uploads == 1 && handler.Uploaded.SequenceEqual(new[] { ("other.png", (byte)3), ("same.png", (byte)1), ("extra.png", (byte)4) }),
                     "The editor sends the chosen images in page order with the matching bytes in its multipart job request");
             }
@@ -118,7 +118,7 @@ internal static class WindowsUploadSafetyChecks
                         Uploaded.Add((name.Trim('"'), (await part.ReadAsByteArrayAsync(cancellationToken)).Single()));
                 return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"isSuccess":false,"code":"QA","message":"시험 업로드 확인"}""", Encoding.UTF8, "application/json") };
             }
-            var result = path.EndsWith("/login") ? "{\"accessToken\":\"fixture\",\"refreshToken\":\"fixture\",\"role\":\"ROLE_USER\"}" : path.EndsWith("/braille-forms") ? "{\"items\":[]}" : path.EndsWith("/proof-pricing") ? """{"pageCredits":{"PAGE_LAYOUT_TEXT":100,"PAGE_LAYOUT_VISUAL":500},"models":[{"code":"MINERU","extraCredits":0}]}""" : "{}";
+            var result = path.EndsWith("/login") ? "{\"accessToken\":\"fixture\",\"refreshToken\":\"fixture\",\"role\":\"ROLE_USER\"}" : path.EndsWith("/braille-forms") ? "{\"items\":[]}" : "{}";
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"isSuccess\":true,\"result\":" + result + "}", Encoding.UTF8, "application/json") };
         }
     }

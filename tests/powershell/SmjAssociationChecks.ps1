@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../../scripts/smj-association-core.ps1')
 
 class FakeAssociationStore {
@@ -16,8 +16,8 @@ class FakeAssociationStore {
 function Assert($condition, $message) { if (-not $condition) { throw "FAIL: $message" }; Write-Host "PASS: $message" }
 
 $store = [FakeAssociationStore]::new()
-$filePath = 'C:\Program Files\Semojum Portable\Semojum.Mockup.exe'
-$otherPath = 'C:\Other Install\Semojum.Mockup.exe'
+$filePath = 'C:\Program Files\Nuridot Portable\누리닷.exe'
+$otherPath = 'C:\Other Install\누리닷.exe'
 $classes = 'Software\Classes'
 $extension = "$classes\.smj"
 $openWith = "$extension\OpenWithProgids"
@@ -26,7 +26,17 @@ $command = "$prog\shell\open\command"
 $store.WriteString($extension, '', 'Other.Document.1')
 $store.WriteNone($openWith, 'Other.Document.1')
 Register-SmjAssociation $store $filePath
-Assert ($store.Read($command, '') -ceq '"C:\Program Files\Semojum Portable\Semojum.Mockup.exe" "%1"') 'Executable and document argument are individually quoted'
+Assert ($store.Read($prog, '') -ceq '누리닷 작업 파일') 'Explorer displays the Nuridot document name'
+$old = [FakeAssociationStore]::new()
+$legacyPath = 'C:\Program Files\Nuridot Portable\Semojum.Mockup.exe'
+$old.WriteString($prog, '', 'Semojum work file')
+$old.WriteString("$prog\DefaultIcon", '', '"' + $legacyPath + '",0')
+$old.WriteString($command, '', '"' + $legacyPath + '" "%1"')
+$old.WriteNone($openWith, 'Semojum.WorkFile.1')
+Register-SmjAssociation $old $filePath
+Assert ($old.Read($prog, '') -ceq '누리닷 작업 파일' -and $old.Read($command, '') -ceq ('"' + $filePath + '" "%1"') -and
+    $old.Read("$prog\DefaultIcon", '') -ceq ('"' + $filePath + '",0')) 'An existing same-folder registration adopts the new document and executable names'
+Assert ($store.Read($command, '') -ceq '"C:\Program Files\Nuridot Portable\누리닷.exe" "%1"') 'Executable and document argument are individually quoted'
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -45,11 +55,11 @@ $document = 'C:\Users\Example User\Documents\work file.smj'
 $arguments = [SmjCommandLineCheck]::Parse($store.Read($command, '').Replace('%1', $document))
 Assert ($arguments.Count -eq 2 -and $arguments[0] -ceq $filePath -and $arguments[1] -ceq $document) 'Windows parses a spaced document path as the single startup argument'
 Assert ($store.Read($extension, '') -ceq 'Other.Document.1' -and $store.ValueExists($openWith, 'Other.Document.1')) 'Existing default and other handler remain'
-Assert ($store.ValueExists($openWith, 'Semojum.WorkFile.1') -and $store.Kind($openWith, 'Semojum.WorkFile.1') -eq 'None') 'Semojum is registered as a candidate'
+Assert ($store.ValueExists($openWith, 'Semojum.WorkFile.1') -and $store.Kind($openWith, 'Semojum.WorkFile.1') -eq 'None') 'Nuridot is registered as a candidate'
 Register-SmjAssociation $store $filePath
 $rejected = $false
 try { Register-SmjAssociation $store $otherPath } catch { $rejected = $true }
-Assert ($rejected -and $store.Read($command, '') -ceq '"C:\Program Files\Semojum Portable\Semojum.Mockup.exe" "%1"') 'Another installation cannot silently take over'
+Assert ($rejected -and $store.Read($command, '') -ceq '"C:\Program Files\Nuridot Portable\누리닷.exe" "%1"') 'Another installation cannot silently take over'
 $store.WriteString($prog, 'ForeignValue', 'preserve me')
 Unregister-SmjAssociation $store $otherPath
 Assert ($store.ValueExists($openWith, 'Semojum.WorkFile.1')) 'Unregistering a different path preserves the current installation'

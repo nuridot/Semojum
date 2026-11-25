@@ -57,8 +57,21 @@ internal static class WindowsUpdateSafetyChecks
             }
             catch (InvalidDataException ex) { check(ex.Message.Contains("SHA-256") && !Directory.Exists(verified), "A checksum mismatch stops the ZIP before any version directory is staged"); }
             var checksum = (await PortableUpdate.HashAsync(archive)).ToLowerInvariant();
-            await PortableUpdate.StageAsync(archive, verified, assembly.GetName().Version!, checksum, default);
-            check(File.Exists(Path.Combine(verified, "pending.json")), "A matching ZIP checksum stages the verified Windows assembly");
+            var version = assembly.GetName().Version!;
+            var previous = await PortableUpdate.StageAsync(archive, verified, version, checksum, default);
+            check(File.Exists(Path.Combine(verified, "pending.json")) && PortableUpdate.GetPackageLauncher(previous.Hashes) == "Semojum.Mockup.exe",
+                "The original Windows update package still stages and selects its verified launcher");
+            using (var zip = System.IO.Compression.ZipFile.Open(archive, System.IO.Compression.ZipArchiveMode.Update))
+            {
+                foreach (var name in new[] { PortableUpdate.DesktopLauncher, "engine/" + PortableUpdate.EngineLauncher })
+                    using (var writer = new StreamWriter(zip.CreateEntry(name).Open())) writer.Write("branded fixture");
+            }
+            var branded = Path.Combine(root, "branded");
+            var current = await PortableUpdate.StageAsync(archive, branded, version, default(CancellationToken));
+            check(PortableUpdate.GetPackageLauncher(current.Hashes) == "누리닷.exe" && await AppUpdates.IsReadyAtAsync(branded, new Version(0, 0, 0), version),
+                "A dual-name update validates and selects the Nuridot launcher");
+            await File.AppendAllTextAsync(Path.Combine(branded, version.ToString(3), PortableUpdate.DesktopLauncher), "changed");
+            check(!await AppUpdates.IsReadyAtAsync(branded, new Version(0, 0, 0), version), "A changed Nuridot launcher is rejected before activation");
         }
         finally { Directory.Delete(root, true); }
     }

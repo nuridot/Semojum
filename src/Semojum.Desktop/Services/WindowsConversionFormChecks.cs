@@ -18,10 +18,9 @@ internal static class WindowsConversionFormChecks
     {
         var capture = Directory.CreateDirectory(Path.Combine(directory, "conversion-options")).FullName;
         var general = new BrailleForm("builtin:GENERAL_BOOK", "일반 도서", true, null, new(), new());
-        var pricing = new ProofPricing(100, 500, [new("MINERU", 0), new("HAIKU", 100), new("SONNET", 300), new("OPUS", 500)]);
         var temp = Directory.CreateTempSubdirectory("nuridot-conversion-");
         var pdf = Path.Combine(temp.FullName, "2026_수능특강_사회문화.pdf");
-        var open = new OpenDocumentDialog([general], new(new(), general.FormId, "odd"), pricing: pricing);
+        var open = new OpenDocumentDialog([general], new(new(), general.FormId, "odd"));
         try
         {
             await File.WriteAllBytesAsync(pdf, WindowsSmoke.PdfFixture(128));
@@ -30,41 +29,42 @@ internal static class WindowsConversionFormChecks
             await WindowsSmoke.RenderAsync(open, Path.Combine(capture, "open.png"));
             CheckBounds(open, open.FileNames, 203, 69, 356, 32, "filename");
             CheckBounds(open, open.Forms, 203, 113, 356, 32, "form");
-            CheckBounds(open, Radio(open, "텍스트 쪽"), 41, 341, 255, 40, "text rate");
-            CheckBounds(open, Radio(open, "기본 MinerU"), 41, 425, 518, 40, "first model");
-            CheckBounds(open, Button(open, "변환 시작"), 487, 665, 88, 32, "start");
-            check(Has(open, "12800 크레딧"), "Opening a real 128-page PDF multiplies its actual page count by the selected rate");
-            Radio(open, "그림 쪽").IsChecked = true; Radio(open, "고급 Sonnet").IsChecked = true;
-            check(Has(open, "102400 크레딧") && open.Settings.Layout.AdvancedAi && Equals(JobClient.LayoutBody(open.Settings.Layout)["proofModel"], "SONNET"),
-                "Changing page estimate and proof model updates price and submits the selected model");
+            CheckBounds(open, Radio(open, "기본"), 41, 309, 518, 40, "first level");
+            CheckBounds(open, Radio(open, "최고급"), 41, 441, 518, 40, "last level");
+            CheckBounds(open, Button(open, "변환 시작"), 487, 517, 88, 32, "start");
+            check(Radio(open, "기본").IsChecked == true && LevelsOnly(open), "Upload defaults to the basic level and shows only Korean tier labels");
+            foreach (var (label, code) in new[] { ("기본", "MINERU"), ("중급", "HAIKU"), ("고급", "SONNET"), ("최고급", "OPUS") })
+            {
+                Radio(open, label).IsChecked = true;
+                check(open.Settings.Layout.ProofModel == code && open.Settings.Layout.AdvancedAi == (code != "MINERU"),
+                    $"Upload level {label} selects {code}");
+            }
             open.SetPaths(["first.png", "second.png"]);
-            check(Has(open, "1600 크레딧") && open.FileNames.Text.EndsWith(" · 2쪽"), "Ordered images use their selected count for the estimate");
+            check(open.FileNames.Text.EndsWith(" · 2쪽") && open.Settings.Layout.ProofModel == "OPUS", "Image count is independent of the proofing tier");
             open.SetPaths(["draft.hwpx"]);
-            check(Has(open, "쪽당 800 크레딧 · 쪽수 확인 후 계산"), "An unpaginated input shows its unit rate without inventing a page count");
+            check(open.Settings.Layout.ProofModel == "OPUS", "HWPX retains the selected level");
             open.SetPaths([pdf]);
             open.SetPaths(["draft.txt"]);
             await Task.Delay(100);
-            check(Has(open, "0 크레딧") && !Radio(open, "고급 Sonnet").IsEnabled && !JobClient.LayoutBody(open.Settings.Layout).ContainsKey("proofModel"),
-                "Local TXT clears the model from requests and displays a zero cost");
+            check(!Radio(open, "최고급").IsEnabled && open.Settings.Layout.ProofModel is null && !open.Settings.Layout.AdvancedAi,
+                "Local TXT has no proofing model");
             check(open.FileNames.Text == "draft.txt", "A stale PDF metadata response never replaces a newly chosen filename");
         }
         finally { open.Close(); temp.Delete(true); }
 
-        var reconvert = new PageReconversionDialog(13, Enumerable.Range(1, 16).ToHashSet(), pricing,
-            (_, _, _) => Task.FromResult("test"), _ => false, "SONNET");
+        var reconvert = new PageReconversionDialog(13, Enumerable.Range(1, 16).ToHashSet(), _ => false, "MINERU");
         reconvert.Show();
         try
         {
+            check(Radio(reconvert, "기본").IsChecked == true, "Reconversion opens with the document's current tier");
+            Radio(reconvert, "고급").IsChecked = true;
             await WindowsSmoke.RenderAsync(reconvert, Path.Combine(capture, "reconvert.png"));
             var range = Children(reconvert).OfType<TextBox>().Single();
             CheckBounds(reconvert, range, 275, 97, 200, 32, "range");
-            CheckBounds(reconvert, Radio(reconvert, "고급 Sonnet"), 41, 401, 518, 40, "current document model");
-            CheckBounds(reconvert, Button(reconvert, "다시 변환"), 487, 553, 88, 32, "reconvert");
-            check(Has(reconvert, "400 크레딧") && Radio(reconvert, "고급 Sonnet").IsChecked == true,
-                "Reconversion preselects the current document model and prices the current page");
-            Children(reconvert).OfType<RadioButton>().Single(r => Equals(r.Content, "쪽 지정")).IsChecked = true;
-            range.Text = "3, 5-7";
-            check(Has(reconvert, "1600 크레딧"), "Reconversion estimates the four distinct valid pages in a range");
+            CheckBounds(reconvert, Radio(reconvert, "고급"), 41, 317, 518, 40, "selected level");
+            CheckBounds(reconvert, Button(reconvert, "재변환"), 487, 437, 88, 32, "reconvert");
+            check(Has(reconvert, "지금 설정") && Children(reconvert).OfType<TextBlock>().Count(t => t.Text == "기본") == 2 && LevelsOnly(reconvert),
+                "The current document tier remains basic when another tier is selected for the pages");
         }
         finally { reconvert.Close(); }
 
@@ -100,6 +100,11 @@ internal static class WindowsConversionFormChecks
             check(Math.Abs(point.X-x) <= 1 && Math.Abs(point.Y-y) <= 1 && Math.Abs(e.ActualWidth-width) <= 1 && Math.Abs(e.ActualHeight-height) <= 1,
                 $"{w.Title} {label}: ({point.X},{point.Y}) {e.ActualWidth}x{e.ActualHeight} matches Figma ({x},{y}) {width}x{height}");
         }
+    }
+    private static bool LevelsOnly(Window window)
+    {
+        string[] oldLabels = ["MinerU", "Haiku", "Sonnet", "Opus", "쪽 유형", "크레딧", "쪽당 추가"];
+        return Children(window).OfType<TextBlock>().All(t => !oldLabels.Any(label => t.Text.Contains(label)));
     }
     private static Button Button(Window w, string label) => Children(w).OfType<Button>().Single(b => Equals(b.Content, label));
     private static bool Has(Window w, string text) => Children(w).OfType<TextBlock>().Any(t => t.Text == text);

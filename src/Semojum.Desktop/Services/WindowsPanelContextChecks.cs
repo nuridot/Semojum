@@ -43,7 +43,7 @@ internal static class WindowsPanelContextChecks
                     var items = menu.Items.OfType<MenuItem>().Where(m => m.IsVisible).ToArray();
                     if (groupTitle is null)
                     {
-                        check(items is [{ Header: "다시 변환", Tag: "reconvert", Icon: not null }], "The original panel offers the actual reconversion command");
+                        check(items is [{ Header: "재변환", Tag: "reconvert", Icon: not null }], "The original panel offers the actual reconversion command");
                         await WindowsSmoke.RenderElementAsync(menu, Path.Combine(shots, state + ".png"));
                         continue;
                     }

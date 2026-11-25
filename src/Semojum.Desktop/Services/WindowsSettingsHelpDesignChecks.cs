@@ -80,8 +80,8 @@ internal static class WindowsSettingsHelpDesignChecks
             check(tree.SelectedItem is TreeViewItem { Header: "점자 직접 고치기" }, "Help highlights the currently opened article in the navigation tree");
             check(tree.Items.OfType<TreeViewItem>().Select(b => b.Header as string).SequenceEqual(["시작하기", "문서 변환하기", "결과 편집하기", "메뉴별 기능", "양식과 꼬리말", "마이페이지와 크레딧", "문제 해결", "단축키 한눈에"]),
                 "Help contents follow the final Figma table of contents");
-            check(Descendants(help).OfType<Border>().Any(b => b is { Width: 16, Height: 16, Child: TextBlock { Text: "S" } }),
-                "G5 title bar shows the 16px APP_UI mark");
+            check(Descendants(help).OfType<SvgViewbox>().Any(b => b is { Width: 16, Height: 16 } && b.Source.AbsolutePath.EndsWith("/nuridot-symbol.svg")),
+                "G5 title bar shows the 16px Nuridot symbol");
             var selected = (TreeViewItem)tree.SelectedItem;
             check(selected.Template.FindName("TopicSurface", selected) is Border surface && Math.Abs(surface.ActualWidth - tree.ActualWidth) <= 1, "Selected help topic highlight spans the full navigation width");
             var reviewLink = reader.ContextMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "검토 표시 읽는 법"));

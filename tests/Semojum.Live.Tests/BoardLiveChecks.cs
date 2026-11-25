@@ -6,7 +6,7 @@ using Semojum.Core.Integration;
 internal static class BoardLiveChecks
 {
     private const string Title = "[QA4 검증] 게시판 등록·수정·삭제 테스트";
-    private const string Body = "세모점 데스크톱 앱의 게시판 기능을 확인하기 위한 검증용 비밀글입니다. 실제 문의가 아니며, 첨부 내려받기와 글 수정 확인 후 삭제합니다.";
+    private const string Body = "누리닷 데스크톱 앱의 게시판 기능을 확인하기 위한 검증용 비밀글입니다. 실제 문의가 아니며, 첨부 내려받기와 글 수정 확인 후 삭제합니다.";
     private const string UpdatedTitle = Title + " (수정 확인)";
     private const string UpdatedBody = Body + "\n제목·본문 수정과 기존 첨부 유지 확인용 문장입니다.";
     private const string AttachmentName = "QA4-test-attachment.txt";

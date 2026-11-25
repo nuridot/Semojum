@@ -1,9 +1,9 @@
 <Project Sdk="WixToolset.Sdk/5.0.2">
   <!-- Builds a per-user MSI from the portable app folder: dotnet build installer -p:AppDir=<publish folder>. -->
   <PropertyGroup>
-    <OutputName>Semojum-win-x64</OutputName>
+    <OutputName>Nuridot-win-x64</OutputName>
     <Platform>x64</Platform>
-    <AppDir Condition="'$(AppDir)' == ''">$(MSBuildThisFileDirectory)..\artifacts\Semojum-win-x64</AppDir>
+    <AppDir Condition="'$(AppDir)' == ''">$(MSBuildThisFileDirectory)..\artifacts\Nuridot-win-x64</AppDir>
     <DefineConstants>ProductVersion=$(Version)</DefineConstants>
     <!-- Per-user files under %LocalAppData% keep their file key paths; ICE38/64/91 only apply to roaming profiles.
          ICE60 flags versioned runtime files without a language, which language-neutral binaries do not have. -->

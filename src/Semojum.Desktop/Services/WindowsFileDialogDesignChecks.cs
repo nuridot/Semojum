@@ -63,8 +63,8 @@ internal static class WindowsFileDialogDesignChecks
                 "QA1110: an explicit grade1 selection is still submitted");
             open.Forms.SelectedItem = general; open.Forms.SelectedItem = saved;
             check(open.Settings.Options.KoreanGrade1, "QA1110: explicitly selecting a custom form applies its Korean grade");
-            check(open.Width == 600 && open.Height == 714 && Descendants(open).OfType<TextBlock>().Any(t => t.Text == "교열 모델" && t.IsVisible),
-                "File options show the proof models in the 600 by 714 conversion frame");
+            check(open.Width == 600 && open.Height == 566 && Descendants(open).OfType<TextBlock>().Any(t => t.Text == "교열 모델" && t.IsVisible),
+                "File options show the proof models in the 600 by 566 conversion frame");
             check(open.FileNames.Text == missingName && open.Forms.IsEnabled,
                 "File options retain the selected filename and editable format settings");
             check(Math.Abs(open.FileNames.ActualWidth - 356) <= 1, "Filename fits the 356 DIP conversion form field");

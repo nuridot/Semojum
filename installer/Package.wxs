@@ -2,7 +2,7 @@
 <!-- Per-user install of the portable app folder into %LocalAppData%\Programs\Nuridot, with a Start menu shortcut.
      A double-click install starts the app when it finishes. The app's own updater keeps using the portable zip. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="누리닷" Manufacturer="Semojum" Version="$(var.ProductVersion)" Scope="perUser"
+  <Package Name="누리닷" Manufacturer="누리닷" Version="$(var.ProductVersion)" Scope="perUser"
            Language="1042" Codepage="949" UpgradeCode="A4A063C3-E2CE-48F6-8427-BACBE87C921F">
     <SummaryInformation Codepage="949" Description="누리닷 설치" />
     <MajorUpgrade DowngradeErrorMessage="더 새로운 누리닷이 이미 설치되어 있습니다." />
@@ -27,7 +27,7 @@
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="StartMenuShortcut">
-        <Shortcut Id="AppShortcut" Name="누리닷" Target="[INSTALLFOLDER]Semojum.Mockup.exe" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="AppShortcut" Name="누리닷" Target="[INSTALLFOLDER]누리닷.exe" WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKCU" Key="Software\Semojum\Nuridot" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
@@ -38,7 +38,7 @@
     </Feature>
 
     <!-- Start the app after an interactive install or upgrade; quiet installs (UILevel 2 or 3) do not. -->
-    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]Semojum.Mockup.exe&quot;" Return="asyncNoWait" Impersonate="yes" Execute="immediate" />
+    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]누리닷.exe&quot;" Return="asyncNoWait" Impersonate="yes" Execute="immediate" />
     <InstallExecuteSequence>
       <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT REMOVE AND UILevel &gt; 3" />
     </InstallExecuteSequence>

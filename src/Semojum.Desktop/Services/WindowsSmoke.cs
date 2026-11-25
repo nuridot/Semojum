@@ -118,7 +118,7 @@ internal static class WindowsSmoke
         window.DetachedPane.Editor.Document.Insert(0, "⠿");
         Check(block.Braille.StartsWith("⠿") && block.HasManualBraille, "Detached edits update model and manual-correction state");
         Check(window.DetachedWindow!.Title.EndsWith(" - 누리닷", StringComparison.Ordinal)
-            && Descendants(window.DetachedWindow).OfType<Border>().Any(b => b.Child is TextBlock { Text: "S" } && b.Width == 16 && b.Height == 16)
+            && Descendants(window.DetachedWindow).OfType<SharpVectors.Converters.SvgViewbox>().Any(b => b is { Width: 16, Height: 16 } && b.Source?.AbsolutePath.EndsWith("/nuridot-symbol.svg") == true)
             && Descendants(window.DetachedWindow).OfType<Button>().Count(b => b.Content is SharpVectors.Converters.SvgViewbox && b.Width == 46 && b.Height == 32) >= 3,
             "Detached braille retains its title, the shared 16px mark and 46×32 caption controls");
         window.ToggleDetached();

@@ -5,6 +5,8 @@
     <UseWPF>true</UseWPF>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AssemblyName>Semojum.Mockup</AssemblyName>
+    <AssemblyTitle>누리닷</AssemblyTitle>
+    <Description>누리닷 점자 편집기</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>../Semojum.UI.Common/Assets/Brand/nuridot.ico</ApplicationIcon>
   </PropertyGroup>
@@ -39,4 +41,12 @@
     <PackageReference Include="WpfMath" Version="2.1.0" />
   </ItemGroup>
   <ItemGroup><Content Include="../../scripts/engine-entry.py" Link="engine-adapter/engine-entry.py" CopyToOutputDirectory="PreserveNewest" /><Content Include="../../scripts/editor_translation.py" Link="engine-adapter/editor_translation.py" CopyToOutputDirectory="PreserveNewest" /><Content Include="../../scripts/editor_composition.py" Link="engine-adapter/editor_composition.py" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <!-- Released updaters and existing shortcuts require the original apphost and assembly identity. -->
+  <Target Name="CopyNuridotBuildLauncher" AfterTargets="Build" Condition="'$(UseAppHost)' == 'true' and Exists('$(TargetDir)$(AssemblyName).exe')">
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).exe" DestinationFiles="$(TargetDir)누리닷.exe" SkipUnchangedFiles="true" />
+    <ItemGroup><FileWrites Include="$(TargetDir)누리닷.exe" /></ItemGroup>
+  </Target>
+  <Target Name="CopyNuridotPublishedLauncher" AfterTargets="Publish" Condition="'$(UseAppHost)' == 'true' and Exists('$(PublishDir)$(AssemblyName).exe')">
+    <Copy SourceFiles="$(PublishDir)$(AssemblyName).exe" DestinationFiles="$(PublishDir)누리닷.exe" SkipUnchangedFiles="true" />
+  </Target>
 </Project>
